@@ -1,0 +1,36 @@
+name: publish
+
+on:
+  push:
+    # Only release tags, so a stray working tag never reaches PyPI.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      # Required for PyPI Trusted Publishing (OIDC) and PEP 740 attestations.
+      id-token: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # hatch-vcs reads the version from git tags, which a shallow clone lacks.
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

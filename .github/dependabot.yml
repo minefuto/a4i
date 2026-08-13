@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs, so updates have to come from a bot.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
