@@ -311,8 +311,9 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 def _cmd_merge(args: argparse.Namespace) -> int:
     """Fold several configuration files into the one body they describe.
 
-    The output is a polUni carrying every merged MO with its own dn, which is
-    what 'a4i diff' compares against and what 'a4i post mo uni' takes.
+    The output is a polUni holding every merged MO, each nested under the MO it
+    hangs off, which is what 'a4i diff' compares against and what
+    'a4i post mo uni' takes.
     """
 
     import json

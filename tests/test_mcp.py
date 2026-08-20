@@ -437,7 +437,7 @@ def test_merge_returns_the_body_it_folded(no_daemon, tmp_path) -> None:
     assert not is_error
     body = json.loads(text)
     assert body["polUni"]["attributes"] == {"dn": "uni"}
-    assert body["polUni"]["children"][0]["fvTenant"]["attributes"]["dn"] == "uni/tn-infra"
+    assert body["polUni"]["children"][0]["fvTenant"]["attributes"]["rn"] == "tn-infra"
 
 
 def test_merge_lays_inline_bodies_over_what_the_files_say(no_daemon, tmp_path) -> None:

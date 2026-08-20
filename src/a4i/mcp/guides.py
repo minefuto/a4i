@@ -83,8 +83,12 @@ folded into that one body by `merge` first. Three rules govern it:
   without mentioning `status`, the MO is still deleted. Set `status: ""` -- or
   `"created,modified"` -- to take it back.
 
-The result is a `polUni` whose children are every merged MO with its own `dn`,
-sorted by DN. Post it at `uni`, or give it to `diff`.
+The result is a `polUni` holding every merged MO, each nested under the MO it
+hangs off and named by its `rn`, siblings in RN order. Post it at `uni`, or give
+it to `diff`. Every DN on the way down from `uni` has to be described by
+something: a BD written without its tenant is refused rather than nested under a
+tenant `merge` made up, and an MO whose DN does not sit under `uni` is refused
+too -- post that one on its own.
 
 ## Before you post
 

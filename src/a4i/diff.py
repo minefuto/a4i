@@ -22,7 +22,9 @@ may hold a "*", which stands for any part of one RN -- ``uni/tn-test*`` -- and
 One configuration is compared, not several: folding several into one is
 :func:`a4i.merge.merge`, which this shares the reading of a body with but does
 not call. Both read an input into :class:`a4i.merge.Intended`; only merge writes
-one back out as a body.
+one back out as a body, and how it writes one -- nested, or flat with absolute
+DNs as it once did -- is nothing this has to know: a body is read down from
+``uni`` either way.
 """
 
 from __future__ import annotations

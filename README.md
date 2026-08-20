@@ -93,15 +93,24 @@ read-only properties, `--children` the classes that may hang under this one, and
 
 `merge` folds a configuration written across several files into the one body
 that `diff` and `post` each take, later files winning attribute by attribute.
-`diff` then compares that configuration against everything the fabric has under
-`uni`.
+Two files mean the same MO when they resolve to the same DN, however each one
+said so. The result is a `polUni` holding every merged MO nested under the MO it
+hangs off, which is the shape a POST to `uni` takes; `diff` compares that same
+body against everything the fabric has under `uni`.
 
 ```sh
 a4i merge ./configs/ -o merged.json               # every *.json, in path order
+a4i merge ./configs/ | a4i post mo uni --dry-run  # what posting it would change
+a4i merge ./configs/ | a4i post mo uni
 a4i merge ./configs/ | a4i diff
 a4i merge ./configs/ | a4i diff --exclude uni/tn-common --exclude uni/infra
 a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 ```
+
+Every DN on the way down from `uni` has to be described by something: a BD
+written without its tenant is refused rather than nested under a tenant `merge`
+made up, and an MO whose DN does not sit under `uni` is refused too -- post that
+one on its own.
 
 ```
 - fvTenant uni/tn-common  (extra: 2 child MOs)

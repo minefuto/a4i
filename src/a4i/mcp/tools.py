@@ -182,10 +182,10 @@ MERGE = _tool(
     "merge",
     "Fold several ACI bodies into the one body they describe between them, merged in "
     "order with later values winning attribute by attribute. Two bodies mean the same "
-    "MO when they resolve to the same DN. The result is a polUni carrying every merged "
-    "MO with its own dn, which is what diff compares against and what a post to 'uni' "
-    "takes. Touches the fabric not at all. Use this whenever a configuration is spread "
-    "across files: diff and post each take one body.",
+    "MO when they resolve to the same DN. The result is a polUni holding every merged "
+    "MO nested under the MO it hangs off, which is what diff compares against and what "
+    "a post to 'uni' takes. Touches the fabric not at all. Use this whenever a "
+    "configuration is spread across files: diff and post each take one body.",
     {
         "paths": {
             "type": "array",
@@ -406,7 +406,7 @@ def _dry_run(arguments: dict[str, Any]) -> str:
 
 def _merge(arguments: dict[str, Any]) -> str:
     from a4i import config
-    from a4i.merge import merge
+    from a4i.merge import count, merge
 
     paths = list(arguments.get("paths") or [])
     try:
@@ -438,8 +438,7 @@ def _merge(arguments: dict[str, Any]) -> str:
         raise ToolError(f"{exc} (pass overwrite: true to replace it)") from None
     except OSError as exc:
         raise ToolError(f"cannot write {output}: {exc}") from None
-    count = len(body["polUni"]["children"])
-    return f"merged {count} MOs into {output}; pass it to diff as path='{output}'"
+    return f"merged {count(body)} MOs into {output}; pass it to diff as path='{output}'"
 
 
 def _diff(arguments: dict[str, Any]) -> str:
