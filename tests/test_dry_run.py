@@ -239,6 +239,36 @@ def test_created_on_a_new_mo_is_just_a_creation() -> None:
     assert change.kind == "created"
 
 
+def test_created_modified_on_an_existing_mo_is_not_a_warning() -> None:
+    # "created,modified" is the usual create-or-update, spelled out; the APIC
+    # takes it whether the MO is there or not.
+    body = mo(
+        "fvTenant",
+        {"name": "demo"},
+        [mo("fvBD", {"name": "bd1", "arpFlood": "yes", "status": "created,modified"})],
+    )
+    (change,) = dry_run_compare(body)
+    assert change.kind == "modified"
+
+
+def test_modified_on_a_missing_mo_is_a_warning() -> None:
+    body = mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd9", "status": "modified"})])
+    warning, created = dry_run_compare(body)
+    assert warning.kind == "warning"
+    assert warning.dn == "uni/tn-demo/BD-bd9"
+    assert "does not exist" in warning.message
+    # The POST will fail, but what it meant to write is still worth showing.
+    assert created.kind == "created"
+
+
+def test_created_modified_on_a_missing_mo_is_just_a_creation() -> None:
+    body = mo(
+        "fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd9", "status": "created,modified"})]
+    )
+    (change,) = dry_run_compare(body)
+    assert change.kind == "created"
+
+
 def test_a_body_that_names_no_mo_warns_that_the_post_will_fail() -> None:
     # An fvBD RN is "BD-{name}" and this one gives no name, so the APIC has
     # nothing to build one from. What the body sets is still reported.
@@ -257,9 +287,10 @@ def test_deleting_an_mo_the_body_does_not_name_warns_as_well() -> None:
 
 
 def test_a_status_list_is_read_token_by_token() -> None:
-    child = mo("fvBD", {"name": "bd1", "status": "created,modified"})
+    # Spacing and order are the writer's business; only the tokens count.
+    child = mo("fvBD", {"name": "bd1", "status": " modified , deleted "})
     kinds = [change.kind for change in dry_run_compare(mo("fvTenant", {"name": "demo"}, [child]))]
-    assert kinds == ["warning"]
+    assert kinds == ["deleted"]
 
 
 # -- RN splitting ----------------------------------------------------------

@@ -17,6 +17,7 @@ from typing import Any
 from a4i.mo import META, Change, Tree, child_dn, split_mo, text
 
 _CREATED_CONFLICT = 'status="created" but the MO already exists; the POST will fail'
+_MODIFIED_CONFLICT = 'status="modified" but the MO does not exist; the POST will fail'
 _UNIDENTIFIED = "the body leaves out a property its RN is built from; the POST will fail"
 
 
@@ -89,9 +90,11 @@ def _visit(
         # The subtree goes with the MO, so the body's children add nothing.
         return
     if current is None:
+        if "modified" in status and "created" not in status:
+            changes.append(Change("warning", class_name, dn, message=_MODIFIED_CONFLICT))
         changes.append(Change("created", class_name, dn, attributes=_added(attributes)))
     else:
-        if "created" in status:
+        if "created" in status and "modified" not in status:
             changes.append(Change("warning", class_name, dn, message=_CREATED_CONFLICT))
         changed = _compare_attributes(attributes, current.attributes)
         if changed:
