@@ -269,6 +269,81 @@ def test_dry_run_walks_every_root_of_an_array_body(client, state) -> None:
     assert [c.kind for c in changes] == ["modified", "modified"]
 
 
+def test_dry_run_splits_a_wrapped_body_into_one_request_per_top_level_mo(client, state) -> None:
+    # uni fetched whole with rsp-subtree=full is the request a large fabric
+    # times out on, and a merged body always names uni. The wrapper carries no
+    # configuration of its own, so each MO under it is fetched on its own.
+    client.dry_run(
+        "uni",
+        {
+            "polUni": {
+                "attributes": {"dn": "uni"},
+                "children": [
+                    {"fvTenant": {"attributes": {"rn": "tn-common", "descr": "x"}}},
+                    {"fvTenant": {"attributes": {"rn": "tn-infra"}}},
+                ],
+            }
+        },
+        kind="mo",
+    )
+    assert state["mo_requests"] == {
+        "/api/mo/uni/tn-common.json": 1,
+        "/api/mo/uni/tn-infra.json": 1,
+    }
+
+
+def test_dry_run_compares_a_wrapped_child_against_its_own_subtree(client) -> None:
+    changes = client.dry_run(
+        "uni",
+        {
+            "polUni": {
+                "attributes": {"dn": "uni"},
+                "children": [{"fvTenant": {"attributes": {"rn": "tn-infra", "descr": "x"}}}],
+            }
+        },
+        kind="mo",
+    )
+    assert [(c.kind, c.dn) for c in changes] == [("modified", "uni/tn-infra")]
+    assert changes[0].attributes == {"descr": (None, "x")}
+
+
+def test_dry_run_fetches_nothing_for_a_child_it_cannot_name(client, state) -> None:
+    # No name, so no RN: the DN is a stand-in and no MO on the fabric answers
+    # to it. Fetching it would only ask the APIC about an MO that cannot exist.
+    changes = client.dry_run(
+        "uni",
+        {
+            "polUni": {
+                "attributes": {"dn": "uni"},
+                "children": [{"fvTenant": {"attributes": {"descr": "x"}}}],
+            }
+        },
+        kind="mo",
+    )
+    assert state["mo_requests"] == {}
+    assert [c.kind for c in changes] == ["warning", "created"]
+
+
+def test_dry_run_refuses_a_paged_answer_rather_than_reporting_it_as_a_change(monkeypatch) -> None:
+    # The APIC says the tenant holds three MOs and hands back two. Comparing
+    # the two would report everything past the page as an MO this POST creates.
+    def get(target, kind, params, node, *, autostart=True):
+        return {
+            "totalCount": "3",
+            "imdata": [
+                {"fvTenant": {"attributes": {"dn": "uni/tn-demo"}}},
+                {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-a"}}},
+            ],
+        }
+
+    monkeypatch.setattr(ipc, "get", get)
+    with pytest.raises(ApicError) as exc:
+        Client(transport=DaemonTransport()).dry_run(
+            "uni/tn-demo", {"fvTenant": {"attributes": {"name": "demo"}}}, kind="mo"
+        )
+    assert "uni/tn-demo: the APIC returned 2 of 3 MOs" in str(exc.value)
+
+
 def test_dry_run_needs_a_dn_it_can_work_out(client, state) -> None:
     with pytest.raises(ValueError) as exc:
         client.dry_run("fvTenant", {"fvTenant": {"attributes": {"name": "x"}}}, kind="class")

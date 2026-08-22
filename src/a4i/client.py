@@ -228,6 +228,14 @@ class Client:
         The APIC has no server-side dry run, so the current state is fetched and
         the comparison happens here. An empty list means the POST would change
         nothing at all.
+
+        What is fetched is the subtree the body stands at, one request per
+        subtree and each of them checked against its own ``totalCount``: a
+        response that came back paged would otherwise read as a fabric missing
+        everything past the page, and every MO on the far side of it would be
+        reported as one this POST creates. A body wrapped in ``polUni`` is
+        fetched one top-level subtree at a time rather than as uni whole, for
+        the reason :meth:`_fetch_uni` gives.
         """
 
         _, parsed = _read_body(body)
@@ -238,14 +246,14 @@ class Client:
         roots = parsed if isinstance(parsed, list) else [parsed]
         changes: list[mo.Change] = []
         for root in roots:
-            dn = dry_run.root_dn(target, kind, root)
-            if dn is None:
-                raise ValueError(
-                    "cannot determine the target DN for a dry run "
-                    '(post to an mo target, or give a "dn" attribute in the body)'
+            for subtree in dry_run.subtrees(target, kind, root):
+                imdata = None
+                if subtree.identified:
+                    fetched = self._fetch(subtree.dn, dict(_CURRENT_STATE))
+                    imdata = fetched.get("imdata")
+                changes.extend(
+                    dry_run.compare(subtree.mo, imdata, subtree.dn, identified=subtree.identified)
                 )
-            data = self._transport.get(dn, "mo", dict(_CURRENT_STATE), None)
-            changes.extend(dry_run.compare(root, data.get("imdata"), dn))
         return changes
 
     def diff(
@@ -484,14 +492,14 @@ class AsyncClient:
         roots = parsed if isinstance(parsed, list) else [parsed]
         changes: list[mo.Change] = []
         for root in roots:
-            dn = dry_run.root_dn(target, kind, root)
-            if dn is None:
-                raise ValueError(
-                    "cannot determine the target DN for a dry run "
-                    '(post to an mo target, or give a "dn" attribute in the body)'
+            for subtree in dry_run.subtrees(target, kind, root):
+                imdata = None
+                if subtree.identified:
+                    fetched = await self._fetch(subtree.dn, dict(_CURRENT_STATE))
+                    imdata = fetched.get("imdata")
+                changes.extend(
+                    dry_run.compare(subtree.mo, imdata, subtree.dn, identified=subtree.identified)
                 )
-            data = await self._transport.get(dn, "mo", dict(_CURRENT_STATE), None)
-            changes.extend(dry_run.compare(root, data.get("imdata"), dn))
         return changes
 
     async def diff(

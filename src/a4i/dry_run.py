@@ -12,13 +12,18 @@ against its intended configuration needs -- is :mod:`a4i.diff`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
-from a4i.mo import META, Change, Tree, child_dn, split_mo, text
+from a4i.mo import META, ROOT, WRAPPER, Change, Tree, child_dn, split_mo, text
 
 _CREATED_CONFLICT = 'status="created" but the MO already exists; the POST will fail'
 _MODIFIED_CONFLICT = 'status="modified" but the MO does not exist; the POST will fail'
 _UNIDENTIFIED = "the body leaves out a property its RN is built from; the POST will fail"
+_NO_TARGET_DN = (
+    "cannot determine the target DN for a dry run "
+    '(post to an mo target, or give a "dn" attribute in the body)'
+)
 
 
 def root_dn(target: str, kind: str, mo: Any) -> str | None:
@@ -42,11 +47,63 @@ def root_dn(target: str, kind: str, mo: Any) -> str | None:
     return None
 
 
-def compare(mo: Any, imdata: Any, dn: str) -> list[Change]:
+@dataclass(frozen=True)
+class Subtree:
+    """One comparison a dry run is made of: a body, and the DN it stands at.
+
+    ``identified`` is false when the DN had to be made up, because the body
+    leaves out a property its RN is built from. There is nothing to fetch for
+    one of those -- no such MO can be on the fabric under that DN -- so it is
+    compared against nothing and :func:`compare` reports the warning.
+    """
+
+    mo: Any
+    dn: str
+    identified: bool = True
+
+
+def subtrees(target: str, kind: str, mo: Any) -> list[Subtree]:
+    """Return the comparisons a dry run of ``mo`` is made of.
+
+    One, normally: the body's root, at the DN it names. A ``polUni`` is taken
+    apart into its children instead. The DN it names is uni, and fetching uni
+    whole with ``rsp-subtree=full`` is the one request a large fabric times out
+    on -- the reason a fabric-wide comparison splits at the top level as well.
+    The wrapper carries no configuration of its own to compare, so nothing is
+    lost by never standing at it.
+
+    Raises ``ValueError`` if the root names no DN at all.
+    """
+
+    parsed = split_mo(mo)
+    if parsed is None:
+        return []
+    class_name, body = parsed
+    if class_name != WRAPPER:
+        dn = root_dn(target, kind, mo)
+        if dn is None:
+            raise ValueError(_NO_TARGET_DN)
+        return [Subtree(mo, dn)]
+    found: list[Subtree] = []
+    for child in body.get("children") or []:
+        child_parsed = split_mo(child)
+        if child_parsed is None:
+            continue
+        child_class, child_body = child_parsed
+        dn_of_child, identified = child_dn(ROOT, child_class, child_body)
+        found.append(Subtree(child, dn_of_child, identified))
+    return found
+
+
+def compare(mo: Any, imdata: Any, dn: str, *, identified: bool = True) -> list[Change]:
     """Return the changes posting ``mo`` would cause, given the GET of ``dn``.
 
     ``imdata`` is the response to ``dn`` queried with ``rsp-subtree=full``; an
     empty one means the MO does not exist yet and everything is new.
+
+    ``identified`` is :attr:`Subtree.identified`, false for a root whose DN had
+    to be made up. A child gets the same treatment from the walk below; a root
+    has nobody above it to work it out, so it is passed in.
     """
 
     parsed = split_mo(mo)
@@ -59,7 +116,7 @@ def compare(mo: Any, imdata: Any, dn: str) -> list[Change]:
         # are keyed identically even if the target was typed differently.
         dn = tree.roots[0].dn
     changes: list[Change] = []
-    _visit(class_name, body, dn, tree, changes)
+    _visit(class_name, body, dn, tree, changes, identified=identified)
     return changes
 
 
