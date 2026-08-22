@@ -401,8 +401,13 @@ def test_a_poluni_wrapper_is_read_through_without_a_dn_as_well() -> None:
     assert compare(mo("polUni", {}, INTENDED)) == []
 
 
-def test_a_malformed_input_is_skipped() -> None:
-    assert compare(*INTENDED, "not an mo", {"a": {}, "b": {}}) == []
+def test_a_malformed_input_is_refused_rather_than_skipped() -> None:
+    # Skipping it would compare against a configuration missing whatever the
+    # element was meant to say, and report the fabric extra for carrying it.
+    with pytest.raises(ValueError) as exc:
+        compare(*INTENDED, "not an mo", {"a": {}, "b": {}})
+    assert "[2]" in str(exc.value)
+    assert "[3]" in str(exc.value)
 
 
 # -- reading a response back as the configuration it describes -------------

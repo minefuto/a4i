@@ -23,7 +23,7 @@ from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
-from a4i import diff, dry_run, merge, mo, query
+from a4i import diff, dry_run, merge, mo, query, validate
 from a4i.errors import ApicError
 from a4i.transport import AsyncDirectTransport, AsyncTransport, DirectTransport, Transport
 
@@ -231,6 +231,9 @@ class Client:
         """
 
         _, parsed = _read_body(body)
+        # Before the walk below, not during it: the body is refused as a whole,
+        # and refused before any GET goes out on the strength of it.
+        validate.check(parsed)
         # A body may be a single MO or an array of them, each rooted at its own DN.
         roots = parsed if isinstance(parsed, list) else [parsed]
         changes: list[mo.Change] = []
@@ -474,6 +477,9 @@ class AsyncClient:
         """
 
         _, parsed = _read_body(body)
+        # Before the walk below, not during it: the body is refused as a whole,
+        # and refused before any GET goes out on the strength of it.
+        validate.check(parsed)
         # A body may be a single MO or an array of them, each rooted at its own DN.
         roots = parsed if isinstance(parsed, list) else [parsed]
         changes: list[mo.Change] = []

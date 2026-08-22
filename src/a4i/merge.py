@@ -25,17 +25,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from a4i.metadata import rn_format
-from a4i.mo import Exclusions, child_dn, parent_dn, split_mo, tail_rn, text
+from a4i.mo import ROOT, WRAPPER, Exclusions, child_dn, parent_dn, split_mo, tail_rn, text
+from a4i.validate import problems, refuse
 
-# Every intended MO hangs under the policy universe, so a root MO with no "dn"
-# of its own is resolved as a child of this. It is also where the merged body is
-# meant to be posted, which is why the body says so: see _body.
-ROOT = "uni"
-
-# The class of the policy universe itself. A POST to /uni is written wrapped in
-# one, so an input that serves both commands carries it, and it is read through
-# to its children rather than kept: uni is not configuration.
-WRAPPER = "polUni"
+# ROOT and WRAPPER are a4i.mo's. Every intended MO hangs under the policy
+# universe, so a root MO with no "dn" of its own is resolved as a child of ROOT,
+# and that is also where the merged body is meant to be posted -- which is why
+# the body says so: see _body. A POST to /uni is written wrapped in a WRAPPER,
+# so an input that serves both commands carries one, and it is read through to
+# its children rather than kept: uni is not configuration.
 
 # Attributes dropped on the way in. "dn" and "rn" are how an input says which MO
 # it means, and the answer to that is the key -- carrying them further would
@@ -73,13 +71,20 @@ def merge(*configs: Any) -> dict[str, Any]:
     which makes the output a function of the input set alone: adding one file
     changes the lines that file contributed and nothing else.
 
-    Raises :class:`ValueError` if an MO does not carry the properties its RN is
-    built from -- there is no telling which MO to merge it with -- if the inputs
+    Raises :class:`ValueError` if an input is not written as ACI expects (see
+    :mod:`a4i.validate`), if an MO does not carry the properties its RN is built
+    from -- there is no telling which MO to merge it with -- if the inputs
     describe no MO at all, which is what an empty directory and a mistyped path
     both look like, or if an MO cannot be placed in the tree: see
     :func:`_refuse_the_unplaceable`.
+
+    The shape is refused first and on its own. :mod:`a4i.config` has already
+    checked whatever it read from a file, naming the file; this is what stands
+    between the other callers -- a library, the MCP tool's inline bodies -- and
+    an input nothing has looked at.
     """
 
+    refuse([p for i, config in enumerate(configs) for p in problems(config, f"configs[{i}]")])
     intended = Intended()
     for config in configs:
         intended.absorb(config)

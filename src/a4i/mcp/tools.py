@@ -407,6 +407,7 @@ def _dry_run(arguments: dict[str, Any]) -> str:
 def _merge(arguments: dict[str, Any]) -> str:
     from a4i import config
     from a4i.merge import count, merge
+    from a4i.validate import problems, refuse
 
     paths = list(arguments.get("paths") or [])
     try:
@@ -414,8 +415,12 @@ def _merge(arguments: dict[str, Any]) -> str:
     except OSError as exc:
         raise ToolError(f"cannot read the configuration: {exc}") from None
     # Inline bodies go last, so a body written here wins over what the files
-    # say, which is the point of writing one.
-    configs.extend(arguments.get("configs") or [])
+    # say, which is the point of writing one. They are checked here rather than
+    # left to merge, so that one is named by its position in this argument
+    # rather than by its position after the files were counted in.
+    inline = list(arguments.get("configs") or [])
+    refuse([p for i, body in enumerate(inline) for p in problems(body, f"configs[{i}]")])
+    configs.extend(inline)
     if not configs:
         raise ToolError("give 'paths' (files or directories) or 'configs' (inline ACI bodies)")
     body = merge(*configs)

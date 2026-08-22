@@ -276,6 +276,22 @@ def test_dry_run_needs_a_dn_it_can_work_out(client, state) -> None:
     assert state["mo_requests"] == {}
 
 
+def test_dry_run_refuses_a_body_not_written_as_aci_expects(client, state) -> None:
+    # Refused before any GET goes out on the strength of it, and refused as a
+    # malformed body rather than as a DN that cannot be worked out.
+    with pytest.raises(ValueError) as exc:
+        client.dry_run("uni/tn-demo", {"totalCount": "1", "imdata": []}, kind="mo")
+    assert "GET response" in str(exc.value)
+    assert state["mo_requests"] == {}
+
+
+def test_a_raw_post_sends_a_malformed_body_untouched(client, state) -> None:
+    # The one input path that is not checked: a raw POST never parses the body,
+    # and what the APIC makes of this one is the APIC's answer to give.
+    client.post("uni/tn-demo", '{"fvTenant": null}', kind="mo")
+    assert state["last_method"] == "POST"
+
+
 def test_post_with_dry_run_compares_instead_of_sending(client, state) -> None:
     body = {"fvTenant": {"attributes": {"name": "demo"}}}
     changes = client.post("uni/tn-demo", body, kind="mo", dry_run=True)

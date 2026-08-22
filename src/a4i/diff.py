@@ -34,6 +34,7 @@ from typing import Any
 
 from a4i.merge import Intended, unidentified_message
 from a4i.mo import META, Change, Exclusions, Tree, parent_dn, text
+from a4i.validate import check
 
 # What the merged configuration carries for the sake of a POST and a comparison
 # has nothing to say about: "status" tells the APIC what to do with an MO, so
@@ -62,8 +63,9 @@ def compare(
     :func:`_exclusions` for what a name there means and :func:`_prune` for what
     leaving one out does.
 
-    Raises :class:`ValueError` if an MO does not carry the properties its RN is
-    built from, rather than comparing what is left: such a body names no one MO,
+    Raises :class:`ValueError` if the configuration is not written as ACI
+    expects (see :mod:`a4i.validate`), if an MO does not carry the properties
+    its RN is built from, rather than comparing what is left: such a body names no one MO,
     and the one it meant may well be on the fabric. Reporting that one missing
     while reporting the real one extra is worse than saying what the input has to
     spell out. An empty configuration is refused for a related reason: taken at
@@ -71,6 +73,7 @@ def compare(
     means is almost always a path that pointed at nothing.
     """
 
+    check(config)
     excluded = _exclusions(exclude)
     actual = Tree(imdata)
     intended = Intended(excluded)

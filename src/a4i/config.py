@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+from a4i.validate import problems, refuse
 
 
 def load(paths: list[str]) -> list[Any]:
@@ -33,21 +36,41 @@ def load(paths: list[str]) -> list[Any]:
     ``-`` reads stdin. The reading order is the merge order, so a later file's
     attributes win.
 
+    Every file is checked as it is read (:mod:`a4i.validate`), and what is
+    wrong with any of them is reported together, each named by the file it is
+    in. Checking here rather than in :func:`a4i.merge.merge` is the whole reason
+    the file names survive: merge is handed parsed bodies and has no idea which
+    file any of them came from, and "the second element is not an MO" is not
+    something a reader can act on across a directory of thirty.
+
     Raises :class:`OSError` for a path that cannot be read, and
-    :class:`ValueError` naming the file for one that is not JSON.
+    :class:`ValueError` naming the file for one that is not JSON or that is not
+    written as ACI expects.
     """
 
     configs: list[Any] = []
+    found: list[str] = []
+    for name, text in _read(paths):
+        config = _parse(text, name)
+        found.extend(problems(config, name))
+        configs.append(config)
+    refuse(found)
+    return configs
+
+
+def _read(paths: list[str]) -> Iterator[tuple[str, str]]:
+    """Yield (name, text) for every file the paths name, in merge order."""
+
     for name in paths:
         if name == "-":
-            configs.append(_parse(sys.stdin.read(), "<stdin>"))
+            yield "<stdin>", sys.stdin.read()
             continue
         path = Path(name)
         if path.is_dir():
-            configs.extend(_parse(f.read_text(), str(f)) for f in sorted(path.rglob("*.json")))
+            for file in sorted(path.rglob("*.json")):
+                yield str(file), file.read_text()
         else:
-            configs.append(_parse(path.read_text(), str(path)))
-    return configs
+            yield str(path), path.read_text()
 
 
 def write(path: str | Path, text: str, *, overwrite: bool = False) -> None:

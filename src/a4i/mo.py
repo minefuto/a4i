@@ -30,6 +30,14 @@ from a4i.metadata import rn_format
 # value worth diffing.
 META = frozenset({"dn", "rn", "status", "childAction"})
 
+# The policy universe every configurable MO hangs under, and the class of the
+# MO itself. Both are facts about the tree rather than about one command, which
+# is why they sit here: a4i.merge reads an input down from ROOT and posts its
+# output there, and a4i.validate has to follow the same walk to say where in an
+# input it found something wrong.
+ROOT = "uni"
+WRAPPER = "polUni"
+
 # What an RN format puts an attribute value in: "BD-{name}".
 _SLOT = re.compile(r"\{(\w+)\}")
 

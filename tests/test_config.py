@@ -65,6 +65,33 @@ def test_a_path_that_is_not_there_is_an_oserror(tmp_path) -> None:
         config.load([str(tmp_path / "gone.json")])
 
 
+def test_a_file_that_is_not_written_as_aci_expects_is_named_in_the_error(tmp_path) -> None:
+    # The whole reason the check runs here: merge is handed parsed bodies and
+    # could not say which of thirty files the bad element sits in.
+    _write(tmp_path, "10-good.json", BASE)
+    _write(tmp_path, "20-bad.json", [BASE, {"totalCount": "1", "imdata": []}])
+    with pytest.raises(ValueError) as exc:
+        config.load([str(tmp_path)])
+    assert "20-bad.json: [1]" in str(exc.value)
+    assert "10-good.json" not in str(exc.value)
+
+
+def test_every_file_is_read_before_any_of_them_is_refused(tmp_path) -> None:
+    # One run names everything to fix, rather than one file per run.
+    _write(tmp_path, "10-a.json", ["a"])
+    _write(tmp_path, "20-b.json", ["b"])
+    with pytest.raises(ValueError) as exc:
+        config.load([str(tmp_path)])
+    assert "10-a.json" in str(exc.value)
+    assert "20-b.json" in str(exc.value)
+
+
+def test_a_file_describing_nothing_is_no_bar_to_the_ones_that_do(tmp_path) -> None:
+    _write(tmp_path, "10-placeholder.json", [])
+    _write(tmp_path, "20-tn.json", BASE)
+    assert config.load([str(tmp_path)]) == [[], BASE]
+
+
 def test_finding_no_configuration_is_not_an_error(tmp_path) -> None:
     # A directory holding nothing to read yields nothing. What that means is
     # merge's to decide, not this module's.

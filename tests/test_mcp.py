@@ -455,6 +455,20 @@ def test_merge_lays_inline_bodies_over_what_the_files_say(no_daemon, tmp_path) -
     assert child["fvTenant"]["attributes"]["descr"] == "new"
 
 
+def test_merge_names_an_inline_body_by_its_place_in_the_argument(no_daemon, tmp_path) -> None:
+    # Not by its place after the files were counted in, which is a position the
+    # model never wrote and cannot act on.
+    config = tmp_path / "fabric.json"
+    config.write_text(json.dumps({"fvTenant": {"attributes": {"name": "infra"}}}))
+    text, is_error = _tool_text(
+        Server(),
+        "merge",
+        {"paths": [str(config)], "configs": [{"fvTenant": {"attributes": {"name": None}}}]},
+    )
+    assert is_error
+    assert "configs[0]" in text
+
+
 def test_merge_writes_to_a_file_and_keeps_the_body_out_of_the_answer(no_daemon, tmp_path) -> None:
     out = tmp_path / "merged.json"
     text, is_error = _tool_text(

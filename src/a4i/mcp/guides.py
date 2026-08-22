@@ -234,9 +234,17 @@ LIMITS = """\
   could mean any sibling. `dry_run` and `diff` refuse rather than guess. Give
   the naming property, a `dn`, or an `rn`.
 
-- **`merge` checks JSON, not ACI.** It reads bodies, resolves each MO's DN and
-  lays the attributes over each other. Whether the result is a configuration the
-  APIC would accept is not known until `dry_run` or `post`.
+- **`merge` checks the shape, not ACI.** It reads bodies, resolves each MO's DN
+  and lays the attributes over each other. Whether the result is a configuration
+  the APIC would accept is not known until `dry_run` or `post`.
+
+- **A malformed element is refused, never skipped.** Every path that reads a
+  configuration -- `merge`, `diff`, `dry_run` -- checks the shape first: one
+  class name per element mapped to a body of `attributes` and `children`, and
+  every attribute value a string (a number is taken as one). `null`, `true`, an
+  object or an array as a value is refused, and so is a `get` response handed
+  over whole -- pass what is inside its `imdata`. What is reported is the file,
+  the position and the parent DN of each element to fix.
 
 - **Responses are capped.** A `get` whose response exceeds this server's size
   limit is refused, with the total count and the ways to narrow it. Nothing is

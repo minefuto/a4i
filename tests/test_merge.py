@@ -257,6 +257,23 @@ def test_an_input_describing_no_mo_is_refused_too(nothing) -> None:
         merge(nothing)
 
 
+def test_an_input_not_written_as_aci_expects_is_refused() -> None:
+    # Nothing has read this one from a file, so the position is all there is to
+    # name it by: a library caller and the MCP tool's inline bodies land here.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvTenant", {"name": "t"}), ["not an mo"])
+    assert "configs[1]: [0]" in str(exc.value)
+
+
+def test_a_malformed_element_is_refused_before_any_dn_is_diagnosed() -> None:
+    # A tenant whose children were half skipped would be diagnosed for MOs that
+    # nothing describes, which is a diagnosis of the wrong thing.
+    with pytest.raises(ValueError) as exc:
+        merge([{"fvBD": None}, mo("fvBD", {"dn": "uni/tn-t/BD-b"})])
+    assert "attributes" in str(exc.value)
+    assert "nothing describes" not in str(exc.value)
+
+
 def test_an_input_saying_nothing_is_no_bar_to_the_ones_that_do() -> None:
     # A placeholder file among real ones is not an error: what is judged is what
     # the inputs describe between them.
