@@ -308,6 +308,64 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 2 if changes else 0
 
 
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """Narrow a configuration to the MOs posting it would change.
+
+    The output is a polUni shaped exactly as 'a4i merge' shapes one, holding
+    only the MOs this POST changes and the MOs they hang under. Posting it at
+    uni does what the report says and touches nothing else, so an MO the fabric
+    already agrees with is never written again.
+
+    The report goes to standard error and the body to standard output, both from
+    one read of the fabric: what is read and what would be sent cannot be
+    answers to two different questions.
+
+    The MOs the report has no line for are the ones the body only nests what
+    changes under. Each says status="modified", so a fabric without one refuses
+    the POST rather than growing an empty MO.
+    """
+
+    import json
+
+    from a4i import config
+    from a4i.output import plural, print_error, print_note, render_dry_run
+
+    body = args.body if args.body is not None else sys.stdin.read()
+    try:
+        plan = _client().plan(body)
+    except ValueError as exc:
+        # A body that is not written as ACI expects, one holding an MO that
+        # cannot be placed under uni, or a dry run that warned the POST would
+        # fail. Nothing is printed either way: half a plan is a POST nobody read.
+        print_error(str(exc))
+        return 1
+    except A4iError as exc:
+        return _fail(exc)
+    # stderr, so that the report cannot land in the middle of the body about to
+    # be piped or redirected somewhere.
+    render_dry_run(plan.changes, raw=args.raw, stderr=True)
+    if plan.containers:
+        print_note(
+            f"{plural(plan.containers, 'MO')} the report has no line for "
+            'carry rn and status="modified" only, to nest what does change '
+            "under them; the POST fails if the fabric does not have them"
+        )
+    text = json.dumps(plan.body, indent=2, ensure_ascii=False)
+    if args.output is None:
+        print(text)
+        return 0
+    try:
+        config.write(args.output, text, overwrite=args.force)
+    except FileExistsError as exc:
+        # Before the OSError below, which it is one of, as in _cmd_merge.
+        print_error(f"{exc} (pass --force to overwrite it)")
+        return 1
+    except OSError as exc:
+        print_error(str(exc))
+        return 1
+    return 0
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
     """Fold several configuration files into the one body they describe.
 
@@ -771,6 +829,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="fill in an ancestor DN nothing describes, where the dictionary settles its class",
     )
     merge.set_defaults(func=_cmd_merge)
+
+    plan = commands.add_parser(
+        "plan",
+        help="narrow a configuration to the MOs posting it would change",
+        description=_cmd_plan.__doc__,
+    )
+    plan.add_argument(
+        "body",
+        nargs="?",
+        help="the intended configuration as a JSON body; read from stdin if omitted",
+    )
+    plan.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="write the body here instead of stdout",
+    )
+    plan.add_argument("--force", action="store_true", help="overwrite the output file if it exists")
+    # The report is what colour is about here: the body is written out as
+    # 'a4i merge' writes one, plain either way, so that a redirect and a
+    # terminal produce the same bytes.
+    plan.add_argument("--raw", action="store_true", help="uncolored output")
+    plan.set_defaults(func=_cmd_plan)
 
     diff = commands.add_parser(
         "diff",

@@ -99,11 +99,24 @@ def render(data: Any, *, raw: bool = False, console: Console | None = None) -> N
 
 
 def render_dry_run(
-    changes: list[Change], *, raw: bool = False, console: Console | None = None
+    changes: list[Change],
+    *,
+    raw: bool = False,
+    console: Console | None = None,
+    stderr: bool = False,
 ) -> None:
-    """Print the changes a POST would cause: colorized on a TTY, plain otherwise."""
+    """Print the changes a POST would cause: colorized on a TTY, plain otherwise.
 
-    _print(_report(changes, _DRY_RUN_KINDS, "no changes"), raw=raw, console=console or _console())
+    ``stderr`` puts the report there instead, for a command whose standard
+    output is the body the report is about: a report printed into a body is a
+    body nothing can post.
+    """
+
+    _print(
+        _report(changes, _DRY_RUN_KINDS, "no changes"),
+        raw=raw,
+        console=console or _console(stderr=stderr),
+    )
 
 
 def render_diff(
@@ -161,7 +174,7 @@ def _change_lines(change: Change) -> list[str]:
     header = f"{_MARKS.get(change.kind, ' ')} {change.class_name} {change.dn}"
     note = _CHILD_NOTE.get(change.kind)
     if note and change.child_count:
-        header += f"  ({note.format(_plural(change.child_count, 'child MO'))})"
+        header += f"  ({note.format(plural(change.child_count, 'child MO'))})"
     lines = [header]
     if change.message:
         lines.append(f"  {change.message}")
@@ -179,11 +192,11 @@ def _summary(changes: list[Change], kinds: tuple[str, ...]) -> str:
     counts = Counter(change.kind for change in changes)
     parts = [f"{counts[kind]} {kind}" for kind in kinds]
     if counts["warning"]:
-        parts.append(_plural(counts["warning"], "warning"))
+        parts.append(plural(counts["warning"], "warning"))
     return ", ".join(parts)
 
 
-def _plural(count: int, noun: str) -> str:
+def plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 

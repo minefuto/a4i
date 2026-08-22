@@ -374,6 +374,56 @@ def test_post_with_dry_run_compares_instead_of_sending(client, state) -> None:
     assert state["last_method"] == "GET"
 
 
+# -- plan (what a POST would change, as a body) -----------------------------
+
+
+def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
+    plan = client.plan(
+        {
+            "fvTenant": {
+                "attributes": {"dn": "uni/tn-common", "name": "common"},
+                "children": [{"fvBD": {"attributes": {"name": "default", "mtu": "9000"}}}],
+            }
+        }
+    )
+    assert [(c.kind, c.dn) for c in plan.changes] == [
+        ("created", "uni/tn-common"),
+        ("modified", "uni/tn-common/BD-default"),
+    ]
+    tenant = plan.body["polUni"]["children"][0]["fvTenant"]
+    assert tenant["attributes"]["status"] == "created"
+    assert tenant["children"][0]["fvBD"]["attributes"]["mtu"] == "9000"
+    assert plan.containers == 0
+
+
+def test_plan_reads_only_what_the_configuration_describes(client, state) -> None:
+    # uni holds tn-common as well, and a fabric-wide comparison would read it.
+    # A plan cannot act on what nothing describes, so it never asks.
+    client.plan({"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}})
+    assert state["mo_requests"] == {"/api/mo/uni/tn-infra.json": 1}
+
+
+def test_plan_refuses_an_mo_that_cannot_be_folded_into_one_body(client, state) -> None:
+    # merge's refusal, and its wording: a plan is posted at uni like a merged
+    # body, so the same DNs fit in one and the same DNs do not.
+    with pytest.raises(ValueError) as exc:
+        client.plan({"fabricNode": {"attributes": {"dn": "topology/pod-1/node-101"}}})
+    assert "into one body" in str(exc.value)
+    assert state["mo_requests"] == {}
+
+
+def test_plan_refuses_a_body_the_dry_run_warned_about(client) -> None:
+    with pytest.raises(ValueError) as exc:
+        client.plan(
+            {
+                "fvTenant": {
+                    "attributes": {"dn": "uni/tn-infra", "name": "infra", "status": "created"}
+                }
+            }
+        )
+    assert "refusing to write a plan" in str(exc.value)
+
+
 # -- diff (the fabric against an intended configuration) --------------------
 
 

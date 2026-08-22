@@ -164,7 +164,9 @@ POST = _tool(
     "post",
     "POST a JSON body to the ACI fabric, creating, modifying or deleting objects. "
     "Run dry_run with the same arguments first: it sends nothing and shows what would "
-    "change. There is no 'node' argument -- configuration must go through the APIC.",
+    "change. For a whole configuration, run plan instead and post the body it returns, "
+    "which holds only the MOs that change. There is no 'node' argument -- configuration "
+    "must go through the APIC.",
     {"kind": _KIND, "target": _TARGET, "body": _BODY},
     ["kind", "target", "body"],
 )
@@ -276,6 +278,49 @@ DIFF = _tool(
     [],
 )
 
+PLAN = _tool(
+    "plan",
+    "Narrow an intended configuration to the MOs posting it would change, and return "
+    "that as a body to post at 'uni'. Reads only, and works when the session is "
+    "read-only. Use this between merge and post: posting the whole configuration hands "
+    "the APIC every MO it already agrees with, and the APIC writes all of them. The "
+    "result is a polUni shaped as merge shapes one, holding the changed MOs and the "
+    'MOs they hang under -- those carry rn and status="modified" only, so the post '
+    "fails rather than creating one the fabric turns out not to have. Refused if the "
+    "comparison warns the post would fail. Read the report it returns before posting: "
+    "nothing outside it can be written by the body.",
+    {
+        "body": {
+            "type": ["object", "array", "string"],
+            "description": (
+                "The intended configuration as one ACI body: a polUni with children, a "
+                "single MO, a list of them, or the same as JSON text. Give this or 'path'."
+            ),
+        },
+        "path": {
+            "type": "string",
+            "description": (
+                "Read the one body from this file instead -- typically what merge wrote. "
+                "A single file, not a directory: merge is what reads several."
+            ),
+        },
+        "output": {
+            "type": "string",
+            "description": (
+                "Write the body to this file and return the report and a summary instead "
+                "of the body itself, then post it from there. Do this for a configuration "
+                "of any size: it keeps the whole body out of the conversation. An existing "
+                "file is refused unless 'overwrite' is true."
+            ),
+        },
+        "overwrite": {
+            "type": "boolean",
+            "description": "Allow 'output' to replace a file that already exists.",
+        },
+    },
+    [],
+)
+
 LIST = _tool(
     "list",
     "List ACI class names by prefix, or the DNs directly under a DN. "
@@ -337,7 +382,7 @@ SEARCH = _tool(
 # The order tools are offered in is the order they are meant to be reached for.
 # merge sits next to diff because it is the step before it, and it is offered to
 # a read-only session too: it writes a local file at most, never the fabric.
-ALL_TOOLS = [SEARCH, DESCRIBE, LIST, GET, DRY_RUN, POST, MERGE, DIFF]
+ALL_TOOLS = [SEARCH, DESCRIBE, LIST, GET, DRY_RUN, POST, MERGE, PLAN, DIFF]
 
 WRITE_TOOLS = frozenset({"post"})
 
@@ -464,26 +509,67 @@ def _merge(arguments: dict[str, Any]) -> str:
     return f"merged {count(body)} MOs into {output}; pass it to diff as path='{output}'"
 
 
-def _diff(arguments: dict[str, Any]) -> str:
-    from pathlib import Path
+def _one_body(arguments: dict[str, Any], tool: str) -> Any:
+    """Return the one body a tool was given, whether inline or as a path.
 
-    from a4i.output import diff_report
+    Named after what it enforces: these tools compare one configuration, the
+    way a post takes one body. Several files are what merge is for, and a
+    directory is said to be merge's rather than read here.
+    """
+
+    from pathlib import Path
 
     body = arguments.get("body")
     path = arguments.get("path")
     if (body is None) == (path is None):
         raise ToolError("give exactly one of 'body' (an ACI body) or 'path' (a file holding one)")
-    if path is not None:
-        target = Path(path)
-        if target.is_dir():
-            raise ToolError(
-                f"{path} is a directory, and diff compares one configuration. Run merge over "
-                "it with an 'output' path, then give that file here."
-            )
-        try:
-            body = target.read_text()
-        except OSError as exc:
-            raise ToolError(f"cannot read the configuration: {exc}") from None
+    if body is not None:
+        return body
+    target = Path(str(path))
+    if target.is_dir():
+        raise ToolError(
+            f"{path} is a directory, and {tool} takes one configuration. Run merge over "
+            "it with an 'output' path, then give that file here."
+        )
+    try:
+        return target.read_text()
+    except OSError as exc:
+        raise ToolError(f"cannot read the configuration: {exc}") from None
+
+
+def _plan(arguments: dict[str, Any]) -> str:
+    from a4i import config
+    from a4i.output import dry_run_report, plural
+    from a4i.plan import count
+
+    body = _one_body(arguments, "plan")
+    try:
+        narrowed = _client().plan(body)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from None
+    report = dry_run_report(narrowed.changes)
+    if narrowed.containers:
+        report += (
+            f"\n\n{plural(narrowed.containers, 'MO')} the report has no line for carry rn and "
+            'status="modified" only, to nest what does change under them; the POST fails '
+            "if the fabric does not have them."
+        )
+    output = arguments.get("output")
+    if output is None:
+        return f"{report}\n\n{_json(narrowed.body)}"
+    try:
+        config.write(output, _json(narrowed.body), overwrite=bool(arguments.get("overwrite")))
+    except FileExistsError:
+        raise ToolError(f"{output} exists. Pass overwrite: true to replace it.") from None
+    except OSError as exc:
+        raise ToolError(f"cannot write {output}: {exc}") from None
+    return f"{report}\n\nwrote {plural(count(narrowed.body), 'MO')} to {output}"
+
+
+def _diff(arguments: dict[str, Any]) -> str:
+    from a4i.output import diff_report
+
+    body = _one_body(arguments, "diff")
     changes = _client().diff(
         body,
         expand=bool(arguments.get("expand")),
@@ -535,6 +621,7 @@ _HANDLERS = {
     "post": _post,
     "dry_run": _dry_run,
     "merge": _merge,
+    "plan": _plan,
     "diff": _diff,
     "list": _list,
     "describe": _describe,

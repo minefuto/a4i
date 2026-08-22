@@ -211,7 +211,7 @@ def test_post_is_withheld_on_a_read_only_session(daemon) -> None:
     assert "post" not in names
     # Everything that only reads stays, dry_run included: it is the whole point
     # of a read-only session that a model can still work out what a change means.
-    assert {"get", "dry_run", "diff", "list", "describe", "search"} <= set(names)
+    assert {"get", "dry_run", "plan", "diff", "list", "describe", "search"} <= set(names)
 
 
 def test_becoming_read_only_notifies_the_client(daemon) -> None:
@@ -424,6 +424,63 @@ def test_diff_reports_a_path_that_is_not_there(daemon, tmp_path) -> None:
     text, is_error = _tool_text(Server(), "diff", {"path": str(tmp_path / "gone.json")})
     assert is_error
     assert "gone.json" in text
+
+
+# -- plan ------------------------------------------------------------------
+
+
+def test_plan_returns_the_report_and_the_body(daemon) -> None:
+    _login()
+    text, is_error = _tool_text(Server(), "plan", {"body": INFRA})
+    assert not is_error
+    report, _, body = text.partition("{")
+    assert "no changes" in report or "modified" in report
+    assert json.loads("{" + body)["polUni"]["attributes"] == {"dn": "uni"}
+
+
+def test_plan_writes_the_body_to_a_file_and_keeps_it_out_of_the_reply(daemon, tmp_path) -> None:
+    _login()
+    out = tmp_path / "plan.json"
+    body = {
+        "fvTenant": {
+            "attributes": {"dn": "uni/tn-infra", "name": "infra"},
+            "children": [{"fvBD": {"attributes": {"name": "bd1", "mtu": "9000"}}}],
+        }
+    }
+    text, is_error = _tool_text(Server(), "plan", {"body": body, "output": str(out)})
+    assert not is_error
+    assert f"to {out}" in text
+    assert "polUni" not in text
+    assert json.loads(out.read_text())["polUni"]["children"][0]["fvTenant"]["children"]
+
+    text, is_error = _tool_text(Server(), "plan", {"body": body, "output": str(out)})
+    assert is_error
+    assert "overwrite" in text
+
+
+def test_plan_wants_a_body_or_a_path_and_not_both(daemon, tmp_path) -> None:
+    _login()
+    for arguments in ({}, {"body": INFRA, "path": str(tmp_path / "x.json")}):
+        text, is_error = _tool_text(Server(), "plan", arguments)
+        assert is_error
+        assert "body" in text and "path" in text
+
+
+def test_plan_sends_a_directory_back_to_merge(daemon, tmp_path) -> None:
+    _login()
+    text, is_error = _tool_text(Server(), "plan", {"path": str(tmp_path)})
+    assert is_error
+    assert "merge" in text
+
+
+def test_plan_refuses_a_body_the_dry_run_warned_about(daemon) -> None:
+    _login()
+    warned = {
+        "fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra", "status": "created"}}
+    }
+    text, is_error = _tool_text(Server(), "plan", {"body": warned})
+    assert is_error
+    assert "refusing to write a plan" in text
 
 
 # -- merge -----------------------------------------------------------------

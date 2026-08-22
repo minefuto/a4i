@@ -14,6 +14,9 @@ CLI/MCP/Python Library for the Cisco ACI REST API.
 - **`merge` and `diff` compare a fabric against an intended configuration**,
   reporting both what the configuration asks for and the fabric lacks, and what
   the fabric carries and the configuration never mentions.
+- **`plan` posts only what changes.** It narrows a configuration to the MOs a
+  POST of it would actually change, so the MOs the fabric already agrees with
+  are never handed back to the APIC to be written again.
 
 ## Install
 
@@ -107,6 +110,26 @@ a4i merge ./configs/ | a4i diff --exclude uni/tn-common --exclude uni/infra
 a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 ```
 
+`plan` narrows that same configuration to the MOs posting it would change, and
+writes them out as a body of their own. Posting the whole configuration hands
+the APIC every MO it already agrees with, and the APIC writes all of them;
+posting a plan writes what the report named and nothing else. The report goes to
+standard error and the body to standard output, both from one read of the
+fabric.
+
+```sh
+a4i merge ./configs/ | a4i plan            # report on stderr, body on stdout
+a4i plan merged.json -o plan.json          # -o and --force, as merge takes them
+a4i plan merged.json -o plan.json && a4i post mo uni plan.json
+```
+
+The body is shaped exactly as a merged one is, so the two can be read side by
+side. An MO that changes carries the attributes that change and a `status`
+saying what the fabric was just found to be -- so a fabric that has moved on
+refuses the POST rather than doing something nobody read. The MOs the report has
+no line for are there to nest what does change under them, and carry `rn` and
+`status="modified"` only.
+
 Every DN on the way down from `uni` has to be described by something: a BD
 written without its tenant is refused rather than nested under a tenant `merge`
 made up, and an MO whose DN does not sit under `uni` is refused too -- post that
@@ -168,6 +191,7 @@ login tool, because this server never handles a password.
 | `dry_run` | what a POST would change, sending nothing |
 | `post` | POST a body |
 | `merge` | several bodies or paths folded into one |
+| `plan` | one configuration narrowed to the MOs a POST would change |
 | `diff` | the fabric compared against one configuration |
 
 | Resource | Contents |
@@ -196,13 +220,14 @@ with a4i.Client("apic1.example.com", verify=False) as client:
     data = client.get("fvTenant", kind="class", query_target="subtree", rsp_subtree="full")
     client.post("uni/tn-demo", {"fvTenant": {"attributes": {"name": "demo"}}}, kind="mo")
     changes = client.diff(merge(base, override))
+    client.post("uni", client.plan(merge(base, override)).body, kind="mo")
 ```
 
 `kind` is the subcommand the CLI takes, and it is required: `"class"` for a
 class name, `"mo"` for a DN. Every other keyword argument is the CLI option of
 the same name with underscores. `verify` is what `-k/--insecure` and `--ca`
-express, `timeout` is `login --timeout`, and `dry_run()`, `diff()` and
-`a4i.merge.merge()` are the commands of those names.
+express, `timeout` is `login --timeout`, and `dry_run()`, `diff()`, `plan()`
+and `a4i.merge.merge()` are the commands of those names.
 
 `AsyncClient` is `Client` awaited: the same arguments, the same return values
 and the same exceptions, sending the same requests in the same order.

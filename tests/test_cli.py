@@ -424,6 +424,132 @@ def test_dry_run_reports_a_daemon_error(monkeypatch, capsys) -> None:
     assert "run 'a4i login'" in capsys.readouterr().err
 
 
+# -- plan ------------------------------------------------------------------
+
+
+def test_plan_writes_the_body_to_stdout_and_the_report_to_stderr(monkeypatch, capsys) -> None:
+    code, sent = _run_dry_run(
+        monkeypatch,
+        ["plan", '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}'],
+    )
+    # Only the tenant the configuration describes is read, not uni whole.
+    assert [(request["op"], request["target"]) for request in sent] == [("get", "uni/tn-demo")]
+    captured = capsys.readouterr()
+    assert '~ descr: "" -> "prod"' in captured.err
+    assert json.loads(captured.out) == {
+        "polUni": {
+            "attributes": {"dn": "uni"},
+            "children": [
+                {
+                    "fvTenant": {
+                        "attributes": {"rn": "tn-demo", "status": "modified", "descr": "prod"}
+                    }
+                }
+            ],
+        }
+    }
+    # Having something to post is not a failure: the body is meant to be posted.
+    assert code == 0
+
+
+def test_plan_carries_an_unchanged_ancestor_and_says_how_many(monkeypatch, capsys) -> None:
+    code, _ = _run_dry_run(
+        monkeypatch,
+        [
+            "plan",
+            '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","name":"demo","descr":""},'
+            '"children":[{"fvBD":{"attributes":{"name":"bd2"}}}]}}',
+        ],
+    )
+    captured = capsys.readouterr()
+    # The tenant does not change, so the report has no line for it; the body
+    # carries it all the same, because the BD hangs under it.
+    assert "fvTenant" not in captured.err
+    assert "1 created, 0 modified, 0 deleted" in captured.err
+    assert "1 MO the report has no line for" in captured.err
+    tenant = json.loads(captured.out)["polUni"]["children"][0]["fvTenant"]
+    assert tenant["attributes"] == {"rn": "tn-demo", "status": "modified"}
+    assert tenant["children"] == [
+        {"fvBD": {"attributes": {"rn": "BD-bd2", "status": "created", "name": "bd2"}}}
+    ]
+    assert code == 0
+
+
+def test_plan_writes_an_empty_body_when_nothing_would_change(monkeypatch, capsys) -> None:
+    code, _ = _run_dry_run(
+        monkeypatch,
+        ["plan", '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","name":"demo"}}}'],
+    )
+    captured = capsys.readouterr()
+    assert captured.err.strip().splitlines()[0] == "no changes"
+    # A body all the same, so that what reads it next needs no special case.
+    assert json.loads(captured.out) == {"polUni": {"attributes": {"dn": "uni"}, "children": []}}
+    assert code == 0
+
+
+def test_plan_refuses_to_write_a_body_the_dry_run_warned_about(monkeypatch, capsys) -> None:
+    code, _ = _run_dry_run(
+        monkeypatch,
+        [
+            "plan",
+            '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","name":"demo",'
+            '"status":"created","descr":"prod"}}}',
+        ],
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "refusing to write a plan" in captured.err
+    assert code == 1
+
+
+def test_plan_refuses_an_mo_that_does_not_sit_under_uni(monkeypatch, capsys) -> None:
+    code, sent = _run_dry_run(
+        monkeypatch,
+        ["plan", '{"fabricNode":{"attributes":{"dn":"topology/pod-1/node-101"}}}'],
+    )
+    assert sent == []
+    assert "into one body" in capsys.readouterr().err
+    assert code == 1
+
+
+def test_plan_writes_to_a_file_and_refuses_to_overwrite_one(monkeypatch, capsys, tmp_path) -> None:
+    out = tmp_path / "plan.json"
+    body = '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}'
+    code, _ = _run_dry_run(monkeypatch, ["plan", body, "-o", str(out)])
+    assert code == 0
+    assert json.loads(out.read_text())["polUni"]["attributes"] == {"dn": "uni"}
+    # The report still goes to stderr, and stdout stays empty for the file.
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert '~ descr: "" -> "prod"' in captured.err
+
+    code, _ = _run_dry_run(monkeypatch, ["plan", body, "-o", str(out)])
+    assert code == 1
+    assert "--force" in capsys.readouterr().err
+    assert _run_dry_run(monkeypatch, ["plan", body, "-o", str(out), "--force"])[0] == 0
+
+
+def test_plan_reads_the_body_from_stdin(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "sys.stdin", io.StringIO('{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}')
+    )
+    code, _ = _run_dry_run(monkeypatch, ["plan"])
+    assert code == 0
+    assert (
+        json.loads(capsys.readouterr().out)["polUni"]["children"][0]["fvTenant"]["attributes"][
+            "descr"
+        ]
+        == "prod"
+    )
+
+
+def test_plan_reports_a_daemon_error(monkeypatch, capsys) -> None:
+    _raise_request(monkeypatch, NotLoggedInError("not logged in"))
+    body = '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"x"}}}'
+    assert cli.main(["plan", body]) == 1
+    assert "run 'a4i login'" in capsys.readouterr().err
+
+
 def test_post_without_dry_run_still_posts(monkeypatch) -> None:
     body = '{"fvTenant":{"attributes":{"name":"demo"}}}'
     code, sent = _run_dry_run(

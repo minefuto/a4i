@@ -98,6 +98,11 @@ why it is off by default.
 Call `dry_run` with the same arguments first. It sends nothing: it fetches what
 is there and reports what the POST would change. An empty result means the body
 would do nothing at all, which usually means it does not say what you meant.
+
+Better still for a merged configuration, call `plan`. It reports the same thing
+and hands back a body holding only the MOs that change, so posting it leaves
+every MO the fabric already agrees with untouched instead of handing all of them
+back to the APIC to be written again.
 """
 
 
@@ -184,7 +189,10 @@ WORKFLOW = """\
 5. `dry_run` with exactly the arguments you would give `post`. It sends nothing
    and reports what would change. Read it before going on: an empty result means
    your body would change nothing.
-6. `post` once the dry run says what you expect.
+6. `post` once the dry run says what you expect. For a whole configuration, run
+   `plan` instead of `dry_run` and post the body it returns: it reports the same
+   changes and carries only those, so nothing the report did not name is
+   written.
 
 If `post` is missing from the tool list, this session was started read-only and
 nothing can be written through it.
@@ -300,8 +308,10 @@ Work in this order:
    DN. Add `rsp_prop_include: "config-only"` when the question is about
    configuration -- responses over the size limit are refused, not truncated.
 4. `dry_run` before every `post`, with the same arguments. It sends nothing and
-   reports what would change.
-5. `post` only once the dry run says what you expect.
+   reports what would change. For a whole configuration, `plan` instead: same
+   report, plus a body holding only what changes.
+5. `post` only once the dry run says what you expect -- the body `plan` returned,
+   where you ran it.
 
 `post` and `diff` each take one body. A configuration spread across files or
 directories is folded into one by `merge` first, later values winning attribute
@@ -317,7 +327,8 @@ POST leaves unmentioned attributes alone; `status: "deleted"` removes an MO and
 its subtree.
 
 If `post` is absent from the tool list, this session was logged in read-only and
-nothing can be written through it. `dry_run` still works, since it only reads.
+nothing can be written through it. `dry_run` and `plan` still work, since they
+only read.
 
 The `a4i://guide/...` resources spell all of this out at length.
 """

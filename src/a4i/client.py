@@ -24,6 +24,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 from a4i import diff, dry_run, merge, mo, query, validate
+from a4i import plan as plan_
 from a4i.errors import ApicError
 from a4i.transport import AsyncDirectTransport, AsyncTransport, DirectTransport, Transport
 
@@ -255,6 +256,37 @@ class Client:
                     dry_run.compare(subtree.mo, imdata, subtree.dn, identified=subtree.identified)
                 )
         return changes
+
+    def plan(self, config: str | Any) -> plan_.Plan:
+        """Return ``config`` narrowed to the MOs posting it would change.
+
+        ``config`` is one ACI body, as :meth:`diff` takes one: several
+        configurations are folded into it beforehand with
+        :func:`a4i.merge.merge`, which this runs it through in any case -- the
+        placement rules, the refusals and the output shape are the merged
+        body's, and merging is idempotent, so a body that has been through it
+        already comes out unchanged.
+
+        The result carries the changes :meth:`dry_run` found and the body those
+        changes make between them, both from one read of the fabric. Posting
+        that body at uni does what the changes say and touches nothing else, so
+        an MO the configuration already agrees with is never handed back to the
+        APIC to be written again.
+
+        Only what the configuration describes is read: the subtree of each MO
+        under uni that it names, and no more. A fabric-wide comparison has to
+        read the rest to report what nothing describes; this one cannot act on
+        it either way.
+
+        Raises ``ValueError`` if the dry run warns that the POST would fail --
+        the body written for a warned MO would be a body nobody read. See
+        :func:`a4i.plan.body`.
+        """
+
+        _, parsed = _read_body(config)
+        merged = merge.merge(parsed)
+        changes = self.dry_run(merge.ROOT, merged, kind="mo")
+        return plan_.Plan(plan_.body(merged, changes), changes)
 
     def diff(
         self,
@@ -501,6 +533,17 @@ class AsyncClient:
                     dry_run.compare(subtree.mo, imdata, subtree.dn, identified=subtree.identified)
                 )
         return changes
+
+    async def plan(self, config: str | Any) -> plan_.Plan:
+        """Return ``config`` narrowed to the MOs posting it would change.
+
+        See :meth:`Client.plan`.
+        """
+
+        _, parsed = _read_body(config)
+        merged = merge.merge(parsed)
+        changes = await self.dry_run(merge.ROOT, merged, kind="mo")
+        return plan_.Plan(plan_.body(merged, changes), changes)
 
     async def diff(
         self,

@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from a4i.errors import ReadOnlyError as ReadOnlyError
     from a4i.errors import SessionExpiredError as SessionExpiredError
     from a4i.mo import Change as Change
+    from a4i.plan import Plan as Plan
 
 # What __version__ reads when the package is not installed, which is what an
 # uninstalled source tree looks like to importlib.metadata.
@@ -45,6 +46,7 @@ _EXPORTS = {
     "Client": "a4i.client",
     "AsyncClient": "a4i.client",
     "Change": "a4i.mo",
+    "Plan": "a4i.plan",
     "A4iError": "a4i.errors",
     "ApicError": "a4i.errors",
     "NotLoggedInError": "a4i.errors",

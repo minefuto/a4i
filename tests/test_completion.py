@@ -83,6 +83,7 @@ def test_subcommands_are_completed(parser) -> None:
         "search",
         "describe",
         "merge",
+        "plan",
         "diff",
         "daemon",
         "mcp",
@@ -214,7 +215,7 @@ def test_fish_output_falls_back_to_the_files_marker_when_empty(parser, monkeypat
 
 def test_trailing_space_starts_a_new_word(parser, monkeypatch) -> None:
     assert _complete(parser, "a4i ", monkeypatch) == (
-        "compadd -U -- login logout get post list search describe merge diff daemon mcp "
+        "compadd -U -- login logout get post list search describe merge plan diff daemon mcp "
         "generate-shell-completion"
     )
     assert _complete(parser, "a4i lo", monkeypatch) == "compadd -U -- login logout"
