@@ -110,7 +110,8 @@ a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 Every DN on the way down from `uni` has to be described by something: a BD
 written without its tenant is refused rather than nested under a tenant `merge`
 made up, and an MO whose DN does not sit under `uni` is refused too -- post that
-one on its own.
+one on its own. `--loose` fills the missing ancestor in instead, where the
+bundled dictionary settles what class sits there.
 
 ```
 - fvTenant uni/tn-common  (extra: 2 child MOs)

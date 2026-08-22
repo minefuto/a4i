@@ -24,8 +24,19 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from a4i.metadata import rn_format
-from a4i.mo import ROOT, WRAPPER, Exclusions, child_dn, parent_dn, split_mo, tail_rn, text
+from a4i.metadata import describe, rn_format
+from a4i.mo import (
+    ROOT,
+    WRAPPER,
+    Exclusions,
+    child_dn,
+    matches_rn,
+    parent_dn,
+    split_mo,
+    split_rns,
+    tail_rn,
+    text,
+)
 from a4i.validate import problems, refuse
 
 # ROOT and WRAPPER are a4i.mo's. Every intended MO hangs under the policy
@@ -53,7 +64,7 @@ _DROPPED = frozenset({"dn", "rn", "childAction"})
 _NAMED = 3
 
 
-def merge(*configs: Any) -> dict[str, Any]:
+def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     """Return the single body ``configs`` describe between them.
 
     Each argument is an ACI body -- one MO, or a list of them -- read as
@@ -78,6 +89,12 @@ def merge(*configs: Any) -> dict[str, Any]:
     both look like, or if an MO cannot be placed in the tree: see
     :func:`_refuse_the_unplaceable`.
 
+    ``loose`` asks for the ancestor a DN names and no input describes to be
+    filled in, where the bundled dictionary settles what class sits there: see
+    :func:`_fill_the_undescribed`. It relaxes that one refusal and no other, and
+    it is off by default -- a filled-in ancestor is an MO the POST may create
+    that no input asked for.
+
     The shape is refused first and on its own. :mod:`a4i.config` has already
     checked whatever it read from a file, naming the file; this is what stands
     between the other callers -- a library, the MCP tool's inline bodies -- and
@@ -95,10 +112,10 @@ def merge(*configs: Any) -> dict[str, Any]:
             "the configuration is empty: nothing given describes an MO. Check the paths -- "
             "a directory is searched for *.json, and a file holding {} or [] describes nothing."
         )
-    return _body(intended)
+    return _body(intended, loose=loose)
 
 
-def _body(intended: Intended) -> dict[str, Any]:
+def _body(intended: Intended, *, loose: bool = False) -> dict[str, Any]:
     """Write the index back out as one body to post at ``uni``.
 
     The index is flat and the body is a tree, because a tree is the only shape a
@@ -112,7 +129,7 @@ def _body(intended: Intended) -> dict[str, Any]:
     the day a tenant is renamed.
     """
 
-    _refuse_the_unplaceable(intended.index)
+    _refuse_the_unplaceable(intended.index, loose=loose)
     bodies: dict[str, dict[str, Any]] = {}
     roots: list[dict[str, Any]] = []
     # Sorted, so a parent is written before anything under it and is there to
@@ -154,7 +171,22 @@ def count(body: dict[str, Any]) -> int:
 # -- what cannot be placed -------------------------------------------------
 
 
-def _refuse_the_unplaceable(index: dict[str, Mo]) -> None:
+class UndescribedError(ValueError):
+    """Nothing describes a DN on the way down to an MO, and it was not filled in.
+
+    Told apart from the other refusals so that a caller can name its own way out
+    of this one: ``a4i merge`` says to pass ``--loose``, and the MCP tool says to
+    pass ``loose: true``. What is refused, and why, is this module's; what the
+    option is called is theirs. ``count`` is how many DNs it is, so that what
+    they add says "it" or "them" as the message itself does.
+    """
+
+    def __init__(self, message: str, count: int) -> None:
+        super().__init__(message)
+        self.count = count
+
+
+def _refuse_the_unplaceable(index: dict[str, Mo], *, loose: bool) -> None:
     """Refuse what no single body posted at ``uni`` could carry.
 
     An MO fails that in two ways. It sits outside ``uni`` altogether, and
@@ -164,13 +196,32 @@ def _refuse_the_unplaceable(index: dict[str, Mo]) -> None:
 
     Neither is guessed at. An ancestor made up here would be an MO the POST
     created that no input ever asked for -- a tenant appearing on the fabric
-    because a BD was written and its tenant was not.
+    because a BD was written and its tenant was not. ``loose`` is asking for it
+    anyway, and only for the second of the two: an MO outside ``uni`` has no
+    ancestor that would bring it in, so it is refused whatever ``loose`` says.
     """
+
+    outside, undescribed = _unplaceable(index)
+    if outside:
+        raise ValueError(_outside_message(outside))
+    if not undescribed:
+        return
+    if not loose:
+        raise UndescribedError(_undescribed_message(undescribed, index), len(undescribed))
+    left = _fill_the_undescribed(index, undescribed)
+    if left:
+        raise ValueError(_unfillable_message(left, index))
+
+
+def _unplaceable(index: dict[str, Mo]) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    """Return the MOs that sit outside ``uni``, and the DNs nothing describes."""
 
     outside: list[tuple[str, str]] = []
     # Each DN nothing describes, against one DN under it: what is reported is
     # the line the configuration is missing, not each MO left hanging, because
-    # writing that one line settles all of them.
+    # writing that one line settles all of them. It is also where the filling
+    # starts from, for the same reason -- one MO under the gap is enough to say
+    # what the gap is.
     undescribed: dict[str, str] = {}
     for dn in sorted(index):
         ancestors: list[str] = []
@@ -184,10 +235,94 @@ def _refuse_the_unplaceable(index: dict[str, Mo]) -> None:
         for ancestor in ancestors:
             if ancestor not in index:
                 undescribed.setdefault(ancestor, dn)
-    if outside:
-        raise ValueError(_outside_message(outside))
-    if undescribed:
-        raise ValueError(_undescribed_message(undescribed, index))
+    return outside, undescribed
+
+
+# -- filling in what nothing describes -------------------------------------
+
+
+def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> dict[str, str]:
+    """Put an MO in the index at each DN nothing describes, and return what is left.
+
+    A DN says what its MO is called and not what class it is, and a body cannot
+    be written without the class. It is read off the MOs that hang under the
+    gap: the dictionary says what may sit above each of them, and the RN of the
+    gap says which of those it is -- ``tn-t`` under an ``fvBD`` is an
+    ``fvTenant`` and nothing else.
+
+    Only a class the dictionary gives an RN format is weighed, which is to say
+    only a configurable one, so what gets filled in is always an MO a POST could
+    carry. Where more than one MO hangs under the gap they have to agree, and
+    each narrows the answer: what is filled in is what every one of them allows.
+    Anything the dictionary does not settle outright is left alone and handed
+    back -- guessing here is guessing at what the POST creates.
+
+    Deepest first, so a gap two levels up is read off the MO that was just
+    filled in below it: an fvAEPg alone gives the fvAp, and the fvAp then gives
+    the fvTenant.
+    """
+
+    below: dict[str, list[str]] = {}
+    for dn, node in index.items():
+        parent = parent_dn(dn)
+        if parent is not None:
+            below.setdefault(parent, []).append(node.class_name)
+    parents: dict[str, list[str]] = {}
+    left: dict[str, str] = {}
+    for dn in sorted(undescribed, key=lambda gap: (len(split_rns(gap)), gap), reverse=True):
+        class_name = _class_at(tail_rn(dn), below.get(dn, []), parents)
+        if class_name is None:
+            left[dn] = undescribed[dn]
+            continue
+        index[dn] = Mo(class_name, dn)
+        parent = parent_dn(dn)
+        if parent is not None:
+            below.setdefault(parent, []).append(class_name)
+    return left
+
+
+def _class_at(rn: str, below: Iterable[str], parents: dict[str, list[str]]) -> str | None:
+    """Return the one class that can be named ``rn`` and hold all of ``below``.
+
+    None where the dictionary does not settle it: nothing hangs under the gap
+    that the dictionary knows, no class it allows above them is written that
+    way, or more than one is.
+    """
+
+    narrowed: set[str] | None = None
+    for class_name in below:
+        allowed = _parents_of(class_name, parents)
+        # A class the dictionary has never heard of allows nothing and rules out
+        # nothing: it is the dictionary falling short rather than a disagreement,
+        # and a sibling it does know settles the gap just the same.
+        if not allowed:
+            continue
+        written = {
+            parent
+            for parent in allowed
+            if (fmt := rn_format(parent)) is not None and matches_rn(fmt, rn)
+        }
+        narrowed = written if narrowed is None else narrowed & written
+        if not narrowed:
+            return None
+    if narrowed is None or len(narrowed) != 1:
+        return None
+    return next(iter(narrowed))
+
+
+def _parents_of(class_name: str, parents: dict[str, list[str]]) -> list[str]:
+    """Return the classes an MO of ``class_name`` may hang under, read once each.
+
+    :func:`a4i.metadata.describe` is a seek and a parse of a record holding every
+    property of the class, and one gap is asked about it once per MO under it.
+    """
+
+    known = parents.get(class_name)
+    if known is None:
+        record = describe(class_name) or {}
+        known = [parent for parent in record.get("parents") or [] if isinstance(parent, str)]
+        parents[class_name] = known
+    return known
 
 
 def _outside_message(outside: list[tuple[str, str]]) -> str:
@@ -220,6 +355,25 @@ def _undescribed_message(undescribed: dict[str, str], index: dict[str, Mo]) -> s
         f"off, so every DN on the way down from {ROOT} has to be described. Add "
         f"{'it' if one else 'them'}, or drop what hangs under "
         f"{'it' if one else 'them'}."
+    )
+
+
+def _unfillable_message(left: dict[str, str], index: dict[str, Mo]) -> str:
+    """Say which DNs could not be filled in, and that they have to be written out."""
+
+    missing = sorted(left)
+    named = ", ".join(
+        f'"{dn}" ({index[left[dn]].class_name} at "{left[dn]}" hangs under it)'
+        for dn in missing[:_NAMED]
+    )
+    if len(missing) > _NAMED:
+        named += f", and {len(missing) - _NAMED} more"
+    one = len(missing) == 1
+    return (
+        f"nothing describes {named}, and the bundled dictionary does not settle what class "
+        f"sits there: no one configurable class is written that way and may hold what hangs "
+        f"under {'it' if one else 'them'}. Write {'it' if one else 'them'} out, or drop what "
+        f"hangs under {'it' if one else 'them'}."
     )
 
 

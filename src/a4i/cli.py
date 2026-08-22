@@ -314,17 +314,27 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     The output is a polUni holding every merged MO, each nested under the MO it
     hangs off, which is what 'a4i diff' compares against and what
     'a4i post mo uni' takes.
+
+    Every DN on the way down from uni has to be described by something. Pass
+    --loose to have an ancestor nothing describes filled in instead, where the
+    bundled dictionary settles what class sits there.
     """
 
     import json
 
     from a4i import config
-    from a4i.merge import merge
+    from a4i.merge import UndescribedError, merge
     from a4i.output import print_error
 
     try:
         configs = config.load(args.paths)
-        body = merge(*configs)
+        body = merge(*configs, loose=args.loose)
+    except UndescribedError as exc:
+        # Before the ValueError below, which it is one of. The rule is merge's;
+        # the way out is this parser's option, so it is named here -- as --force
+        # is further down.
+        print_error(f"{exc} (pass --loose to fill {'it' if exc.count == 1 else 'them'} in)")
+        return 1
     except (OSError, ValueError) as exc:
         print_error(str(exc))
         return 1
@@ -754,6 +764,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     merge.add_argument(
         "--force", action="store_true", help="overwrite the output file if it exists"
+    )
+    merge.add_argument(
+        "--loose",
+        action="store_true",
+        help="fill in an ancestor DN nothing describes, where the dictionary settles its class",
     )
     merge.set_defaults(func=_cmd_merge)
 

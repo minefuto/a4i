@@ -325,6 +325,72 @@ def test_being_outside_uni_is_reported_before_a_missing_ancestor() -> None:
     assert "nothing describes" not in str(exc.value)
 
 
+# -- filling in what nothing describes (--loose) ---------------------------
+
+
+def test_a_missing_ancestor_is_filled_in_when_asked() -> None:
+    # fvBD may hang under fvTenant alone, and "tn-t" is how an fvTenant is
+    # written, so the dictionary settles the gap outright.
+    body = merge(mo("fvBD", {"dn": "uni/tn-t/BD-b", "mtu": "9000"}), loose=True)
+    assert walk(body) == [
+        ("fvTenant", "uni/tn-t", {"rn": "tn-t"}),
+        ("fvBD", "uni/tn-t/BD-b", {"rn": "BD-b", "mtu": "9000"}),
+    ]
+
+
+def test_a_gap_of_several_levels_is_read_from_the_bottom_up() -> None:
+    # The fvAEPg gives the fvAp above it, and that fvAp is then what gives the
+    # fvTenant above that: neither could have been read off the epg alone.
+    body = merge(mo("fvAEPg", {"dn": "uni/tn-t/ap-a/epg-e"}), loose=True)
+    assert dns(body) == ["uni/tn-t", "uni/tn-t/ap-a", "uni/tn-t/ap-a/epg-e"]
+    assert [class_name for class_name, _, _ in walk(body)] == ["fvTenant", "fvAp", "fvAEPg"]
+
+
+def test_a_filled_in_mo_carries_its_rn_and_nothing_else() -> None:
+    # No "status", so the POST creates it only if the fabric lacks it, and no
+    # naming property: the APIC reads "name" off the RN. Both are what keeps a
+    # filled-in ancestor from being configuration nothing asked for.
+    body = merge(mo("fvSubnet", {"dn": "uni/tn-t/BD-b/subnet-[10.0.0.1/24]"}), loose=True)
+    tenant, bd, subnet = walk(body)
+    assert tenant == ("fvTenant", "uni/tn-t", {"rn": "tn-t"})
+    assert bd == ("fvBD", "uni/tn-t/BD-b", {"rn": "BD-b"})
+    assert subnet[1] == "uni/tn-t/BD-b/subnet-[10.0.0.1/24]"
+
+
+def test_nothing_is_filled_in_unless_it_is_asked_for() -> None:
+    # The default is what it always was. A filled-in ancestor is an MO the POST
+    # may create that no input asked for, so it is opted into and not out of.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvBD", {"dn": "uni/tn-t/BD-b"}))
+    assert 'nothing describes "uni/tn-t"' in str(exc.value)
+
+
+def test_a_gap_the_dictionary_does_not_settle_is_refused_even_when_asked() -> None:
+    # No configurable class is written "xxx" and may hold an fvBD. Guessing one
+    # would be guessing at what the POST creates, so the input is sent back --
+    # and told apart from the refusal above, which offers a way out.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvBD", {"dn": "uni/xxx/BD-b"}), loose=True)
+    message = str(exc.value)
+    assert '"uni/xxx"' in message
+    assert "does not settle what class sits there" in message
+
+
+def test_being_outside_uni_is_refused_however_loose() -> None:
+    # Nothing that could be filled in would bring it under uni, so this refusal
+    # is not one loose relaxes.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fabricNode", {"dn": "topology/pod-1/node-101"}), loose=True)
+    assert "a4i post mo" in str(exc.value)
+
+
+def test_what_was_filled_in_needs_no_filling_in_again() -> None:
+    # The output describes every DN on the way down, so merging it back reaches
+    # the same body without loose -- which is what makes it worth keeping in git.
+    once = merge(mo("fvBD", {"dn": "uni/tn-t/BD-b", "mtu": "9000"}), loose=True)
+    assert merge(once) == once
+
+
 # -- a class the dictionary does not know ----------------------------------
 
 
@@ -385,6 +451,23 @@ def test_merge_reports_a_directory_holding_no_configuration(capsys, tmp_path) ->
     _write(tmp_path, "README.md", "not json at all")
     assert cli.main(["merge", str(tmp_path)]) == 1
     assert "empty" in capsys.readouterr().err
+
+
+def test_merge_fills_in_a_missing_ancestor_when_told_to(capsys, tmp_path) -> None:
+    orphan = {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-b"}}}
+    assert cli.main(["merge", "--loose", _write(tmp_path, "bd.json", orphan)]) == 0
+    assert dns(_merged(capsys)) == ["uni/tn-demo", "uni/tn-demo/BD-b"]
+
+
+def test_merge_names_the_way_out_when_an_ancestor_is_undescribed(capsys, tmp_path) -> None:
+    # a4i.merge raises Undescribed and says what is missing; naming --loose is
+    # this command's own to add, and it is a ValueError, so a handler that let
+    # it fall through to the general one would refuse without the way out.
+    orphan = {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-b"}}}
+    assert cli.main(["merge", _write(tmp_path, "bd.json", orphan)]) == 1
+    err = capsys.readouterr().err
+    assert "nothing describes" in err
+    assert "--loose" in err
 
 
 def test_merge_writes_to_a_file_when_asked(capsys, tmp_path) -> None:

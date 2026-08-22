@@ -186,6 +186,26 @@ def fill_rn(fmt: str, attributes: dict[str, Any]) -> str | None:
     return None if missing else filled
 
 
+def matches_rn(fmt: str, rn: str) -> bool:
+    """True when ``rn`` is an RN ``fmt`` writes: the reading of :func:`fill_rn`.
+
+    Building an RN fills the slots in from an MO's attributes; reading one back
+    asks only whether the text could have come out of that format, because what
+    a slot held is not wanted -- :mod:`a4i.merge` asks this of a DN it has and a
+    class it is weighing up.
+
+    A slot stands for a naming value, so it matches one character at least and
+    a "/" among them: ``subnet-[{ip}]`` writes ``subnet-[10.0.0.1/24]``. Every
+    other character of a format is itself.
+    """
+
+    parts = _SLOT.split(fmt)
+    # _SLOT holds one group, so the split alternates literal, attribute name,
+    # literal -- and the odd ones are the slots.
+    pattern = "".join(".+" if index % 2 else re.escape(part) for index, part in enumerate(parts))
+    return re.fullmatch(pattern, rn, re.DOTALL) is not None
+
+
 def pseudo_rn(class_name: str, attributes: dict[str, Any]) -> str:
     """Return a stand-in RN for an MO whose real one cannot be worked out.
 

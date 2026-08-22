@@ -88,7 +88,10 @@ hangs off and named by its `rn`, siblings in RN order. Post it at `uni`, or give
 it to `diff`. Every DN on the way down from `uni` has to be described by
 something: a BD written without its tenant is refused rather than nested under a
 tenant `merge` made up, and an MO whose DN does not sit under `uni` is refused
-too -- post that one on its own.
+too -- post that one on its own. Pass `loose: true` to have the missing ancestor
+filled in instead, where the bundled dictionary settles what class sits there;
+what it fills in is an MO the post may create that no input asked for, which is
+why it is off by default.
 
 ## Before you post
 

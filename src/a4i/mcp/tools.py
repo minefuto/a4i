@@ -184,8 +184,10 @@ MERGE = _tool(
     "order with later values winning attribute by attribute. Two bodies mean the same "
     "MO when they resolve to the same DN. The result is a polUni holding every merged "
     "MO nested under the MO it hangs off, which is what diff compares against and what "
-    "a post to 'uni' takes. Touches the fabric not at all. Use this whenever a "
-    "configuration is spread across files: diff and post each take one body.",
+    "a post to 'uni' takes. Every DN on the way down from 'uni' has to be described by "
+    "something, unless 'loose' says to fill it in. Touches the fabric not at all. Use "
+    "this whenever a configuration is spread across files: diff and post each take one "
+    "body.",
     {
         "paths": {
             "type": "array",
@@ -215,6 +217,15 @@ MERGE = _tool(
         "overwrite": {
             "type": "boolean",
             "description": "Allow 'output' to replace a file that already exists.",
+        },
+        "loose": {
+            "type": "boolean",
+            "description": (
+                "Fill in an ancestor DN nothing describes -- the fvTenant of a BD written "
+                "on its own -- where the bundled dictionary settles what class sits there. "
+                "Off by default, and a filled-in ancestor is an MO the post may create that "
+                "no input asked for."
+            ),
         },
     },
     [],
@@ -406,7 +417,7 @@ def _dry_run(arguments: dict[str, Any]) -> str:
 
 def _merge(arguments: dict[str, Any]) -> str:
     from a4i import config
-    from a4i.merge import count, merge
+    from a4i.merge import UndescribedError, count, merge
     from a4i.validate import problems, refuse
 
     paths = list(arguments.get("paths") or [])
@@ -423,7 +434,14 @@ def _merge(arguments: dict[str, Any]) -> str:
     configs.extend(inline)
     if not configs:
         raise ToolError("give 'paths' (files or directories) or 'configs' (inline ACI bodies)")
-    body = merge(*configs)
+    try:
+        body = merge(*configs, loose=bool(arguments.get("loose")))
+    except UndescribedError as exc:
+        # The rule is merge's; the way out is this tool's own argument, so it is
+        # named here -- as 'overwrite' is below.
+        raise ToolError(
+            f"{exc} (pass loose: true to fill {'it' if exc.count == 1 else 'them'} in)"
+        ) from None
     text = _json(body)
 
     output = arguments.get("output")

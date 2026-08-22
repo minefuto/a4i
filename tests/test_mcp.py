@@ -498,6 +498,21 @@ def test_merge_refuses_to_replace_a_file_unless_told_to(no_daemon, tmp_path) -> 
     assert out.read_text() != "keep me"
 
 
+def test_merge_fills_in_a_missing_ancestor_only_when_told_to(no_daemon) -> None:
+    orphan = [{"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-b"}}}]
+    text, is_error = _tool_text(Server(), "merge", {"configs": orphan})
+    assert is_error
+    assert 'nothing describes "uni/tn-demo"' in text
+    # The rule is a4i.merge's; naming this tool's own argument is what is left
+    # for the tool to do, and it is what tells the model how to go on.
+    assert "loose: true" in text
+
+    text, is_error = _tool_text(Server(), "merge", {"configs": orphan, "loose": True})
+    assert not is_error
+    (child,) = json.loads(text)["polUni"]["children"]
+    assert child["fvTenant"]["attributes"] == {"rn": "tn-demo"}
+
+
 def test_merge_with_nothing_to_merge_says_what_it_wants(no_daemon) -> None:
     text, is_error = _tool_text(Server(), "merge", {})
     assert is_error
