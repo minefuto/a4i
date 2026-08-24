@@ -189,28 +189,39 @@ class UndescribedError(ValueError):
 def _refuse_the_unplaceable(index: dict[str, Mo], *, loose: bool) -> None:
     """Refuse what no single body posted at ``uni`` could carry.
 
-    An MO fails that in two ways. It sits outside ``uni`` altogether, and
+    An MO fails that in three ways. It sits outside ``uni`` altogether, and
     nesting it under the wrapper would be posting it somewhere it does not
     belong. Or something on the way down to it is a DN nothing describes, and
-    there is no MO to nest it in.
+    there is no MO to nest it in. Or the MO it would be nested in is one that
+    cannot hold it -- an fvBD written under uni rather than under its tenant --
+    which the APIC refuses however right the DN is.
 
-    Neither is guessed at. An ancestor made up here would be an MO the POST
+    None of it is guessed at. An ancestor made up here would be an MO the POST
     created that no input ever asked for -- a tenant appearing on the fabric
     because a BD was written and its tenant was not. ``loose`` is asking for it
-    anyway, and only for the second of the two: an MO outside ``uni`` has no
-    ancestor that would bring it in, so it is refused whatever ``loose`` says.
+    anyway, and only for the second of the three: an MO outside ``uni`` has no
+    ancestor that would bring it in, and one written where it cannot hang is
+    written there whatever its ancestors are, so both are refused whatever
+    ``loose`` says.
+
+    Containment is weighed last, so that what ``loose`` filled in is weighed
+    with everything else: a gap is not an MO, and there is nothing to weigh a
+    child against until one stands there.
     """
 
     outside, undescribed = _unplaceable(index)
     if outside:
         raise ValueError(_outside_message(outside))
-    if not undescribed:
-        return
-    if not loose:
-        raise UndescribedError(_undescribed_message(undescribed, index), len(undescribed))
-    left = _fill_the_undescribed(index, undescribed)
-    if left:
-        raise ValueError(_unfillable_message(left, index))
+    if undescribed:
+        if not loose:
+            raise UndescribedError(_undescribed_message(undescribed, index), len(undescribed))
+        left = _fill_the_undescribed(index, undescribed)
+        if left:
+            raise ValueError(_unfillable_message(left, index))
+    records: dict[str, dict[str, Any]] = {}
+    misplaced = _misplaced(index, records)
+    if misplaced:
+        raise ValueError(_misplaced_message(misplaced, records))
 
 
 def _unplaceable(index: dict[str, Mo]) -> tuple[list[tuple[str, str]], dict[str, str]]:
@@ -236,6 +247,43 @@ def _unplaceable(index: dict[str, Mo]) -> tuple[list[tuple[str, str]], dict[str,
             if ancestor not in index:
                 undescribed.setdefault(ancestor, dn)
     return outside, undescribed
+
+
+def _misplaced(
+    index: dict[str, Mo], records: dict[str, dict[str, Any]]
+) -> list[tuple[str, str, str]]:
+    """Return the class, DN and containing class of each MO its container cannot hold.
+
+    Every DN in the index has its whole line of ancestors in the index by the
+    time this runs -- that is what the two refusals before it settle -- so the
+    containing class is read off the index, and off the wrapper for an MO that
+    hangs directly under ``uni``.
+    """
+
+    misplaced: list[tuple[str, str, str]] = []
+    for dn in sorted(index):
+        parent = parent_dn(dn)
+        container = WRAPPER if parent is None or parent == ROOT else index[parent].class_name
+        if _denies(container, index[dn].class_name, records):
+            misplaced.append((index[dn].class_name, dn, container))
+    return misplaced
+
+
+def _denies(container: str, class_name: str, records: dict[str, dict[str, Any]]) -> bool:
+    """True where the dictionary says an MO of ``container`` cannot hold ``class_name``.
+
+    Only what it settles outright. A class it has never heard of -- the fabric
+    may be running a release newer than the bundle -- and one it marks
+    unconfigurable are both passed over, on either side of the containment: what
+    a record lists as its children are the configurable classes alone, so
+    reading an absence there as a refusal would be refusing over what the
+    dictionary leaves out rather than over what the input says. It is the
+    reading :func:`_class_at` takes of the same list.
+    """
+
+    if not _configurable(class_name, records) or not _configurable(container, records):
+        return False
+    return not _holds(container, class_name, records)
 
 
 # -- filling in what nothing describes -------------------------------------
@@ -384,6 +432,45 @@ def _unfillable_message(left: dict[str, str], index: dict[str, Mo]) -> str:
         f"sits there: no one configurable class is written that way and may hold what hangs "
         f"under {'it' if one else 'them'}. Write {'it' if one else 'them'} out, or drop what "
         f"hangs under {'it' if one else 'them'}."
+    )
+
+
+def _hangs_under(class_name: str, records: dict[str, dict[str, Any]]) -> str:
+    """Say where the dictionary has ``class_name`` hanging, or "" where it does not.
+
+    The parents a record carries are examples and not the whole of it -- see
+    :func:`_class_at` -- so what is written out is a count of the rest and not a
+    promise that the list is all of them.
+    """
+
+    record = _record(class_name, records)
+    parents = list(record.get("parents") or ())
+    if not parents:
+        return ""
+    named = ", ".join(parents[:_NAMED])
+    rest = len(parents) - _NAMED + (record.get("moreParents") or 0)
+    return f"{named}, and {rest} more" if rest > 0 else named
+
+
+def _misplaced_message(
+    misplaced: list[tuple[str, str, str]], records: dict[str, dict[str, Any]]
+) -> str:
+    """Say which MOs sit under an MO that cannot hold them, and where they belong."""
+
+    named = ", ".join(
+        f'{class_name} at "{dn}" (it hangs under {where}, not {container})'
+        if (where := _hangs_under(class_name, records))
+        else f'{class_name} at "{dn}" ({container} does not hold it)'
+        for class_name, dn, container in misplaced[:_NAMED]
+    )
+    if len(misplaced) > _NAMED:
+        named += f", and {len(misplaced) - _NAMED} more"
+    one = len(misplaced) == 1
+    return (
+        f"cannot fold {named} into one body: a merged body nests every MO under the MO it "
+        f"hangs off, and the APIC reads a child MO against what its parent may contain. "
+        f"Move {'it' if one else 'each of them'} under the MO it hangs off, or drop "
+        f"{'it' if one else 'them'}."
     )
 
 

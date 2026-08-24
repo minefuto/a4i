@@ -440,6 +440,91 @@ def test_what_was_filled_in_needs_no_filling_in_again() -> None:
     assert merge(once) == once
 
 
+# -- what the container cannot hold ----------------------------------------
+
+
+def test_an_mo_its_container_cannot_hold_is_refused() -> None:
+    # A root MO with no "dn" of its own resolves under uni, and an fvBD does not
+    # hang there. The DN it was given is a place the APIC would refuse, so the
+    # body is refused before it can be posted.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvBD", {"rn": "BD-aaa"}))
+    assert '"uni/BD-aaa"' in str(exc.value)
+
+
+def test_where_an_mo_belongs_is_named() -> None:
+    # The dictionary has fvBD hanging under fvTenant and nowhere else, and
+    # saying so is the whole of what has to be fixed.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvBD", {"dn": "uni/BD-aaa"}))
+    assert "it hangs under fvTenant, not polUni" in str(exc.value)
+
+
+def test_being_held_is_weighed_wherever_the_mo_sits() -> None:
+    # Not the roots alone: an fvBD nested in an fvAp is as unpostable as one
+    # nested under uni, and its DN is no more right for being deep.
+    with pytest.raises(ValueError) as exc:
+        merge(
+            mo(
+                "fvTenant",
+                {"name": "t"},
+                [mo("fvAp", {"name": "a"}, [mo("fvBD", {"name": "b"})])],
+            )
+        )
+    assert '"uni/tn-t/ap-a/BD-b"' in str(exc.value)
+    assert "not fvAp" in str(exc.value)
+
+
+def test_a_container_that_cannot_hold_is_refused_however_loose() -> None:
+    # loose fills in an ancestor nothing describes. An MO written where it
+    # cannot hang is written there whatever its ancestors are, so no filling in
+    # would answer this and loose does not relax it.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvBD", {"dn": "uni/BD-aaa"}), loose=True)
+    assert "it hangs under fvTenant, not polUni" in str(exc.value)
+
+
+def test_a_missing_ancestor_is_reported_before_what_a_container_cannot_hold() -> None:
+    # An MO with no container in the index has nothing to be weighed against,
+    # so the gap is what is reported -- and once loose has filled it in, the
+    # containment is weighed against what now stands there.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fvBD", {"dn": "uni/BD-a"}), mo("fvBD", {"dn": "uni/tn-t/BD-b"}))
+    assert 'nothing describes "uni/tn-t"' in str(exc.value)
+    assert "hangs under fvTenant, not polUni" not in str(exc.value)
+
+
+def test_what_the_dictionary_does_not_settle_is_held_by_anything() -> None:
+    # A class it has never heard of, and healthInst, which it knows and marks
+    # unconfigurable. What a record lists as its children are the configurable
+    # classes alone, so neither could appear there however right its place is:
+    # refusing them would be refusing over what the dictionary leaves out.
+    body = merge(
+        mo("fvTenant", {"name": "t"}, [mo("fooBar", {"rn": "foo-x"})]),
+        mo("healthInst", {"dn": "uni/tn-t/health"}),
+    )
+    assert dns(body) == ["uni/tn-t", "uni/tn-t/foo-x", "uni/tn-t/health"]
+
+
+def test_a_container_the_dictionary_does_not_know_holds_anything() -> None:
+    # The fabric may be running a release newer than the bundle, and an fvBD
+    # under a class it has never heard of is not something it can weigh.
+    body = merge(mo("fooBar", {"rn": "foo-x"}, [mo("fvBD", {"name": "b"})]))
+    assert dns(body) == ["uni/foo-x", "uni/foo-x/BD-b"]
+
+
+def test_a_class_written_under_itself_is_held() -> None:
+    # vnsDevFolder is one of the few classes the model has containing its own
+    # kind, and a folder inside a folder is how they are written.
+    body = merge(
+        mo("fvTenant", {"dn": "uni/tn-t"}),
+        mo("vnsLDevVip", {"dn": "uni/tn-t/lDevVip-d"}),
+        mo("vnsDevFolder", {"dn": "uni/tn-t/lDevVip-d/devFolder-f-key-k"}),
+        mo("vnsDevFolder", {"dn": "uni/tn-t/lDevVip-d/devFolder-f-key-k/devFolder-g-key-j"}),
+    )
+    assert dns(body)[-1] == "uni/tn-t/lDevVip-d/devFolder-f-key-k/devFolder-g-key-j"
+
+
 # -- a class the dictionary does not know ----------------------------------
 
 
