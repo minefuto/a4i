@@ -339,7 +339,7 @@ def distill(class_name: str, meta: dict[str, Any], configurable: set[str]) -> di
     record["children"] = sorted(
         name
         for name in (normalize(ref) for ref in meta.get("contains") or {})
-        if name in configurable and name != class_name
+        if name in configurable
     )
     return record
 
