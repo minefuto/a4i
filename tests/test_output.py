@@ -208,3 +208,19 @@ def test_json_is_written_past_richs_wrapping() -> None:
     output.render({"imdata": [{"fvTenant": {"attributes": {"dn": long_dn}}}]}, console=console)
     assert long_dn in _rendered(console)
     assert max(len(line) for line in _rendered(console).splitlines()) > 80
+
+
+# -- what a labelled line carries past rich ----------------------------------
+
+
+def test_a_message_is_written_as_itself_and_not_as_markup(capsys) -> None:
+    # A DN is written "annotationKey-[bootx.node.1.cimc]", and rich would read
+    # those brackets as a style and drop them -- from the very error telling
+    # somebody which DN to go and fix.
+    dn = "uni/controller/annotationKey-[bootx.node.1.cimc]"
+    output.print_error(f'nothing describes "{dn}"')
+    output.print_note(f"[dim]{dn}")
+    output.print_warning(f"[/]{dn}")
+    written = capsys.readouterr().err
+    assert written.count(dn) == 3
+    assert "[dim]" in written and "[/]" in written

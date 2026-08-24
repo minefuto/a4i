@@ -24,7 +24,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from a4i.metadata import describe, rn_format
+from a4i.metadata import describe, load_rn_formats, rn_format
 from a4i.mo import (
     ROOT,
     WRAPPER,
@@ -245,17 +245,15 @@ def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> 
     """Put an MO in the index at each DN nothing describes, and return what is left.
 
     A DN says what its MO is called and not what class it is, and a body cannot
-    be written without the class. It is read off the MOs that hang under the
-    gap: the dictionary says what may sit above each of them, and the RN of the
-    gap says which of those it is -- ``tn-t`` under an ``fvBD`` is an
+    be written without the class. It is read off the RN of the gap and the MOs
+    that hang under it: the dictionary says which classes are written that way,
+    and what each of them may hold -- ``tn-t`` above an ``fvBD`` is an
     ``fvTenant`` and nothing else.
 
     Only a class the dictionary gives an RN format is weighed, which is to say
     only a configurable one, so what gets filled in is always an MO a POST could
-    carry. Where more than one MO hangs under the gap they have to agree, and
-    each narrows the answer: what is filled in is what every one of them allows.
-    Anything the dictionary does not settle outright is left alone and handed
-    back -- guessing here is guessing at what the POST creates.
+    carry. Anything the dictionary does not settle outright is left alone and
+    handed back -- guessing here is guessing at what the POST creates.
 
     Deepest first, so a gap two levels up is read off the MO that was just
     filled in below it: an fvAEPg alone gives the fvAp, and the fvAp then gives
@@ -267,10 +265,10 @@ def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> 
         parent = parent_dn(dn)
         if parent is not None:
             below.setdefault(parent, []).append(node.class_name)
-    parents: dict[str, list[str]] = {}
+    records: dict[str, dict[str, Any]] = {}
     left: dict[str, str] = {}
     for dn in sorted(undescribed, key=lambda gap: (len(split_rns(gap)), gap), reverse=True):
-        class_name = _class_at(tail_rn(dn), below.get(dn, []), parents)
+        class_name = _class_at(tail_rn(dn), below.get(dn, []), records)
         if class_name is None:
             left[dn] = undescribed[dn]
             continue
@@ -281,47 +279,59 @@ def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> 
     return left
 
 
-def _class_at(rn: str, below: Iterable[str], parents: dict[str, list[str]]) -> str | None:
+def _class_at(rn: str, below: Iterable[str], records: dict[str, dict[str, Any]]) -> str | None:
     """Return the one class that can be named ``rn`` and hold all of ``below``.
 
-    None where the dictionary does not settle it: nothing hangs under the gap
-    that the dictionary knows, no class it allows above them is written that
-    way, or more than one is.
+    Read from the containing class down rather than from the contained class up.
+    The dictionary summarises what a class may hang under -- tagAnnotation hangs
+    under 2,866 of them, and writing every one out for each such class is
+    40,000 lines that say "anywhere" -- so a record's parents are examples and
+    not the whole of it. What a class may hold is not summarised, and is where
+    the answer is: see :func:`_holds`.
+
+    None where the dictionary does not settle it: no configurable class is
+    written that way, or more than one is and nothing under the gap tells them
+    apart.
     """
 
-    narrowed: set[str] | None = None
+    candidates = [name for name, fmt in load_rn_formats().items() if matches_rn(fmt, rn)]
     for class_name in below:
-        allowed = _parents_of(class_name, parents)
-        # A class the dictionary has never heard of allows nothing and rules out
-        # nothing: it is the dictionary falling short rather than a disagreement,
-        # and a sibling it does know settles the gap just the same.
-        if not allowed:
+        # A class the dictionary has never heard of, and one it marks
+        # unconfigurable, both narrow nothing: neither can appear in the list of
+        # children the narrowing reads, so weighing them would rule out every
+        # candidate over what the dictionary leaves out rather than over what
+        # the input says.
+        if not _configurable(class_name, records):
             continue
-        written = {
-            parent
-            for parent in allowed
-            if (fmt := rn_format(parent)) is not None and matches_rn(fmt, rn)
-        }
-        narrowed = written if narrowed is None else narrowed & written
-        if not narrowed:
+        candidates = [name for name in candidates if _holds(name, class_name, records)]
+        if not candidates:
             return None
-    if narrowed is None or len(narrowed) != 1:
-        return None
-    return next(iter(narrowed))
+    return candidates[0] if len(candidates) == 1 else None
 
 
-def _parents_of(class_name: str, parents: dict[str, list[str]]) -> list[str]:
-    """Return the classes an MO of ``class_name`` may hang under, read once each.
+def _configurable(class_name: str, records: dict[str, dict[str, Any]]) -> bool:
+    """True when the dictionary knows ``class_name`` and a body may write it."""
+
+    return bool(_record(class_name, records).get("configurable"))
+
+
+def _holds(class_name: str, child: str, records: dict[str, dict[str, Any]]) -> bool:
+    """True when an MO of ``class_name`` may have ``child`` hanging under it."""
+
+    return child in (_record(class_name, records).get("children") or ())
+
+
+def _record(class_name: str, records: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Return ``class_name``'s dictionary record, read once each.
 
     :func:`a4i.metadata.describe` is a seek and a parse of a record holding every
-    property of the class, and one gap is asked about it once per MO under it.
+    property of the class, and one class is asked about once per gap it is
+    weighed against.
     """
 
-    known = parents.get(class_name)
+    known = records.get(class_name)
     if known is None:
-        record = describe(class_name) or {}
-        known = [parent for parent in record.get("parents") or [] if isinstance(parent, str)]
-        parents[class_name] = known
+        known = records[class_name] = describe(class_name) or {}
     return known
 
 

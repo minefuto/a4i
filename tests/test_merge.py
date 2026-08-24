@@ -376,6 +376,55 @@ def test_a_gap_the_dictionary_does_not_settle_is_refused_even_when_asked() -> No
     assert "does not settle what class sits there" in message
 
 
+def test_a_gap_is_filled_in_over_a_class_whose_parents_are_summarised() -> None:
+    # tagAnnotation hangs under nearly every MO in the model, so the dictionary
+    # keeps eight of its 2,866 parents and a count. Reading the gap off what may
+    # hang under ctrlrInst rather than off that summary is what settles this.
+    body = merge(
+        mo("tagAnnotation", {"dn": "uni/controller/annotationKey-[bootx.node.1.cimc]"}),
+        loose=True,
+    )
+    assert walk(body) == [
+        ("ctrlrInst", "uni/controller", {"rn": "controller"}),
+        (
+            "tagAnnotation",
+            "uni/controller/annotationKey-[bootx.node.1.cimc]",
+            {"rn": "annotationKey-[bootx.node.1.cimc]"},
+        ),
+    ]
+
+
+def test_what_the_dictionary_cannot_weigh_narrows_nothing() -> None:
+    # A class it has never heard of, and healthInst, which it knows and marks
+    # unconfigurable: neither can appear among the children a gap is read off,
+    # so weighing them would rule out every candidate over what the dictionary
+    # leaves out. The fvSubnet beside them settles the gap just the same.
+    body = merge(
+        mo("fooBar", {"dn": "uni/tn-t/BD-b/foo-x"}),
+        mo("healthInst", {"dn": "uni/tn-t/BD-b/health"}),
+        mo("fvSubnet", {"dn": "uni/tn-t/BD-b/subnet-[10.0.0.1/24]"}),
+        loose=True,
+    )
+    assert [class_name for class_name, _, _ in walk(body)][:2] == ["fvTenant", "fvBD"]
+
+
+def test_a_gap_is_filled_in_from_its_rn_where_one_class_alone_is_written_that_way() -> None:
+    # Nothing under the gap tells the dictionary anything, but ctrlrInst is the
+    # one configurable class written "controller". That is the dictionary
+    # settling it outright rather than a guess at what the POST creates.
+    body = merge(mo("fooBar", {"dn": "uni/controller/foo-x"}), loose=True)
+    assert walk(body)[0] == ("ctrlrInst", "uni/controller", {"rn": "controller"})
+
+
+def test_a_gap_more_than_one_class_is_written_as_is_refused() -> None:
+    # fvTenant, plannerMatchTenant and plannerTenantTmpl are all written "tn-t",
+    # and an unknown class under the gap rules none of them out. Picking one
+    # would be guessing.
+    with pytest.raises(ValueError) as exc:
+        merge(mo("fooBar", {"dn": "uni/tn-t/foo-x"}), loose=True)
+    assert "does not settle what class sits there" in str(exc.value)
+
+
 def test_being_outside_uni_is_refused_however_loose() -> None:
     # Nothing that could be filled in would bring it under uni, so this refusal
     # is not one loose relaxes.

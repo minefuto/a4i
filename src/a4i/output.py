@@ -484,7 +484,7 @@ def _children_heading(children: list[str], *, shown: bool) -> Any:
 def print_error(message: str) -> None:
     """Print an error message to stderr."""
 
-    _console(stderr=True).print(f"[red]error:[/red] {message}")
+    _label("error: ", "red", message)
 
 
 def print_note(message: str) -> None:
@@ -494,10 +494,24 @@ def print_note(message: str) -> None:
     middle of the 40 that are about to be piped into something else.
     """
 
-    _console(stderr=True).print(f"[dim]note:[/dim] {message}")
+    _label("note: ", "dim", message)
 
 
 def print_warning(message: str) -> None:
     """Print a warning to stderr, for a command that still succeeded."""
 
-    _console(stderr=True).print(f"[yellow]warning:[/yellow] {message}")
+    _label("warning: ", "yellow", message)
+
+
+def _label(label: str, style: str, message: str) -> None:
+    """Write a labelled line to stderr, the message itself carrying no styling.
+
+    Assembled rather than written as rich markup, because the message is not
+    ours: a DN is written "annotationKey-[bootx.node.1.cimc]", and markup would
+    read the brackets as a style and drop them from the very error telling
+    somebody which DN to go and fix.
+    """
+
+    from rich.text import Text
+
+    _console(stderr=True).print(Text.assemble((label, style), message))

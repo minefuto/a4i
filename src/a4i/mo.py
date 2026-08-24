@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from functools import cache
 from typing import Any
 
 from a4i.metadata import rn_format
@@ -199,11 +200,23 @@ def matches_rn(fmt: str, rn: str) -> bool:
     other character of a format is itself.
     """
 
+    return _rn_pattern(fmt).fullmatch(rn) is not None
+
+
+@cache
+def _rn_pattern(fmt: str) -> re.Pattern[str]:
+    """The compiled reading of one RN format.
+
+    Cached because :mod:`a4i.merge` weighs one RN against every format the
+    dictionary holds, and compiling all 2,806 of them again per gap is the whole
+    cost of filling one in.
+    """
+
     parts = _SLOT.split(fmt)
     # _SLOT holds one group, so the split alternates literal, attribute name,
     # literal -- and the odd ones are the slots.
     pattern = "".join(".+" if index % 2 else re.escape(part) for index, part in enumerate(parts))
-    return re.fullmatch(pattern, rn, re.DOTALL) is not None
+    return re.compile(pattern, re.DOTALL)
 
 
 def pseudo_rn(class_name: str, attributes: dict[str, Any]) -> str:
