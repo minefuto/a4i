@@ -17,7 +17,9 @@ Anything it leaves out is reported as ``extra``, including the tenants and
 policies the APIC creates for itself. ``exclude`` narrows that: an MO named
 there, and everything under it, is left out of the comparison altogether. A name
 may hold a "*", which stands for any part of one RN -- ``uni/tn-test*`` -- and
-:class:`a4i.mo.Exclusions` is what reads one.
+one written with a leading "!" is an exception to the rest, which is how every
+tenant but ``uni/tn-mgmt`` is left out. :class:`a4i.mo.Exclusions` is what reads
+them.
 
 One configuration is compared, not several: folding several into one is
 :func:`a4i.merge.merge`, which this shares the reading of a body with but does
@@ -59,9 +61,9 @@ def compare(
     it counted rather than listed.
 
     ``exclude`` names MOs to leave out, each by its DN or by a pattern holding a
-    "*", and each standing for everything under it as well. See
-    :func:`_exclusions` for what a name there means and :func:`_prune` for what
-    leaving one out does.
+    "*", and each standing for everything under it as well; a leading "!" makes
+    one an exception to the others. See :func:`_exclusions` for what a name
+    there means and :func:`_prune` for what leaving one out does.
 
     Raises :class:`ValueError` if the configuration is not written as ACI
     expects (see :mod:`a4i.validate`), if an MO does not carry the properties
@@ -114,6 +116,12 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
     "**" is refused rather than read as two of them: matching across RNs is the
     one thing a pattern here does not do, and a "**" written for what gitignore
     means by it would otherwise match nothing and quietly exclude nothing.
+
+    A leading "!" makes the name an exception to the others -- everything under
+    ``uni/tn-*`` but ``uni/tn-mgmt`` -- and is read off before the rest of the
+    name is, so an exception is spelled and refused exactly as an exclusion is.
+    Nothing but exceptions is refused for the reason "**" is: it excludes
+    nothing, which is what the comparison already does.
     """
 
     if exclude is None:
@@ -121,7 +129,8 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
     given = [exclude] if isinstance(exclude, str) else list(exclude)
     dns: set[str] = set()
     for name in given:
-        dn = name.strip().strip("/")
+        kept = name.strip().startswith("!")
+        dn = name.strip().removeprefix("!").strip().strip("/")
         if not dn:
             raise ValueError("an excluded DN cannot be empty")
         if "**" in dn:
@@ -129,7 +138,12 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
                 f'"{dn}" cannot be excluded: "**" is not supported, and "*" matches within '
                 "one RN only -- name the depth, as in uni/tn-*/BD-*"
             )
-        dns.add(dn)
+        dns.add(f"!{dn}" if kept else dn)
+    if dns and all(dn.startswith("!") for dn in dns):
+        raise ValueError(
+            'a "!" name is an exception to what is excluded, so exceptions alone exclude '
+            'nothing -- name what to leave out as well, as in "uni/tn-*" with "!uni/tn-mgmt"'
+        )
     return Exclusions(dns)
 
 

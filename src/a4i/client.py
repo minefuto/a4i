@@ -311,7 +311,10 @@ class Client:
         never split, since an ACI naming value can hold a comma. A "*" in one
         makes it a pattern matching within a single RN -- ``uni/tn-test*`` is
         every tenant whose name starts with ``test`` -- and everything else,
-        brackets included, matches itself. See :class:`a4i.mo.Exclusions`.
+        brackets included, matches itself. A leading "!" makes one an exception
+        to the others, so ``["uni/tn-*", "!uni/tn-mgmt"]`` leaves out every
+        tenant but that one; exceptions alone are refused, as they would exclude
+        nothing. See :class:`a4i.mo.Exclusions`.
 
         This writes nothing: it issues GETs and nothing else, an excluded
         subtree included -- the exclusion is a comparison narrowed, not a fabric

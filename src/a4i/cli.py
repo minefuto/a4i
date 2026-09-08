@@ -879,8 +879,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATTERN",
         help=(
             "leave this MO and everything under it out of the comparison: a DN, or a "
-            "quoted pattern whose '*' matches within one RN, as in 'uni/tn-test*' "
-            "(repeatable)"
+            "quoted pattern whose '*' matches within one RN, as in 'uni/tn-test*'. "
+            "A leading '!' makes one an exception to the others, as in "
+            "--exclude 'uni/tn-*' --exclude '!uni/tn-mgmt' (repeatable)"
         ),
     )
     # Not "uncolored JSON output" as on get: diff prints a report, not JSON.

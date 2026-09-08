@@ -134,3 +134,39 @@ def test_a_star_does_not_reach_past_the_rn_it_is_written_in() -> None:
 def test_nothing_is_covered_when_nothing_is_excluded() -> None:
     assert not mo.Exclusions().covers("uni/tn-demo")
     assert not mo.Exclusions()
+
+
+# -- what an exception brings back -----------------------------------------
+
+
+def test_an_exception_covers_neither_the_mo_nor_its_subtree() -> None:
+    excluded = mo.Exclusions(["uni/tn-*", "!uni/tn-mgmt"])
+    assert excluded.covers("uni/tn-demo")
+    assert not excluded.covers("uni/tn-mgmt")
+    assert not excluded.covers("uni/tn-mgmt/BD-b/rsctx")
+
+
+def test_an_exception_outranks_an_exclusion_of_its_own_depth() -> None:
+    # Both name uni/tn-mgmt at the second RN, and the exception is the one that
+    # was written about that tenant rather than about tenants.
+    assert not mo.Exclusions(["uni/tn-*", "!uni/tn-mgmt"]).covers("uni/tn-mgmt")
+
+
+def test_a_deeper_exclusion_cuts_into_what_an_exception_brought_back() -> None:
+    excluded = mo.Exclusions(["uni/*", "!uni/tn-mgmt", "uni/tn-mgmt/BD-*"])
+    assert not excluded.covers("uni/tn-mgmt")
+    assert excluded.covers("uni/tn-mgmt/BD-b")
+    assert excluded.covers("uni/tn-mgmt/BD-b/rsctx")
+
+
+def test_the_order_the_names_are_given_in_settles_nothing() -> None:
+    names = ["uni/*", "!uni/tn-mgmt", "uni/tn-mgmt/BD-*"]
+    assert [mo.Exclusions(names).covers(dn) for dn in ("uni/tn-mgmt", "uni/tn-mgmt/BD-b")] == [
+        mo.Exclusions(reversed(names)).covers(dn) for dn in ("uni/tn-mgmt", "uni/tn-mgmt/BD-b")
+    ]
+
+
+def test_an_exception_on_its_own_covers_nothing() -> None:
+    excluded = mo.Exclusions(["!uni/tn-mgmt"])
+    assert not excluded
+    assert not excluded.covers("uni/tn-demo")

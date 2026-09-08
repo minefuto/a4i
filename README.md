@@ -160,6 +160,9 @@ The configuration is taken to describe the whole of `uni`, so everything it
 leaves out is `extra` -- including `tn-common`, `tn-infra`, `tn-mgmt` and the
 policies the APIC creates for itself. `--exclude` is how the rest is quietened:
 it takes a DN, or a pattern whose `*` matches within one RN, and is repeatable.
+A leading `!` makes one an exception to the others, so
+`--exclude 'uni/tn-*' --exclude '!uni/tn-mgmt'` compares that tenant and no
+other.
 
 `post --dry-run` reads the same way over a single POST: it fetches the subtree
 the body targets, prints what would change, and sends nothing. Both commands say

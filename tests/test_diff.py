@@ -760,3 +760,72 @@ def test_an_unidentified_mo_under_a_pattern_excluded_one_does_not_stop_the_compa
         [mo("fvBD", {"mtu": "9000"})],
     )
     assert compare(tenant, INTENDED[1], exclude="uni/tn-dem*") == []
+
+
+# -- MOs an exception brings back ------------------------------------------
+
+# tn-demo as the fabric has it, with one attribute changed: an exception is only
+# shown to work by a difference being reported through it.
+CHANGED_DEMO = mo(
+    "fvTenant",
+    {"dn": "uni/tn-demo", "name": "demo", "descr": "changed"},
+    [
+        mo("fvBD", {"name": "bd1", "mtu": "1500"}, [mo("fvRsCtx", {"tnFvCtxName": "v1"})]),
+        mo("fvBD", {"name": "bd2", "mtu": "1500"}),
+    ],
+)
+
+
+def test_an_exception_leaves_the_mo_it_names_in_the_comparison() -> None:
+    # Every tenant is excluded and one is named back in, so tn-common is silent
+    # and tn-demo is still held to the configuration.
+    reported = kinds(compare(CHANGED_DEMO, exclude=["uni/tn-*", "!uni/tn-demo"]))
+    assert reported == [("modified", "uni/tn-demo")]
+
+
+def test_an_exclusion_deeper_than_an_exception_is_the_one_that_counts() -> None:
+    # The tenant comes back and its BDs go, which is the only way to describe a
+    # tenant's own attributes and nothing under it.
+    tenant = mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "descr": "changed"})
+    reported = kinds(
+        compare(tenant, exclude=["uni/tn-*", "!uni/tn-demo", "uni/tn-demo/BD-*"], expand=True)
+    )
+    assert reported == [("modified", "uni/tn-demo")]
+
+
+def test_an_exception_is_read_with_or_without_its_spaces_and_slashes() -> None:
+    reported = kinds(compare(CHANGED_DEMO, exclude=["uni/tn-*", " ! /uni/tn-demo/ "]))
+    assert reported == [("modified", "uni/tn-demo")]
+
+
+def test_exceptions_on_their_own_are_refused() -> None:
+    # They exclude nothing, which is what the comparison does already: a name
+    # written this way and nothing else is a missing exclusion, not a request.
+    with pytest.raises(ValueError) as exc:
+        compare(*INTENDED, exclude="!uni/tn-common")
+    assert "exceptions alone exclude nothing" in str(exc.value)
+
+
+def test_an_exception_naming_nothing_is_refused() -> None:
+    with pytest.raises(ValueError) as exc:
+        compare(*INTENDED, exclude=["uni/tn-*", "!"])
+    assert "cannot be empty" in str(exc.value)
+
+
+def test_two_stars_are_refused_in_an_exception_too() -> None:
+    with pytest.raises(ValueError) as exc:
+        compare(*INTENDED, exclude=["uni/tn-*", "!uni/**/BD-bd1"])
+    assert '"**" is not supported' in str(exc.value)
+
+
+def test_an_unidentified_mo_an_exception_brought_back_is_still_refused() -> None:
+    # The exception reaches the merge side as the exclusion does: the subtree is
+    # compared again, so which fvBD the input meant has to be settled again.
+    tenant = mo(
+        "fvTenant",
+        {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
+        [mo("fvBD", {"mtu": "9000"})],
+    )
+    with pytest.raises(ValueError) as exc:
+        compare(tenant, exclude=["uni/tn-*", "!uni/tn-demo"])
+    assert "fvBD under uni/tn-demo" in str(exc.value)

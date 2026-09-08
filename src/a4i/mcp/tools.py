@@ -264,7 +264,10 @@ DIFF = _tool(
                 "Neither side of the comparison reports them. A '*' makes one a pattern "
                 "matching within a single RN -- uni/tn-test* is every tenant named "
                 "test..., and uni/tn-*/BD-* every BD of every tenant. Everything else, "
-                "brackets included, matches itself; '**' is not supported."
+                "brackets included, matches itself; '**' is not supported. A leading '!' "
+                "makes one an exception to the others, so ['uni/tn-*', '!uni/tn-mgmt'] "
+                "leaves out every tenant but that one; the deepest name given wins, and "
+                "exceptions on their own are refused."
             ),
         },
         "expand": {

@@ -20,7 +20,7 @@ RN would -- what it cannot do is be typed back into a query.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Container, Iterable
 from dataclasses import dataclass, field
 from functools import cache
 from typing import Any
@@ -332,7 +332,7 @@ def split_rns(dn: str) -> list[str]:
     return rns
 
 
-def is_under(dn: str, dns: frozenset[str]) -> bool:
+def is_under(dn: str, dns: Container[str]) -> bool:
     """True when ``dn`` is one of ``dns``, or hangs under one of them.
 
     The ancestors are walked with :func:`parent_dn` rather than matched against
@@ -347,6 +347,39 @@ def is_under(dn: str, dns: frozenset[str]) -> bool:
             return True
         current = parent_dn(current)
     return False
+
+
+class _Names:
+    """One side of an exclusion list: the DNs named outright and the patterns."""
+
+    def __init__(self) -> None:
+        self.literal: set[str] = set()
+        # Patterns by the number of RNs they hold. A pattern matches a DN of
+        # that depth alone, so this is both how one is found and what keeps
+        # every MO from being held against every pattern.
+        self.patterns: dict[int, list[tuple[Callable[[str], Any], ...]]] = {}
+
+    def __bool__(self) -> bool:
+        return bool(self.literal or self.patterns)
+
+    def add(self, dn: str) -> None:
+        if "*" not in dn:
+            self.literal.add(dn)
+            return
+        rns = split_rns(dn)
+        self.patterns.setdefault(len(rns), []).append(tuple(_rn_match(rn) for rn in rns))
+
+    def holds(self, ancestor: str, depth: int, rns: list[str]) -> bool:
+        """True when this side names ``ancestor``, the DN of ``rns`` cut at ``depth``."""
+
+        if ancestor in self.literal:
+            return True
+        # The zip stops at the pattern's own length, which is this depth: what
+        # it walks is the ancestor, not the whole DN.
+        return any(
+            all(matches(one) for matches, one in zip(pattern, rns, strict=False))
+            for pattern in self.patterns.get(depth, ())
+        )
 
 
 class Exclusions:
@@ -368,50 +401,52 @@ class Exclusions:
     Covering a subtree costs a pattern nothing extra: :meth:`covers` walks the
     ancestors the way :func:`is_under` does, so an MO under a covered one is
     covered too, whether or not a pattern would match its own DN.
+
+    A name written with a leading "!" is an exception rather than an exclusion:
+    ``["uni/tn-*", "!uni/tn-mgmt"]`` leaves out every tenant but that one. The
+    deepest ancestor to match decides, and an exception outranks an exclusion of
+    its own depth, so what an exception brought back can be cut into again
+    further down (``["uni/*", "!uni/tn-mgmt", "uni/tn-mgmt/BD-*"]``). Nothing
+    turns on the order the names are given in.
     """
 
     def __init__(self, dns: Iterable[str] = ()) -> None:
-        literal: set[str] = set()
-        # Patterns by the number of RNs they hold. A pattern matches a DN of
-        # that depth alone, so this is both how one is found and what keeps
-        # every MO from being held against every pattern.
-        patterns: dict[int, list[tuple[Callable[[str], Any], ...]]] = {}
+        self._out = _Names()
+        self._kept = _Names()
         for dn in dns:
-            if "*" not in dn:
-                literal.add(dn)
-                continue
-            rns = split_rns(dn)
-            patterns.setdefault(len(rns), []).append(tuple(_rn_match(rn) for rn in rns))
-        self._literal = frozenset(literal)
-        self._patterns = patterns
+            (self._kept if dn.startswith("!") else self._out).add(dn.removeprefix("!"))
 
     def __bool__(self) -> bool:
-        return bool(self._literal or self._patterns)
+        # Exceptions on their own exclude nothing, and leave a comparison with
+        # no pruning to do.
+        return bool(self._out)
 
     def covers(self, dn: str) -> bool:
         """True when ``dn`` is left out, whether named outright or by a pattern.
 
         With nothing but DNs to go on this is :func:`is_under` and no more,
         which is what every comparison written before patterns existed pays.
-        With a pattern in hand the DN is taken apart once and both are read off
-        the one walk down it: an ancestor is a DN to look up and a list of RNs
-        to match, and splitting it twice cost more than the matching did.
+        Otherwise the DN is taken apart once and every name is read off the one
+        walk down it: an ancestor is a DN to look up and a list of RNs to match,
+        and splitting it twice cost more than the matching did.
+
+        That walk runs to the bottom rather than stopping at the first exclusion
+        it meets, because a deeper name overrules a shallower one both ways and
+        only the last word counts.
         """
 
-        if not self._patterns:
-            return is_under(dn, self._literal)
+        if not (self._out.patterns or self._kept):
+            return is_under(dn, self._out.literal)
         rns = split_rns(dn)
+        covered = False
         ancestor = ""
         for depth, rn in enumerate(rns, start=1):
             ancestor = rn if depth == 1 else f"{ancestor}/{rn}"
-            if ancestor in self._literal:
-                return True
-            for pattern in self._patterns.get(depth, ()):
-                # The zip stops at the pattern's own length, which is this
-                # depth: what it walks is the ancestor, not the whole DN.
-                if all(matches(one) for matches, one in zip(pattern, rns, strict=False)):
-                    return True
-        return False
+            if self._kept.holds(ancestor, depth, rns):
+                covered = False
+            elif self._out.holds(ancestor, depth, rns):
+                covered = True
+        return covered
 
 
 def _rn_match(rn: str) -> Callable[[str], Any]:

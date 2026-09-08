@@ -214,7 +214,9 @@ Note that it treats the configuration as describing the *whole* of `uni`, so a
 configuration covering one tenant reports the rest of the fabric as extra. Use
 `exclude` to leave subtrees out -- `uni/tn-common`, `uni/tn-infra`,
 `uni/tn-mgmt` and `uni/infra` are the usual ones. A `*` in one matches within a
-single RN, so `uni/tn-test*` leaves out every tenant named `test...`.
+single RN, so `uni/tn-test*` leaves out every tenant named `test...`. A leading
+`!` makes one an exception to the others: `["uni/tn-*", "!uni/tn-mgmt"]` compares
+that tenant and no other.
 """
 
 
