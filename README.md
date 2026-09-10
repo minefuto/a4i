@@ -162,7 +162,9 @@ policies the APIC creates for itself. `--exclude` is how the rest is quietened:
 it takes a DN, or a pattern whose `*` matches within one RN, and is repeatable.
 A leading `!` makes one an exception to the others, so
 `--exclude 'uni/tn-*' --exclude '!uni/tn-mgmt'` compares that tenant and no
-other.
+other. A trailing `[key=value]` narrows one to the MOs whose attribute matches,
+for what a DN cannot tell apart:
+`--exclude 'uni/infra/accportprof-*/hports-*[descr=auto-*]'`.
 
 `post --dry-run` reads the same way over a single POST: it fetches the subtree
 the body targets, prints what would change, and sends nothing. Both commands say

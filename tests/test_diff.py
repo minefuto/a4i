@@ -56,7 +56,9 @@ INTENDED = [
 ]
 
 
-def compare(*mos, imdata: list | None = None, expand: bool = False, exclude=None) -> list:
+def compare(
+    *mos, imdata: list | None = None, expand: bool = False, exclude=None, on_unused=None
+) -> list:
     """Compare one configuration made of the MOs given, against FABRIC.
 
     diff takes a single body, and a list of MOs is one. So the arguments here
@@ -66,7 +68,11 @@ def compare(*mos, imdata: list | None = None, expand: bool = False, exclude=None
 
     config = [one for arg in mos for one in (arg if isinstance(arg, list) else [arg])]
     return diff.compare(
-        config, FABRIC if imdata is None else imdata, expand=expand, exclude=exclude
+        config,
+        FABRIC if imdata is None else imdata,
+        expand=expand,
+        exclude=exclude,
+        on_unused=on_unused,
     )
 
 
@@ -829,3 +835,170 @@ def test_an_unidentified_mo_an_exception_brought_back_is_still_refused() -> None
     with pytest.raises(ValueError) as exc:
         compare(tenant, exclude=["uni/tn-*", "!uni/tn-demo"])
     assert "fvBD under uni/tn-demo" in str(exc.value)
+
+
+# -- MOs left out by an attribute condition ---------------------------------
+
+# Two tenants a DN tells apart no better than a pattern does: what separates
+# them is what an attribute says, which is what a condition is for.
+MARKED = [
+    mo(
+        "fvTenant",
+        {"dn": "uni/tn-a", "name": "a", "descr": "auto-generated"},
+        [mo("fvBD", {"dn": "uni/tn-a/BD-b", "name": "b"})],
+    ),
+    mo("fvTenant", {"dn": "uni/tn-b", "name": "b", "descr": "by hand"}),
+]
+BY_HAND = mo("fvTenant", {"dn": "uni/tn-b", "name": "b", "descr": "by hand"})
+
+
+def test_a_condition_excludes_the_mos_whose_attribute_matches() -> None:
+    assert compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]") == []
+
+
+def test_a_condition_excludes_everything_under_what_it_matched() -> None:
+    # The BD hangs under the matched tenant and is left out with it, the way a
+    # DN named outright takes its subtree.
+    assert compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]", expand=True) == []
+
+
+def test_an_mo_the_condition_does_not_match_is_still_compared() -> None:
+    reported = kinds(compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=by*]"))
+    assert reported == [("extra", "uni/tn-a")]
+
+
+def test_the_value_is_matched_in_full_rather_than_anywhere_in_it() -> None:
+    # "auto" is not the whole of "auto-generated", so nothing is left out.
+    reported = kinds(compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto]"))
+    assert reported == [("extra", "uni/tn-a")]
+
+
+def test_the_fabric_value_alone_is_enough_to_leave_an_mo_out() -> None:
+    # The configuration calls it something else, so a condition read off the
+    # intended side alone would drop one side of a pair and report the other
+    # modified -- an exclusion inventing the difference it was written to quiet.
+    intended = mo("fvTenant", {"dn": "uni/tn-a", "name": "a", "descr": "by hand"})
+    assert compare(intended, BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]") == []
+
+
+def test_the_intended_value_alone_is_enough_to_leave_an_mo_out() -> None:
+    # This tenant is on neither the fabric nor in MARKED, so without the
+    # condition it is missing; the configuration's own descr matches it.
+    wanted = mo("fvTenant", {"dn": "uni/tn-c", "name": "c", "descr": "auto-made"})
+    assert compare(BY_HAND, wanted, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]") == []
+
+
+def test_an_mo_without_the_attribute_is_not_left_out() -> None:
+    # tn-b carries no "annotation" at all, and a condition asks what a value is.
+    reported = kinds(compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[annotation=*]"))
+    assert reported == [("extra", "uni/tn-a")]
+
+
+def test_a_condition_matches_at_its_own_depth_alone() -> None:
+    # The BD is one deeper than the pattern, so it is not tested against it --
+    # it is left out because the tenant above it was.
+    reported = kinds(compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[name=b]", expand=True))
+    assert reported == [("extra", "uni/tn-a"), ("extra", "uni/tn-a/BD-b")]
+
+
+def test_a_dn_ending_in_a_bracket_is_not_read_as_a_condition() -> None:
+    # A naming value holds no "=", which is the whole of the rule: this ends in
+    # a "]" and is a DN, brackets and all.
+    subnet = [
+        mo(
+            "fvTenant",
+            {"dn": "uni/tn-x", "name": "x"},
+            [
+                mo(
+                    "fvBD",
+                    {"dn": "uni/tn-x/BD-b", "name": "b"},
+                    [
+                        mo(
+                            "fvSubnet",
+                            {"dn": "uni/tn-x/BD-b/subnet-[10.0.0.1/24]", "ip": "10.0.0.1/24"},
+                        )
+                    ],
+                )
+            ],
+        )
+    ]
+    config = mo(
+        "fvTenant",
+        {"dn": "uni/tn-x", "name": "x"},
+        [mo("fvBD", {"name": "b"})],
+    )
+    assert compare(config, imdata=subnet, exclude="uni/tn-x/BD-b/subnet-[10.0.0.1/24]") == []
+
+
+def test_a_dn_ending_in_a_bracket_can_still_carry_a_condition() -> None:
+    subnet = [
+        mo(
+            "fvTenant",
+            {"dn": "uni/tn-x", "name": "x"},
+            [
+                mo(
+                    "fvBD",
+                    {"dn": "uni/tn-x/BD-b", "name": "b"},
+                    [
+                        mo(
+                            "fvSubnet",
+                            {
+                                "dn": "uni/tn-x/BD-b/subnet-[10.0.0.1/24]",
+                                "ip": "10.0.0.1/24",
+                                "descr": "auto-made",
+                            },
+                        )
+                    ],
+                )
+            ],
+        )
+    ]
+    config = mo(
+        "fvTenant",
+        {"dn": "uni/tn-x", "name": "x"},
+        [mo("fvBD", {"name": "b"})],
+    )
+    left_out = "uni/tn-x/BD-b/subnet-[10.0.0.1/24][descr=auto-*]"
+    assert compare(config, imdata=subnet, exclude=left_out) == []
+
+
+def test_an_exception_may_carry_a_condition_of_its_own() -> None:
+    # Every tenant is left out, but the one the fabric marked by hand comes back
+    # -- and it differs, which is what the comparison is then free to say.
+    changed = mo("fvTenant", {"dn": "uni/tn-b", "name": "b", "descr": "changed"})
+    (change,) = compare(changed, imdata=MARKED, exclude=["uni/tn-*", "!uni/tn-*[descr=by*]"])
+    assert (change.kind, change.dn) == ("modified", "uni/tn-b")
+
+
+def test_a_condition_that_matched_nothing_is_reported_to_the_caller() -> None:
+    # A DN naming nothing says something about the fabric; a condition matching
+    # nothing is as likely a misspelt attribute, which leaves nothing out at all.
+    unused: list[str] = []
+    compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[desc=auto-*]", on_unused=unused.extend)
+    assert unused == ["uni/tn-*[desc=auto-*]"]
+
+
+def test_a_condition_that_matched_something_is_not_reported() -> None:
+    unused: list[str] = []
+    compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]", on_unused=unused.extend)
+    assert unused == []
+
+
+def test_a_condition_naming_no_attribute_is_refused() -> None:
+    with pytest.raises(ValueError) as exc:
+        compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[=auto-*]")
+    assert "names an attribute" in str(exc.value)
+
+
+def test_a_condition_does_not_excuse_an_unidentified_mo_under_it() -> None:
+    # Which fvBD the input meant cannot be answered from a DN, and neither can
+    # the condition: it is settled once the MOs are indexed, which is after the
+    # input had to name this one.
+    tenant = mo(
+        "fvTenant",
+        {"dn": "uni/tn-a", "name": "a", "descr": "auto-generated"},
+        [mo("fvBD", {"mtu": "9000"})],
+    )
+    with pytest.raises(ValueError) as exc:
+        compare(tenant, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]")
+    assert "fvBD under uni/tn-a" in str(exc.value)

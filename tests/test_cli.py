@@ -989,3 +989,22 @@ def test_generate_shell_completion_rejects_an_unknown_shell(capsys) -> None:
         cli.main(["generate-shell-completion", "tcsh"])
     assert exit.value.code == 2
     assert "tcsh" in capsys.readouterr().err
+
+
+def test_diff_leaves_out_an_mo_by_an_attribute_condition(monkeypatch, capsys) -> None:
+    # The BD would be extra; its mtu is what names it rather than its DN.
+    quiet = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "name": "demo", "descr": ""}}}
+    argv = ["diff", json.dumps(quiet), "--exclude", "uni/tn-demo/BD-*[mtu=1500]"]
+    code, _ = _run_diff(monkeypatch, argv)
+    assert capsys.readouterr().out.strip() == "no differences"
+    assert code == 0
+
+
+def test_diff_warns_about_a_condition_that_matched_nothing(monkeypatch, capsys) -> None:
+    # A misspelt attribute leaves nothing out, and would otherwise say nothing.
+    argv = ["diff", json.dumps(INTENDED), "--exclude", "uni/tn-demo/BD-*[mut=1500]"]
+    code, _ = _run_diff(monkeypatch, argv)
+    captured = capsys.readouterr()
+    assert "no MO matched" in captured.err
+    # The comparison itself stands, so the exit code is the one it earned.
+    assert code == 0

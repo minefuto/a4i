@@ -18,8 +18,9 @@ policies the APIC creates for itself. ``exclude`` narrows that: an MO named
 there, and everything under it, is left out of the comparison altogether. A name
 may hold a "*", which stands for any part of one RN -- ``uni/tn-test*`` -- and
 one written with a leading "!" is an exception to the rest, which is how every
-tenant but ``uni/tn-mgmt`` is left out. :class:`a4i.mo.Exclusions` is what reads
-them.
+tenant but ``uni/tn-mgmt`` is left out. One may also end with an attribute
+condition -- ``uni/infra/accportprof-*/hports-*[descr=auto-*]`` -- for the MOs a
+DN cannot tell apart. :class:`a4i.mo.Exclusions` is what reads them.
 
 One configuration is compared, not several: folding several into one is
 :func:`a4i.merge.merge`, which this shares the reading of a body with but does
@@ -31,11 +32,11 @@ DNs as it once did -- is nothing this has to know: a body is read down from
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from a4i.merge import Intended, unidentified_message
-from a4i.mo import META, Change, Exclusions, Tree, parent_dn, text
+from a4i.mo import META, Change, Exclusions, Tree, parent_dn, split_condition, text
 from a4i.validate import check
 
 # What the merged configuration carries for the sake of a POST and a comparison
@@ -50,6 +51,7 @@ def compare(
     *,
     expand: bool = False,
     exclude: str | Sequence[str] | None = None,
+    on_unused: Callable[[list[str]], None] | None = None,
 ) -> list[Change]:
     """Return how ``imdata`` differs from the intended configuration.
 
@@ -62,8 +64,14 @@ def compare(
 
     ``exclude`` names MOs to leave out, each by its DN or by a pattern holding a
     "*", and each standing for everything under it as well; a leading "!" makes
-    one an exception to the others. See :func:`_exclusions` for what a name
+    one an exception to the others, and a trailing ``[key=value]`` narrows one to
+    the MOs whose attribute matches. See :func:`_exclusions` for what a name
     there means and :func:`_prune` for what leaving one out does.
+
+    ``on_unused`` is called with the conditioned names that matched no MO at all,
+    if any did not. Nothing here writes anywhere, so a caller that wants to say
+    so passes what says it: :mod:`a4i.cli` prints a warning and goes on, since
+    leaving nothing out is not a comparison that failed.
 
     Raises :class:`ValueError` if the configuration is not written as ACI
     expects (see :mod:`a4i.validate`), if an MO does not carry the properties
@@ -90,6 +98,10 @@ def compare(
     # Emptiness is judged before pruning, so a configuration whose every MO is
     # excluded is a comparison narrowed to nothing -- which is a report with no
     # differences in it -- and not an input that said nothing.
+    excluded.resolve(intended.index)
+    excluded.resolve(actual.index)
+    if on_unused is not None and (unused := excluded.unused()):
+        on_unused(unused)
     _prune(intended.index, excluded)
     _prune(actual.index, excluded)
     changes = _missing_and_modified(intended, actual, expand=expand)
@@ -122,6 +134,14 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
     name is, so an exception is spelled and refused exactly as an exclusion is.
     Nothing but exceptions is refused for the reason "**" is: it excludes
     nothing, which is what the comparison already does.
+
+    A trailing ``[key=value]`` is an attribute condition, and everything above
+    is said of the DN before it: the condition is cut off first, so a trailing
+    "/" and a "**" are judged on the DN alone. One condition, not several -- a
+    "," would be read as one where an ACI ``descr`` holds one of its own -- and
+    an empty key is refused, being a condition on no attribute. The value is a
+    "*" pattern as an RN is, and needs no "**" rule: an attribute value has no
+    "/" to cross.
     """
 
     if exclude is None:
@@ -130,7 +150,8 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
     dns: set[str] = set()
     for name in given:
         kept = name.strip().startswith("!")
-        dn = name.strip().removeprefix("!").strip().strip("/")
+        rest, condition = split_condition(name.strip().removeprefix("!").strip())
+        dn = rest.strip().strip("/")
         if not dn:
             raise ValueError("an excluded DN cannot be empty")
         if "**" in dn:
@@ -138,6 +159,14 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
                 f'"{dn}" cannot be excluded: "**" is not supported, and "*" matches within '
                 "one RN only -- name the depth, as in uni/tn-*/BD-*"
             )
+        if condition is not None:
+            key, value = condition
+            if not key:
+                raise ValueError(
+                    f'"{name.strip()}" cannot be excluded: a condition names an attribute, '
+                    "as in uni/tn-*/BD-*[descr=auto-*]"
+                )
+            dn = f"{dn}[{key}={value}]"
         dns.add(f"!{dn}" if kept else dn)
     if dns and all(dn.startswith("!") for dn in dns):
         raise ValueError(

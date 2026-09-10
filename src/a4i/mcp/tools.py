@@ -267,7 +267,10 @@ DIFF = _tool(
                 "brackets included, matches itself; '**' is not supported. A leading '!' "
                 "makes one an exception to the others, so ['uni/tn-*', '!uni/tn-mgmt'] "
                 "leaves out every tenant but that one; the deepest name given wins, and "
-                "exceptions on their own are refused."
+                "exceptions on their own are refused. A trailing [key=value] narrows one "
+                "to the MOs whose attribute matches -- uni/tn-*/BD-*[descr=auto-*] -- for "
+                "what a DN cannot tell apart; the value is a '*' pattern, one condition "
+                "per name, and either side's value is enough to leave the MO out."
             ),
         },
         "expand": {
@@ -573,12 +576,22 @@ def _diff(arguments: dict[str, Any]) -> str:
     from a4i.output import diff_report
 
     body = _one_body(arguments, "diff")
+    unused: list[str] = []
     changes = _client().diff(
         body,
         expand=bool(arguments.get("expand")),
         exclude=list(arguments.get("exclude") or []) or None,
+        on_unused=unused.extend,
     )
-    return diff_report(changes)
+    report = diff_report(changes)
+    if not unused:
+        return report
+    # Ahead of the report rather than after it: what the comparison left out is
+    # what the report has to be read against.
+    warnings = [
+        f"warning: exclude {name}: no MO matched, so nothing was left out by it" for name in unused
+    ]
+    return "\n".join([*warnings, "", report])
 
 
 def _list(arguments: dict[str, Any]) -> str:

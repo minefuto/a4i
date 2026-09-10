@@ -289,11 +289,18 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     files is folded into that one body first with 'a4i merge'.
     """
 
-    from a4i.output import print_error, render_diff
+    from a4i.output import print_error, print_warning, render_diff
+
+    def unused(names: list[str]) -> None:
+        # An --exclude whose condition matched nothing left nothing out, and a
+        # misspelt attribute is the likeliest reason. Said and gone on with:
+        # the comparison itself is sound, and the report is what was asked for.
+        for name in names:
+            print_warning(f"--exclude {name}: no MO matched, so nothing was left out by it")
 
     config = args.body if args.body is not None else sys.stdin.read()
     try:
-        changes = _client().diff(config, expand=args.expand, exclude=args.exclude)
+        changes = _client().diff(config, expand=args.expand, exclude=args.exclude, on_unused=unused)
     except ValueError as exc:
         # An MO in the input whose DN cannot be worked out, or an --exclude that
         # is empty or holds "**". Comparing the rest would report a fabric that
@@ -881,7 +888,9 @@ def build_parser() -> argparse.ArgumentParser:
             "leave this MO and everything under it out of the comparison: a DN, or a "
             "quoted pattern whose '*' matches within one RN, as in 'uni/tn-test*'. "
             "A leading '!' makes one an exception to the others, as in "
-            "--exclude 'uni/tn-*' --exclude '!uni/tn-mgmt' (repeatable)"
+            "--exclude 'uni/tn-*' --exclude '!uni/tn-mgmt'. A trailing [key=value] "
+            "narrows one to the MOs whose attribute matches, as in "
+            "'uni/tn-*/BD-*[descr=auto-*]' (repeatable)"
         ),
     )
     # Not "uncolored JSON output" as on get: diff prints a report, not JSON.

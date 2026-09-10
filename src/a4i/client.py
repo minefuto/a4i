@@ -19,7 +19,7 @@ the awaiting.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
@@ -294,6 +294,7 @@ class Client:
         *,
         expand: bool = False,
         exclude: str | Sequence[str] | None = None,
+        on_unused: Callable[[list[str]], None] | None = None,
     ) -> list[mo.Change]:
         """Return how the fabric differs from the configuration ``config`` gives.
 
@@ -314,7 +315,12 @@ class Client:
         brackets included, matches itself. A leading "!" makes one an exception
         to the others, so ``["uni/tn-*", "!uni/tn-mgmt"]`` leaves out every
         tenant but that one; exceptions alone are refused, as they would exclude
-        nothing. See :class:`a4i.mo.Exclusions`.
+        nothing. A trailing ``[key=value]`` narrows one to the MOs whose attribute
+        matches -- ``uni/tn-*/BD-*[descr=auto-*]`` -- the value read as a "*"
+        pattern, and either side's value is enough to leave the MO out.
+        ``on_unused`` is called with the conditioned names that matched no MO at
+        all, a misspelt attribute being the one way this quietly leaves nothing
+        out. See :class:`a4i.mo.Exclusions`.
 
         This writes nothing: it issues GETs and nothing else, an excluded
         subtree included -- the exclusion is a comparison narrowed, not a fabric
@@ -324,7 +330,9 @@ class Client:
         """
 
         _, parsed = _read_body(config)
-        return diff.compare(parsed, self._fetch_uni(), expand=expand, exclude=exclude)
+        return diff.compare(
+            parsed, self._fetch_uni(), expand=expand, exclude=exclude, on_unused=on_unused
+        )
 
     # -- internals --------------------------------------------------------
 
@@ -554,6 +562,7 @@ class AsyncClient:
         *,
         expand: bool = False,
         exclude: str | Sequence[str] | None = None,
+        on_unused: Callable[[list[str]], None] | None = None,
     ) -> list[mo.Change]:
         """Return how the fabric differs from the configuration ``config`` gives.
 
@@ -561,7 +570,9 @@ class AsyncClient:
         """
 
         _, parsed = _read_body(config)
-        return diff.compare(parsed, await self._fetch_uni(), expand=expand, exclude=exclude)
+        return diff.compare(
+            parsed, await self._fetch_uni(), expand=expand, exclude=exclude, on_unused=on_unused
+        )
 
     # -- internals --------------------------------------------------------
 

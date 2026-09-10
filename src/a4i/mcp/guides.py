@@ -216,7 +216,9 @@ configuration covering one tenant reports the rest of the fabric as extra. Use
 `uni/tn-mgmt` and `uni/infra` are the usual ones. A `*` in one matches within a
 single RN, so `uni/tn-test*` leaves out every tenant named `test...`. A leading
 `!` makes one an exception to the others: `["uni/tn-*", "!uni/tn-mgmt"]` compares
-that tenant and no other.
+that tenant and no other. A trailing `[key=value]` narrows one to the MOs whose
+attribute matches, for what a DN cannot tell apart:
+`uni/infra/accportprof-*/hports-*[descr=auto-*]`.
 """
 
 

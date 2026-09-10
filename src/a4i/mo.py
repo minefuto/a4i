@@ -349,6 +349,52 @@ def is_under(dn: str, dns: Container[str]) -> bool:
     return False
 
 
+def split_condition(name: str) -> tuple[str, tuple[str, str] | None]:
+    """Split ``dn[key=value]`` into the DN and its attribute condition, if any.
+
+    A DN of its own ends with a "]" often enough -- ``subnet-[10.0.0.1/24]``,
+    ``rspathAtt-[topology/pod-1/paths-101/pathep-[eth1/1]]`` -- so a trailing
+    bracket group is a condition only when it holds a "=", which no ACI naming
+    value does. Nothing else is read: the group nearest the end is the
+    condition, and what precedes it is the DN, brackets of its own included.
+    """
+
+    if not name.endswith("]"):
+        return name, None
+    start = name.rfind("[")
+    if start < 0:
+        return name, None
+    key, sep, value = name[start + 1 : -1].partition("=")
+    if not sep:
+        return name, None
+    return name[:start], (key, value)
+
+
+@dataclass
+class _Conditioned:
+    """A name that also holds an attribute condition, and cannot be settled yet.
+
+    Which MOs it covers is a question about their attributes, so it waits for
+    :meth:`Exclusions.resolve` to bring it the MOs of each side.
+    """
+
+    name: str
+    rns: tuple[Callable[[str], Any], ...]
+    key: str
+    value: Callable[[str], Any]
+    used: bool = False
+
+    def matches(self, rns: list[str], attributes: dict[str, Any]) -> bool:
+        if len(self.rns) != len(rns):
+            return False
+        value = attributes.get(self.key)
+        # An MO without the attribute is not a match: the condition asks what
+        # the value is, and an absent one has no value to be.
+        if value is None or not self.value(text(value)):
+            return False
+        return all(matches(one) for matches, one in zip(self.rns, rns, strict=True))
+
+
 class _Names:
     """One side of an exclusion list: the DNs named outright and the patterns."""
 
@@ -358,11 +404,21 @@ class _Names:
         # that depth alone, so this is both how one is found and what keeps
         # every MO from being held against every pattern.
         self.patterns: dict[int, list[tuple[Callable[[str], Any], ...]]] = {}
+        self.conditioned: list[_Conditioned] = []
 
     def __bool__(self) -> bool:
-        return bool(self.literal or self.patterns)
+        return bool(self.literal or self.patterns or self.conditioned)
 
-    def add(self, dn: str) -> None:
+    def add(self, name: str) -> None:
+        dn, condition = split_condition(name)
+        if condition is not None:
+            key, value = condition
+            self.conditioned.append(
+                _Conditioned(
+                    name, tuple(_rn_match(rn) for rn in split_rns(dn)), key, _rn_match(value)
+                )
+            )
+            return
         if "*" not in dn:
             self.literal.add(dn)
             return
@@ -408,6 +464,16 @@ class Exclusions:
     its own depth, so what an exception brought back can be cut into again
     further down (``["uni/*", "!uni/tn-mgmt", "uni/tn-mgmt/BD-*"]``). Nothing
     turns on the order the names are given in.
+
+    A name may end with one attribute condition -- ``uni/tn-*/BD-*[descr=auto-*]``
+    -- which narrows it to the MOs of that depth whose attribute matches, the
+    value read as a "*" pattern like an RN. A condition cannot be answered from
+    a DN, so :meth:`resolve` settles it against each side's MOs before
+    :meth:`covers` is asked anything, and what it matched is held as the DNs it
+    matched. Both sides are resolved and the matches are pooled: an MO the
+    configuration and the fabric disagree about is left out on the strength of
+    either value, since dropping it from one side alone would report it missing
+    or extra -- an exclusion inventing the difference it was written to quiet.
     """
 
     def __init__(self, dns: Iterable[str] = ()) -> None:
@@ -415,6 +481,40 @@ class Exclusions:
         self._kept = _Names()
         for dn in dns:
             (self._kept if dn.startswith("!") else self._out).add(dn.removeprefix("!"))
+
+    def resolve(self, index: dict[str, Any]) -> None:
+        """Settle every conditioned name against one side's MOs, in place.
+
+        Called once per side, and before :meth:`covers` is asked anything: what
+        a conditioned name matched is added to the DNs named outright, so every
+        later question is the DN question it always was -- the ancestor walk
+        included, which is what carries an exclusion down a subtree.
+        """
+
+        if not (self._out.conditioned or self._kept.conditioned):
+            return
+        for dn, node in index.items():
+            rns = split_rns(dn)
+            for names in (self._out, self._kept):
+                for one in names.conditioned:
+                    if one.matches(rns, node.attributes):
+                        one.used = True
+                        names.literal.add(dn)
+
+    def unused(self) -> list[str]:
+        """Return the conditioned names that matched no MO on either side.
+
+        A DN naming nothing says something about the fabric and is left alone;
+        a condition matching nothing is as likely a misspelt attribute, which
+        would otherwise quietly leave nothing out at all.
+        """
+
+        return sorted(
+            one.name
+            for names in (self._out, self._kept)
+            for one in names.conditioned
+            if not one.used
+        )
 
     def __bool__(self) -> bool:
         # Exceptions on their own exclude nothing, and leave a comparison with
