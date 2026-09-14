@@ -187,13 +187,33 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                 json={"totalCount": str(len(children)), "imdata": children},
             )
         if path == "/api/mo/uni/tn-common.json":
+            if params.get("query-target") == "children":
+                # A children query answers with the children alone, each a
+                # top-level MO of the response carrying its own dn.
+                children = [
+                    {"fvAp": {"attributes": {"dn": "uni/tn-common/ap-web"}}},
+                    {"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}},
+                ]
+                return httpx2.Response(
+                    200, json={"totalCount": str(len(children)), "imdata": children}
+                )
+            # A subtree GET answers with the one MO it was asked for, its
+            # children nested inside it, which is why totalCount is 1: see
+            # a4i.client._check_complete.
             return httpx2.Response(
                 200,
                 json={
-                    "totalCount": "2",
+                    "totalCount": "1",
                     "imdata": [
-                        {"fvAp": {"attributes": {"dn": "uni/tn-common/ap-web"}}},
-                        {"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}},
+                        {
+                            "fvTenant": {
+                                "attributes": {"dn": "uni/tn-common", "name": "common"},
+                                "children": [
+                                    {"fvAp": {"attributes": {"rn": "ap-web"}}},
+                                    {"fvBD": {"attributes": {"rn": "BD-default"}}},
+                                ],
+                            }
+                        }
                     ],
                 },
             )

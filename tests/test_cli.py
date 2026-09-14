@@ -601,6 +601,51 @@ INTENDED = {
 }
 
 
+# -- fetch (the fabric as an intended configuration) ------------------------
+
+
+def _run_fetch(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
+    """Run a fetch command line and return its exit code and the requests made."""
+
+    sent: list[dict] = []
+
+    _record(monkeypatch, sent, lambda target: FABRIC.get(target, {"imdata": []}))
+    return cli.main(argv), sent
+
+
+def test_fetch_reads_uni_and_writes_a_merged_body_to_stdout(monkeypatch, capsys) -> None:
+    code, sent = _run_fetch(monkeypatch, ["fetch"])
+    assert code == 0
+    # The same walk a diff makes: uni is listed, then each child fetched whole.
+    assert [request["target"] for request in sent] == ["uni", "uni/tn-demo"]
+    assert json.loads(capsys.readouterr().out) == {
+        "polUni": {
+            "attributes": {"dn": "uni"},
+            "children": [
+                {
+                    "fvTenant": {
+                        "attributes": {"rn": "tn-demo", "name": "demo", "descr": ""},
+                        "children": [
+                            {"fvBD": {"attributes": {"rn": "BD-bd1", "name": "bd1", "mtu": "1500"}}}
+                        ],
+                    }
+                }
+            ],
+        }
+    }
+
+
+def test_fetch_writes_to_a_file_and_refuses_to_replace_one(monkeypatch, capsys, tmp_path) -> None:
+    out = tmp_path / "fabric.json"
+    assert _run_fetch(monkeypatch, ["fetch", "-o", str(out)])[0] == 0
+    assert capsys.readouterr().out == ""
+    assert json.loads(out.read_text())["polUni"]["attributes"] == {"dn": "uni"}
+
+    assert _run_fetch(monkeypatch, ["fetch", "-o", str(out)])[0] == 1
+    assert "--force" in capsys.readouterr().err
+    assert _run_fetch(monkeypatch, ["fetch", "-o", str(out), "--force"])[0] == 0
+
+
 def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
     """Run a diff command line and return its exit code and the requests made."""
 

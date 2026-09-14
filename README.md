@@ -110,6 +110,17 @@ a4i merge ./configs/ | a4i diff --exclude uni/tn-common --exclude uni/infra
 a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 ```
 
+`fetch` goes the other way: it reads everything under `uni` and writes it out as
+one body shaped exactly as a merged one, so the fabric can be kept in git,
+handed back to `diff`, or posted at `uni`. The APIC sends every settable
+property with its defaults, so this is far longer than a configuration written
+by hand for the same fabric.
+
+```sh
+a4i fetch -o fabric.json           # -o and --force, as merge takes them
+a4i fetch | a4i diff               # says nothing differs, by construction
+```
+
 `plan` narrows that same configuration to the MOs posting it would change, and
 writes them out as a body of their own. Posting the whole configuration hands
 the APIC every MO it already agrees with, and the APIC writes all of them;
@@ -196,6 +207,7 @@ login tool, because this server never handles a password.
 | `dry_run` | what a POST would change, sending nothing |
 | `post` | POST a body |
 | `merge` | several bodies or paths folded into one |
+| `fetch` | the fabric's own configuration, as one body |
 | `plan` | one configuration narrowed to the MOs a POST would change |
 | `diff` | the fabric compared against one configuration |
 

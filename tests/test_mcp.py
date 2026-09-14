@@ -576,6 +576,43 @@ def test_merge_with_nothing_to_merge_says_what_it_wants(no_daemon) -> None:
     assert "paths" in text and "configs" in text
 
 
+def test_fetch_writes_the_fabric_out_and_keeps_it_out_of_the_reply(daemon, tmp_path) -> None:
+    _login()
+    out = tmp_path / "fabric.json"
+    text, is_error = _tool_text(Server(), "fetch", {"output": str(out)})
+    assert not is_error
+    assert f"to {out}" in text
+    assert "polUni" not in text
+    body = json.loads(out.read_text())
+    assert body["polUni"]["attributes"] == {"dn": "uni"}
+    assert [next(iter(child)) for child in body["polUni"]["children"]] == ["fvTenant", "fvTenant"]
+
+    text, is_error = _tool_text(Server(), "fetch", {"output": str(out)})
+    assert is_error
+    assert "overwrite" in text
+
+
+def test_fetch_returns_the_body_when_it_fits(daemon) -> None:
+    _login()
+    text, is_error = _tool_text(Server(), "fetch", {})
+    assert not is_error
+    assert json.loads(text)["polUni"]["attributes"] == {"dn": "uni"}
+
+
+def test_fetch_refuses_a_fabric_too_big_to_hand_over(daemon, monkeypatch) -> None:
+    _login()
+    monkeypatch.setenv(tools.MAX_BYTES_VAR, "10")
+    text, is_error = _tool_text(Server(), "fetch", {})
+    assert is_error
+    assert "output" in text
+
+
+def test_fetch_is_offered_to_a_read_only_session() -> None:
+    # It reads the fabric and writes a local file at most.
+    names = [tool["name"] for tool in tools.tool_definitions(read_only=True)]
+    assert "fetch" in names
+
+
 def test_merge_is_offered_to_a_read_only_session() -> None:
     # It writes a local file at most, never the fabric.
     names = [tool["name"] for tool in tools.tool_definitions(read_only=True)]

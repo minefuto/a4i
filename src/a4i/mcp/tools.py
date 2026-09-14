@@ -284,6 +284,33 @@ DIFF = _tool(
     [],
 )
 
+FETCH = _tool(
+    "fetch",
+    "Read the fabric's own configuration and return it as one body, shaped exactly as "
+    "merge shapes one: a polUni holding every MO under 'uni', each nested under the MO "
+    "it hangs off. Reads only, and works when the session is read-only. This is the "
+    "fabric written as an intended configuration -- keep it in git, hand it back to "
+    "diff, or post it at 'uni'. It is not what a person would have written: the APIC "
+    "sends every settable property, defaults included, so a whole fabric runs to "
+    "megabytes. Pass 'output' -- without it this is almost certain to be refused for "
+    "size.",
+    {
+        "output": {
+            "type": "string",
+            "description": (
+                "Write the body to this file and return a summary instead of the body "
+                "itself, keeping it out of the conversation. An existing file is refused "
+                "unless 'overwrite' is true."
+            ),
+        },
+        "overwrite": {
+            "type": "boolean",
+            "description": "Allow 'output' to replace a file that already exists.",
+        },
+    },
+    [],
+)
+
 PLAN = _tool(
     "plan",
     "Narrow an intended configuration to the MOs posting it would change, and return "
@@ -388,7 +415,7 @@ SEARCH = _tool(
 # The order tools are offered in is the order they are meant to be reached for.
 # merge sits next to diff because it is the step before it, and it is offered to
 # a read-only session too: it writes a local file at most, never the fabric.
-ALL_TOOLS = [SEARCH, DESCRIBE, LIST, GET, DRY_RUN, POST, MERGE, PLAN, DIFF]
+ALL_TOOLS = [SEARCH, DESCRIBE, LIST, GET, DRY_RUN, POST, MERGE, FETCH, PLAN, DIFF]
 
 WRITE_TOOLS = frozenset({"post"})
 
@@ -515,6 +542,37 @@ def _merge(arguments: dict[str, Any]) -> str:
     return f"merged {count(body)} MOs into {output}; pass it to diff as path='{output}'"
 
 
+def _fetch(arguments: dict[str, Any]) -> str:
+    from a4i import config
+    from a4i.merge import count
+    from a4i.output import plural
+
+    try:
+        body = _client().fetch()
+    except ValueError as exc:
+        # The fabric holds an MO no single body posted at uni could carry.
+        raise ToolError(str(exc)) from None
+    text = _json(body)
+
+    output = arguments.get("output")
+    if output is None:
+        if len(text.encode()) > max_bytes():
+            raise ToolError(
+                f"The fabric's configuration is {len(text):,} bytes, over the "
+                f"{max_bytes():,} byte limit. Nothing was truncated -- pass 'output' with a "
+                "file path to write it there instead, then give that path to diff as 'path'."
+            )
+        return text
+    try:
+        config.write(output, text, overwrite=bool(arguments.get("overwrite")))
+    except FileExistsError as exc:
+        # Before the OSError below, which it is one of, as in _merge.
+        raise ToolError(f"{exc} (pass overwrite: true to replace it)") from None
+    except OSError as exc:
+        raise ToolError(f"cannot write {output}: {exc}") from None
+    return f"wrote {plural(count(body), 'MO')} to {output}; pass it to diff as path='{output}'"
+
+
 def _one_body(arguments: dict[str, Any], tool: str) -> Any:
     """Return the one body a tool was given, whether inline or as a path.
 
@@ -637,6 +695,7 @@ _HANDLERS = {
     "post": _post,
     "dry_run": _dry_run,
     "merge": _merge,
+    "fetch": _fetch,
     "plan": _plan,
     "diff": _diff,
     "list": _list,

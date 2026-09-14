@@ -288,6 +288,28 @@ class Client:
         changes = self.dry_run(merge.ROOT, merged, kind="mo")
         return plan_.Plan(plan_.body(merged, changes), changes)
 
+    def fetch(self) -> dict[str, Any]:
+        """Return the fabric's own configuration, shaped as :func:`a4i.merge.merge` shapes one.
+
+        Everything under uni is read the way :meth:`diff` reads it, and what
+        comes back is folded into the one body those MOs describe: a ``polUni``
+        holding each of them nested under the MO it hangs off, siblings in RN
+        order. Nothing is compared -- this is the fabric written as an intended
+        configuration, ready to be kept in git, handed back to :meth:`diff`, or
+        posted at uni.
+
+        What the APIC sends is every settable property, its defaults included,
+        so this is a great deal longer than the configuration a person would
+        have written for the same fabric.
+
+        Raises ``ValueError`` if the fabric holds an MO that no single body
+        posted at uni could carry -- see :func:`a4i.merge.merge`. That is the
+        bundled dictionary disagreeing with the fabric in front of it, and it
+        names the MO rather than quietly leaving it out.
+        """
+
+        return merge.merge(self._fetch_uni())
+
     def diff(
         self,
         config: str | Any,
@@ -555,6 +577,11 @@ class AsyncClient:
         merged = merge.merge(parsed)
         changes = await self.dry_run(merge.ROOT, merged, kind="mo")
         return plan_.Plan(plan_.body(merged, changes), changes)
+
+    async def fetch(self) -> dict[str, Any]:
+        """Return the fabric's own configuration as one body. See :meth:`Client.fetch`."""
+
+        return merge.merge(await self._fetch_uni())
 
     async def diff(
         self,

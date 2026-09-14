@@ -282,6 +282,50 @@ def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
     return 2 if changes else 0
 
 
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    """Write the fabric's own configuration out as one body.
+
+    Everything under uni is read one top-level subtree at a time, as 'a4i diff'
+    reads it, and folded into a polUni shaped exactly as 'a4i merge' shapes one.
+    The output is therefore what diff compares against and what 'a4i post mo
+    uni' takes: the fabric as an intended configuration, ready to keep in git.
+
+    The APIC sends every settable property, its defaults included, so this is
+    far longer than the configuration a person would have written by hand for
+    the same fabric.
+    """
+
+    import json
+
+    from a4i import config
+    from a4i.output import print_error
+
+    try:
+        body = _client().fetch()
+    except ValueError as exc:
+        # The fabric holds an MO no single body posted at uni could carry, which
+        # is the bundled dictionary disagreeing with the fabric. Nothing is
+        # printed: half a configuration is worse than none.
+        print_error(str(exc))
+        return 1
+    except A4iError as exc:
+        return _fail(exc)
+    text = json.dumps(body, indent=2, ensure_ascii=False)
+    if args.output is None:
+        print(text)
+        return 0
+    try:
+        config.write(args.output, text, overwrite=args.force)
+    except FileExistsError as exc:
+        # Before the OSError below, which it is one of, as in _cmd_plan.
+        print_error(f"{exc} (pass --force to overwrite it)")
+        return 1
+    except OSError as exc:
+        print_error(str(exc))
+        return 1
+    return 0
+
+
 def _cmd_diff(args: argparse.Namespace) -> int:
     """Compare the fabric against one intended configuration (body or stdin).
 
@@ -836,6 +880,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="fill in an ancestor DN nothing describes, where the dictionary settles its class",
     )
     merge.set_defaults(func=_cmd_merge)
+
+    fetch = commands.add_parser(
+        "fetch",
+        help="write the fabric's own configuration out as one body",
+        description=_cmd_fetch.__doc__,
+    )
+    fetch.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help="write the body here instead of stdout",
+    )
+    fetch.add_argument(
+        "--force", action="store_true", help="overwrite the output file if it exists"
+    )
+    fetch.set_defaults(func=_cmd_fetch)
 
     plan = commands.add_parser(
         "plan",

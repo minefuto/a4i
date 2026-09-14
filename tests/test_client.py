@@ -386,14 +386,13 @@ def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
             }
         }
     )
-    assert [(c.kind, c.dn) for c in plan.changes] == [
-        ("created", "uni/tn-common"),
-        ("modified", "uni/tn-common/BD-default"),
-    ]
+    assert [(c.kind, c.dn) for c in plan.changes] == [("modified", "uni/tn-common/BD-default")]
     tenant = plan.body["polUni"]["children"][0]["fvTenant"]
-    assert tenant["attributes"]["status"] == "created"
+    # The tenant is only what the BD hangs under: the fabric already agrees with
+    # it, so it carries rn and status="modified" and no attribute of its own.
+    assert tenant["attributes"] == {"rn": "tn-common", "status": "modified"}
     assert tenant["children"][0]["fvBD"]["attributes"]["mtu"] == "9000"
-    assert plan.containers == 0
+    assert plan.containers == 1
 
 
 def test_plan_reads_only_what_the_configuration_describes(client, state) -> None:
@@ -424,6 +423,42 @@ def test_plan_refuses_a_body_the_dry_run_warned_about(client) -> None:
     assert "refusing to write a plan" in str(exc.value)
 
 
+# -- fetch (the fabric as an intended configuration) ------------------------
+
+
+def test_fetch_reads_uni_the_way_a_diff_reads_it(client, state) -> None:
+    client.fetch()
+    assert state["mo_requests"] == {
+        "/api/mo/uni.json": 1,
+        "/api/mo/uni/tn-common.json": 1,
+        "/api/mo/uni/tn-infra.json": 1,
+    }
+    assert state["last_method"] == "GET"
+
+
+def test_fetch_returns_a_body_shaped_as_merge_shapes_one(client) -> None:
+    body = client.fetch()
+    assert body["polUni"]["attributes"] == {"dn": "uni"}
+    tenants = [next(iter(child)) for child in body["polUni"]["children"]]
+    assert tenants == ["fvTenant", "fvTenant"]
+    common = body["polUni"]["children"][0]["fvTenant"]
+    # Nested under the MO it hangs off, named by its rn, with no absolute dn.
+    assert common["attributes"]["rn"] == "tn-common"
+    assert "dn" not in common["attributes"]
+    # RN order, as merge writes siblings: "BD-default" before "ap-web".
+    assert [next(iter(child)) for child in common["children"]] == ["fvBD", "fvAp"]
+
+
+def test_fetch_then_diff_finds_no_difference(client) -> None:
+    """The round trip: what fetch writes is what diff compares against.
+
+    This is the whole claim of the command. If merge, diff and this ever drift
+    apart on what a body means, the fabric will start differing from itself.
+    """
+
+    assert client.diff(client.fetch()) == []
+
+
 # -- diff (the fabric against an intended configuration) --------------------
 
 
@@ -450,10 +485,9 @@ def test_diff_fetches_one_subtree_per_top_level_mo_and_never_writes(client, stat
 
 def test_diff_reports_everything_the_configuration_leaves_out(client) -> None:
     changes = client.diff(INFRA)
-    assert [(c.kind, c.dn) for c in changes] == [
-        ("extra", "uni/tn-common/BD-default"),
-        ("extra", "uni/tn-common/ap-web"),
-    ]
+    # A wholly extra subtree is its top MO alone, the MOs below it counted.
+    assert [(c.kind, c.dn) for c in changes] == [("extra", "uni/tn-common")]
+    assert changes[0].child_count == 2
 
 
 def test_diff_is_empty_when_the_configuration_describes_the_fabric(client) -> None:
@@ -461,6 +495,7 @@ def test_diff_is_empty_when_the_configuration_describes_the_fabric(client) -> No
     # folded into one beforehand by a4i.merge.
     changes = client.diff(
         [
+            {"fvTenant": {"attributes": {"dn": "uni/tn-common", "name": "common"}}},
             {"fvAp": {"attributes": {"dn": "uni/tn-common/ap-web"}}},
             {"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}},
             INFRA,
@@ -674,7 +709,4 @@ def test_diff_does_not_walk_the_runtime_containers_under_uni(client, state) -> N
     # would be reported extra.
     client.diff(INFRA)
     assert "/api/mo/uni/epp.json" not in state["mo_requests"]
-    assert [c.dn for c in client.diff(INFRA)] == [
-        "uni/tn-common/BD-default",
-        "uni/tn-common/ap-web",
-    ]
+    assert [c.dn for c in client.diff(INFRA)] == ["uni/tn-common"]
