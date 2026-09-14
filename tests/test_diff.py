@@ -306,8 +306,17 @@ def test_two_mos_of_a_class_the_fabric_lacks_stay_two() -> None:
 
 
 def test_a_root_mo_of_a_class_the_fabric_lacks_is_reported_missing() -> None:
-    changes = compare(*INTENDED, mo("vzBrCP", {"name": "c1"}), expand=True)
-    assert kinds(changes) == [("missing", "uni/brc-c1")]
+    changes = compare(*INTENDED, mo("physDomP", {"name": "d1"}), expand=True)
+    assert kinds(changes) == [("missing", "uni/phys-d1")]
+
+
+def test_a_root_mo_the_dictionary_says_hangs_elsewhere_is_refused() -> None:
+    """Both sides come through merge.read now, so what merge refuses, this refuses."""
+
+    # vzBrCP hangs under fvTenant, so no body posted at uni could carry this one.
+    with pytest.raises(ValueError) as exc:
+        compare(*INTENDED, mo("vzBrCP", {"name": "c1"}))
+    assert "uni/brc-c1" in str(exc.value)
 
 
 # -- MOs with no bundled RN format -----------------------------------------

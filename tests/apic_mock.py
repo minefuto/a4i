@@ -217,6 +217,19 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                     ],
                 },
             )
+        if path == "/api/mo/uni/tn-demo.json":
+            # The DN a dry run is aimed at in these tests. It answers at the DN
+            # it was asked for, as an APIC does: a comparison keys on the DN, so
+            # a response about some other MO is not an answer to this question.
+            return httpx2.Response(
+                200,
+                json={
+                    "totalCount": "1",
+                    "imdata": [
+                        {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "name": "common"}}}
+                    ],
+                },
+            )
         if path == "/api/mo/uni/tn-infra.json":
             return httpx2.Response(
                 200,

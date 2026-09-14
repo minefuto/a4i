@@ -396,12 +396,12 @@ def test_dry_run_needs_a_dn_it_can_work_out(monkeypatch, capsys) -> None:
 def test_dry_run_queries_each_root_of_an_array_body(monkeypatch, capsys) -> None:
     body = (
         '[{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}},'
-        ' {"fvTenant":{"attributes":{"dn":"uni/tn-demo","nameAlias":"d"}}}]'
+        ' {"fvTenant":{"attributes":{"dn":"uni/tn-a","nameAlias":"d"}}}]'
     )
     code, sent = _run_dry_run(monkeypatch, ["post", "mo", "uni", body, "--dry-run"])
-    assert [request["target"] for request in sent] == ["uni/tn-demo", "uni/tn-demo"]
+    assert [request["target"] for request in sent] == ["uni/tn-demo", "uni/tn-a"]
     out = capsys.readouterr().out
-    assert "0 created, 2 modified, 0 deleted" in out
+    assert "1 created, 1 modified, 0 deleted" in out
     assert code == 2
 
 

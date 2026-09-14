@@ -23,7 +23,7 @@ from collections.abc import Callable, Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
-from a4i import diff, dry_run, merge, mo, query, validate
+from a4i import diff, dry_run, merge, mo, query
 from a4i import plan as plan_
 from a4i.errors import ApicError
 from a4i.transport import AsyncDirectTransport, AsyncTransport, DirectTransport, Transport
@@ -237,32 +237,26 @@ class Client:
         the comparison happens here. An empty list means the POST would change
         nothing at all.
 
-        What is fetched is the subtree the body stands at, one request per
-        subtree and each of them checked against its own ``totalCount``: a
-        response that came back paged would otherwise read as a fabric missing
-        everything past the page, and every MO on the far side of it would be
-        reported as one this POST creates. A body wrapped in ``polUni`` is
-        fetched one top-level subtree at a time rather than as uni whole, for
-        the reason :meth:`_fetch_uni` gives.
+        What is fetched is the subtree of each MO the body stands at, one
+        request per subtree and each of them checked against its own
+        ``totalCount``: a response that came back paged would otherwise read as
+        a fabric missing everything past the page, and every MO on the far side
+        of it would be reported as one this POST creates. A body wrapped in
+        ``polUni`` is fetched one top-level subtree at a time rather than as uni
+        whole, for the reason :meth:`_fetch_uni` gives.
+
+        Both sides are read by :func:`a4i.merge.read`, the one :meth:`diff` and
+        :meth:`fetch` read theirs with. So the body is refused here exactly as
+        :func:`a4i.merge.merge` would refuse it -- before any GET goes out on
+        the strength of it -- and a fabric this cannot read is one none of the
+        three can. The fabric side is read with ``loose``, since a body posted
+        below uni names a DN whose ancestors no response of that subtree holds.
         """
 
         _, parsed = _read_body(body)
-        # Before the walk below, not during it: the body is refused as a whole,
-        # and refused before any GET goes out on the strength of it.
-        validate.check(parsed)
-        # A body may be a single MO or an array of them, each rooted at its own DN.
-        roots = parsed if isinstance(parsed, list) else [parsed]
-        changes: list[mo.Change] = []
-        for root in roots:
-            for subtree in dry_run.subtrees(target, kind, root):
-                imdata = None
-                if subtree.identified:
-                    fetched = self._fetch(subtree.dn, dict(_CURRENT_STATE))
-                    imdata = fetched.get("imdata")
-                changes.extend(
-                    dry_run.compare(subtree.mo, imdata, subtree.dn, identified=subtree.identified)
-                )
-        return changes
+        intended = merge.read(dry_run.rooted(target, kind, parsed))
+        current = merge.read(self._fetch_subtrees(dry_run.roots(intended.index)), loose=True)
+        return dry_run.compare(intended, current)
 
     def plan(self, config: str | Any) -> plan_.Plan:
         """Return ``config`` narrowed to the MOs posting it would change.
@@ -345,7 +339,7 @@ class Client:
         """
 
         imdata = self._fetch_targets(mo, cls)
-        if cls is not None and not imdata:
+        if not imdata:
             return merge.empty()
         return merge.merge(imdata, loose=mo is not None or cls is not None)
 
@@ -640,22 +634,9 @@ class AsyncClient:
         """
 
         _, parsed = _read_body(body)
-        # Before the walk below, not during it: the body is refused as a whole,
-        # and refused before any GET goes out on the strength of it.
-        validate.check(parsed)
-        # A body may be a single MO or an array of them, each rooted at its own DN.
-        roots = parsed if isinstance(parsed, list) else [parsed]
-        changes: list[mo.Change] = []
-        for root in roots:
-            for subtree in dry_run.subtrees(target, kind, root):
-                imdata = None
-                if subtree.identified:
-                    fetched = await self._fetch(subtree.dn, dict(_CURRENT_STATE))
-                    imdata = fetched.get("imdata")
-                changes.extend(
-                    dry_run.compare(subtree.mo, imdata, subtree.dn, identified=subtree.identified)
-                )
-        return changes
+        intended = merge.read(dry_run.rooted(target, kind, parsed))
+        current = merge.read(await self._fetch_subtrees(dry_run.roots(intended.index)), loose=True)
+        return dry_run.compare(intended, current)
 
     async def plan(self, config: str | Any) -> plan_.Plan:
         """Return ``config`` narrowed to the MOs posting it would change.
@@ -677,7 +658,7 @@ class AsyncClient:
         """Return the fabric's own configuration as one body. See :meth:`Client.fetch`."""
 
         imdata = await self._fetch_targets(mo, cls)
-        if cls is not None and not imdata:
+        if not imdata:
             return merge.empty()
         return merge.merge(imdata, loose=mo is not None or cls is not None)
 

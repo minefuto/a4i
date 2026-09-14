@@ -1,8 +1,14 @@
-"""Work out what a POST body would change, given the current MO tree.
+"""Work out what a POST body would change, given the fabric as it stands.
 
-The APIC has no server-side dry run, so ``post --dry-run`` fetches the subtree
-the body targets and compares it here. Nothing in this module performs I/O: it
-takes the parsed body and the ``imdata`` of a GET, and returns the changes.
+The APIC has no server-side dry run, so ``post --dry-run`` fetches the subtrees
+the body stands at and compares them here. Nothing in this module performs I/O:
+it takes both sides already read into :class:`a4i.merge.Intended` -- the body,
+and the fabric under the DNs it names -- and returns the changes.
+
+Both sides are read by :func:`a4i.merge.read`, which is what :mod:`a4i.diff`
+reads its two sides with as well. So an MO the body names and an MO the APIC
+returned key alike, and a fabric one of the three commands cannot read is a
+fabric none of them can.
 
 The comparison runs one way on purpose. A POST leaves every MO and every
 attribute the body does not mention alone, so nothing the body is silent about
@@ -12,14 +18,13 @@ against its intended configuration needs -- is :mod:`a4i.diff`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
-from a4i.mo import META, ROOT, WRAPPER, Change, Tree, child_dn, split_mo, text
+from a4i.merge import Intended
+from a4i.mo import META, WRAPPER, Change, parent_dn, split_mo
 
 _CREATED_CONFLICT = 'status="created" but the MO already exists; the POST will fail'
 _MODIFIED_CONFLICT = 'status="modified" but the MO does not exist; the POST will fail'
-_UNIDENTIFIED = "the body leaves out a property its RN is built from; the POST will fail"
 _NO_TARGET_DN = (
     "cannot determine the target DN for a dry run "
     '(post to an mo target, or give a "dn" attribute in the body)'
@@ -47,132 +52,123 @@ def root_dn(target: str, kind: str, mo: Any) -> str | None:
     return None
 
 
-@dataclass(frozen=True)
-class Subtree:
-    """One comparison a dry run is made of: a body, and the DN it stands at.
+def rooted(target: str, kind: str, body: Any) -> list[Any]:
+    """Return ``body``'s root MOs, each naming the DN it stands at.
 
-    ``identified`` is false when the DN had to be made up, because the body
-    leaves out a property its RN is built from. There is nothing to fetch for
-    one of those -- no such MO can be on the fabric under that DN -- so it is
-    compared against nothing and :func:`compare` reports the warning.
+    A body is read down from uni, so a root that does not say where it sits is
+    placed by its class's RN format as a child of uni. That is right for a
+    merged configuration and wrong for a POST to one DN, where the target is
+    what says where the MO sits. Writing the target in as the root's ``dn`` is
+    the whole of the difference: what comes out is a body that says where it
+    goes, which is what :func:`a4i.merge.read` already knows how to place.
+
+    A ``polUni`` is left as it is. It stands at uni by definition, carries no
+    configuration of its own, and its children are read as uni's own. So is
+    anything that is not an MO at all, so that the validation in
+    :func:`a4i.merge.read` is the one that says so.
+
+    Raises ``ValueError`` if a root names no DN and the target gives none.
     """
 
-    mo: Any
-    dn: str
-    identified: bool = True
-
-
-def subtrees(target: str, kind: str, mo: Any) -> list[Subtree]:
-    """Return the comparisons a dry run of ``mo`` is made of.
-
-    One, normally: the body's root, at the DN it names. A ``polUni`` is taken
-    apart into its children instead. The DN it names is uni, and fetching uni
-    whole with ``rsp-subtree=full`` is the one request a large fabric times out
-    on -- the reason a fabric-wide comparison splits at the top level as well.
-    The wrapper carries no configuration of its own to compare, so nothing is
-    lost by never standing at it.
-
-    Raises ``ValueError`` if the root names no DN at all.
-    """
-
-    parsed = split_mo(mo)
-    if parsed is None:
-        return []
-    class_name, body = parsed
-    if class_name != WRAPPER:
-        dn = root_dn(target, kind, mo)
+    given = body if isinstance(body, list) else [body]
+    found: list[Any] = []
+    for root in given:
+        parsed = split_mo(root)
+        if parsed is None:
+            found.append(root)
+            continue
+        class_name, mo_body = parsed
+        if class_name == WRAPPER:
+            found.append(root)
+            continue
+        dn = root_dn(target, kind, root)
         if dn is None:
             raise ValueError(_NO_TARGET_DN)
-        return [Subtree(mo, dn)]
-    found: list[Subtree] = []
-    for child in body.get("children") or []:
-        child_parsed = split_mo(child)
-        if child_parsed is None:
-            continue
-        child_class, child_body = child_parsed
-        dn_of_child, identified = child_dn(ROOT, child_class, child_body)
-        found.append(Subtree(child, dn_of_child, identified))
+        attributes = {**(mo_body.get("attributes") or {}), "dn": dn}
+        found.append({class_name: {**mo_body, "attributes": attributes}})
     return found
 
 
-def compare(mo: Any, imdata: Any, dn: str, *, identified: bool = True) -> list[Change]:
-    """Return the changes posting ``mo`` would cause, given the GET of ``dn``.
+def roots(index: dict[str, Any]) -> list[str]:
+    """Return the DNs of the MOs in ``index`` that nothing in it sits above.
 
-    ``imdata`` is the response to ``dn`` queried with ``rsp-subtree=full``; an
-    empty one means the MO does not exist yet and everything is new.
-
-    ``identified`` is :attr:`Subtree.identified`, false for a root whose DN had
-    to be made up. A child gets the same treatment from the walk below; a root
-    has nobody above it to work it out, so it is passed in.
+    These are the subtrees to fetch: one request each, covering everything the
+    body has to say. A merged body gives uni's own children; a body posted at
+    one DN gives that DN. Where the body names both a tenant and a BD inside it,
+    only the tenant comes back -- fetching it covers the BD, and fetching both
+    would ask the APIC for the BD twice.
     """
 
-    parsed = split_mo(mo)
-    if parsed is None:
-        return []
-    class_name, body = parsed
-    tree = Tree(imdata)
-    if len(tree.roots) == 1:
-        # Prefer the DN the APIC echoed back, so the body and the current tree
-        # are keyed identically even if the target was typed differently.
-        dn = tree.roots[0].dn
+    return [dn for dn in index if parent_dn(dn) not in index]
+
+
+def compare(intended: Intended, current: Intended) -> list[Change]:
+    """Return the changes posting ``intended`` would cause, given ``current``.
+
+    ``intended`` is the body read down from uni, ``current`` the fabric under
+    the DNs :func:`roots` named of it. An MO the fabric does not carry is one
+    the POST creates; an MO it carries is compared on the attributes the body
+    sets and no others, because a POST leaves the rest alone.
+
+    The report comes out in the order the body was read, which for a merged body
+    is RN order and for a hand-written one is the order it was written. Nothing
+    is sorted: only one side is walked, so the body's own order is the report's.
+    """
+
     changes: list[Change] = []
-    _visit(class_name, body, dn, tree, changes, identified=identified)
+    deleted: set[str] = set()
+    for dn, node in intended.index.items():
+        if _under(dn, deleted):
+            # The subtree goes with the MO the body deletes, so what the body
+            # says about anything inside it adds nothing.
+            continue
+        attributes = node.attributes
+        status = _status(attributes)
+        existing = current.index.get(dn)
+        if "deleted" in status:
+            # Deleting an MO that is not there changes nothing, and the APIC
+            # accepts it without complaint.
+            if existing is not None:
+                changes.append(
+                    Change("deleted", node.class_name, dn, child_count=current.descendant_count(dn))
+                )
+            deleted.add(dn)
+            continue
+        if existing is None:
+            if "modified" in status and "created" not in status:
+                changes.append(Change("warning", node.class_name, dn, message=_MODIFIED_CONFLICT))
+            changes.append(Change("created", node.class_name, dn, attributes=_added(attributes)))
+            continue
+        if "created" in status and "modified" not in status:
+            changes.append(Change("warning", node.class_name, dn, message=_CREATED_CONFLICT))
+        changed = _compare_attributes(attributes, existing.attributes)
+        if changed:
+            changes.append(Change("modified", node.class_name, dn, attributes=changed))
     return changes
 
 
-# -- walking the body ------------------------------------------------------
+def _under(dn: str, deleted: set[str]) -> bool:
+    """True when any MO above ``dn`` is one the body deletes.
+
+    Every ancestor is walked rather than the parent alone: the index is keyed by
+    DN and read in the order the body gave, which is not a promise that a parent
+    was seen before the MOs under it.
+    """
+
+    parent = parent_dn(dn)
+    while parent is not None:
+        if parent in deleted:
+            return True
+        parent = parent_dn(parent)
+    return False
 
 
-def _visit(
-    class_name: str,
-    body: dict[str, Any],
-    dn: str,
-    tree: Tree,
-    changes: list[Change],
-    *,
-    identified: bool = True,
-) -> None:
-    attributes = body.get("attributes") or {}
-    status = _status(attributes)
-    current = tree.index.get(dn)
-    if not identified:
-        # Before the deleted branch: a body the APIC cannot work an RN out of is
-        # refused whichever way it is meant.
-        changes.append(Change("warning", class_name, dn, message=_UNIDENTIFIED))
-    if "deleted" in status:
-        # Deleting an MO that is not there changes nothing, and the APIC accepts
-        # it without complaint.
-        if current is not None:
-            changes.append(Change("deleted", class_name, dn, child_count=tree.descendant_count(dn)))
-        # The subtree goes with the MO, so the body's children add nothing.
-        return
-    if current is None:
-        if "modified" in status and "created" not in status:
-            changes.append(Change("warning", class_name, dn, message=_MODIFIED_CONFLICT))
-        changes.append(Change("created", class_name, dn, attributes=_added(attributes)))
-    else:
-        if "created" in status and "modified" not in status:
-            changes.append(Change("warning", class_name, dn, message=_CREATED_CONFLICT))
-        changed = _compare_attributes(attributes, current.attributes)
-        if changed:
-            changes.append(Change("modified", class_name, dn, attributes=changed))
-    for child in body.get("children") or []:
-        parsed = split_mo(child)
-        if parsed is None:
-            continue
-        child_class, child_body = parsed
-        # A child of an unknown class, or one written without the properties its
-        # RN needs, gets a stand-in; either way it keys against the tree the same.
-        dn_of_child, identified = child_dn(dn, child_class, child_body)
-        _visit(child_class, child_body, dn_of_child, tree, changes, identified=identified)
-
-
-def _added(attributes: dict[str, Any]) -> dict[str, tuple[str | None, str | None]]:
-    return {key: (None, text(value)) for key, value in attributes.items() if key not in META}
+def _added(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
+    return {key: (None, value) for key, value in attributes.items() if key not in META}
 
 
 def _compare_attributes(
-    attributes: dict[str, Any], current: dict[str, Any]
+    attributes: dict[str, str], current: dict[str, str]
 ) -> dict[str, tuple[str | None, str | None]]:
     """Diff the attributes the body sets against the ones the MO has now.
 
@@ -184,15 +180,13 @@ def _compare_attributes(
     for key, value in attributes.items():
         if key in META:
             continue
-        after = text(value)
-        raw = current.get(key)
-        before = None if raw is None else text(raw)
-        if before != after:
-            changed[key] = (before, after)
+        before = current.get(key)
+        if before != value:
+            changed[key] = (before, value)
     return changed
 
 
-def _status(attributes: dict[str, Any]) -> frozenset[str]:
+def _status(attributes: dict[str, str]) -> frozenset[str]:
     """Return the status tokens, e.g. "created,modified" -> {created, modified}."""
 
     raw = attributes.get("status")

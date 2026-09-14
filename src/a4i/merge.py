@@ -9,7 +9,13 @@ reading each tree down from its root rather than matching JSON against JSON. So
 the inputs are absorbed into an index keyed by DN (:class:`Intended`), later
 values winning attribute by attribute, and the index is written back out as one
 body -- as a tree again, because that is the only shape the APIC takes a POST
-in. :mod:`a4i.diff` shares the index and skips the writing back out.
+in.
+
+:func:`read` is the first half of that on its own, and it is what the two
+comparisons want: :mod:`a4i.diff` and :mod:`a4i.dry_run` read both of their
+sides through it -- the configuration, and the ``imdata`` the APIC returned --
+so that a body and a response naming the same MO key alike, and so that what one
+of the three commands refuses the other two refuse as well.
 
 Nothing here performs I/O, and nothing here reaches the fabric: a DN follows
 from the body and the bundled RN formats alone. The output is therefore a
@@ -101,18 +107,49 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     an input nothing has looked at.
     """
 
-    refuse([p for i, config in enumerate(configs) for p in problems(config, f"configs[{i}]")])
-    intended = Intended()
-    for config in configs:
-        intended.absorb(config)
-    if intended.unidentified:
-        raise ValueError(unidentified_message(intended.unidentified))
+    intended = read(*configs, loose=loose)
     if not intended.index:
         raise ValueError(
             "the configuration is empty: nothing given describes an MO. Check the paths -- "
             "a directory is searched for *.json, and a file holding {} or [] describes nothing."
         )
-    return _body(intended, loose=loose)
+    return _body(intended)
+
+
+def read(
+    *configs: Any,
+    loose: bool = False,
+    excluded: Exclusions | None = None,
+) -> Intended:
+    """Return the index ``configs`` describe between them, refused or not at all.
+
+    This is :func:`merge` without the writing back out, and it is what a
+    comparison wants: :mod:`a4i.diff` and :mod:`a4i.dry_run` read both of their
+    sides through here, so an input and a fabric that name the same MO key
+    alike, and so what one of them refuses the others refuse too.
+
+    Everything :func:`merge` refuses is refused here -- the shape, an MO the
+    input does not name, an MO outside ``uni``, an ancestor nothing describes,
+    an MO the MO it would be nested in cannot hold. What is not is an empty
+    index: a merge of nothing is a caller who meant to describe something, a
+    comparison against nothing is every MO on the fabric reported at once, and a
+    fetch of a class the fabric has none of is an answer. Three meanings, so
+    each caller says its own.
+
+    ``loose`` fills in an ancestor a DN names and nothing describes, as on
+    :func:`merge`. ``excluded`` is :mod:`a4i.diff`'s, and only quiets the
+    complaint about an MO that cannot be named under an excluded parent: see
+    :class:`Intended`.
+    """
+
+    refuse([p for i, config in enumerate(configs) for p in problems(config, f"configs[{i}]")])
+    intended = Intended(excluded)
+    for config in configs:
+        intended.absorb(config)
+    if intended.unidentified:
+        raise ValueError(unidentified_message(intended.unidentified))
+    _refuse_the_unplaceable(intended.index, loose=loose)
+    return intended
 
 
 def empty() -> dict[str, Any]:
@@ -127,7 +164,7 @@ def empty() -> dict[str, Any]:
     return {WRAPPER: {"attributes": {"dn": ROOT}, "children": []}}
 
 
-def _body(intended: Intended, *, loose: bool = False) -> dict[str, Any]:
+def _body(intended: Intended) -> dict[str, Any]:
     """Write the index back out as one body to post at ``uni``.
 
     The index is flat and the body is a tree, because a tree is the only shape a
@@ -139,9 +176,11 @@ def _body(intended: Intended, *, loose: bool = False) -> dict[str, Any]:
     says where the MO sits, so an absolute ``dn`` would only be a second way to
     say the same thing -- and one that has to be rewritten in every descendant
     the day a tenant is renamed.
+
+    What cannot be placed has been refused by :func:`read` already, so every DN
+    here has the MO above it to hang on.
     """
 
-    _refuse_the_unplaceable(intended.index, loose=loose)
     bodies: dict[str, dict[str, Any]] = {}
     roots: list[dict[str, Any]] = []
     # Sorted, so a parent is written before anything under it and is there to

@@ -4,6 +4,7 @@ import pytest
 
 from a4i import dry_run
 from a4i import mo as mo_
+from a4i.merge import read
 
 # -- the current tree the APIC would return for /uni/tn-demo ---------------
 
@@ -39,9 +40,17 @@ TENANT = [
 
 
 def dry_run_compare(
-    body: dict, imdata: list | None = None, dn: str = "uni/tn-demo"
+    body: object, imdata: list | None = None, dn: str = "uni/tn-demo"
 ) -> list[dry_run.Change]:
-    return dry_run.compare(body, TENANT if imdata is None else imdata, dn)
+    """Run one dry run end to end, as a4i.client.Client.dry_run runs it.
+
+    Both sides go through a4i.merge.read, which is the point: what the body
+    means and what the response means are settled by the same reading.
+    """
+
+    intended = read(dry_run.rooted(dn, "mo", body))
+    current = read(TENANT if imdata is None else imdata, loose=True)
+    return dry_run.compare(intended, current)
 
 
 # -- root_dn ---------------------------------------------------------------
@@ -269,21 +278,26 @@ def test_created_modified_on_a_missing_mo_is_just_a_creation() -> None:
     assert change.kind == "created"
 
 
-def test_a_body_that_names_no_mo_warns_that_the_post_will_fail() -> None:
-    # An fvBD RN is "BD-{name}" and this one gives no name, so the APIC has
-    # nothing to build one from. What the body sets is still reported.
+def test_a_body_that_names_no_mo_is_refused_rather_than_compared() -> None:
+    """The same refusal merge and diff make, since all three read through one reader.
+
+    An fvBD RN is "BD-{name}" and this one gives no name, so the body names no
+    one MO -- and the one it meant may well be on the fabric. Reporting a
+    made-up DN as created while the real MO sits there unmentioned is worse than
+    saying what the body has to spell out.
+    """
+
     body = mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"mtu": "9000"})])
-    warning, created = dry_run_compare(body)
-    assert (warning.kind, warning.dn) == ("warning", "uni/tn-demo/fvBD[mtu=9000]")
-    assert "the POST will fail" in warning.message
-    assert (created.kind, created.attributes) == ("created", {"mtu": (None, "9000")})
+    with pytest.raises(ValueError) as exc:
+        dry_run_compare(body)
+    assert "fvBD" in str(exc.value)
 
 
-def test_deleting_an_mo_the_body_does_not_name_warns_as_well() -> None:
+def test_deleting_an_mo_the_body_does_not_name_is_refused_as_well() -> None:
     # The RN is no more buildable for a delete than for a create.
     body = mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"mtu": "9000", "status": "deleted"})])
-    (warning,) = dry_run_compare(body)
-    assert warning.kind == "warning"
+    with pytest.raises(ValueError):
+        dry_run_compare(body)
 
 
 def test_a_status_list_is_read_token_by_token() -> None:
@@ -321,11 +335,15 @@ def test_the_dn_the_apic_echoed_back_wins_over_the_one_we_asked_for() -> None:
     assert change.dn == "uni/tn-demo"
 
 
-def test_a_malformed_body_yields_no_changes() -> None:
-    assert dry_run.compare("not an mo", TENANT, "uni/tn-demo") == []
+def test_a_malformed_body_is_refused() -> None:
+    with pytest.raises(ValueError):
+        dry_run_compare("not an mo")
 
 
-def test_a_malformed_child_is_skipped_without_hiding_its_siblings() -> None:
+def test_a_malformed_child_is_refused_rather_than_skipped() -> None:
+    """Named and refused, not passed over: a body nobody read is a body nobody meant."""
+
     body = mo("fvTenant", {"name": "demo"}, ["junk", mo("fvBD", {"name": "bd9"})])
-    (change,) = dry_run_compare(body)
-    assert change.dn == "uni/tn-demo/BD-bd9"
+    with pytest.raises(ValueError) as exc:
+        dry_run_compare(body)
+    assert "not an MO" in str(exc.value)

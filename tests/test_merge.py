@@ -713,14 +713,15 @@ def test_what_merge_writes_is_what_a_post_would_place() -> None:
     """
 
     from a4i import dry_run
+    from a4i.merge import read
 
     body = merge(
         mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd1", "mtu": "9000"})]),
         mo("fvSubnet", {"dn": "uni/tn-demo/BD-bd1/subnet-[10.0.0.1/24]"}),
     )
-    changes = dry_run.compare(body, [], "uni")
+    # The wrapper is read through rather than stood at: uni is not configuration.
+    changes = dry_run.compare(read(body), read([]))
     assert [change.dn for change in changes] == [
-        "uni",
         "uni/tn-demo",
         "uni/tn-demo/BD-bd1",
         "uni/tn-demo/BD-bd1/subnet-[10.0.0.1/24]",

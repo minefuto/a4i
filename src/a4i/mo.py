@@ -1,10 +1,11 @@
-"""Reading an MO tree the APIC returned, and the shape of a difference in one.
+"""Turning an MO body into a DN, and the shape of a difference in one.
 
 Both comparisons in this package start here: what a POST would change
 (:mod:`a4i.dry_run`) and how a fabric differs from an intended configuration
-(:mod:`a4i.diff`). Each flattens a GET response into a DN index, each has to
-turn a body's child MO into a DN, and each reports what it found as a
-:class:`Change`. That shared ground lives here; what the two make of it does not.
+(:mod:`a4i.diff`). Each reads both of its sides into a DN index with
+:func:`a4i.merge.read`, and each reports what it found as a :class:`Change`.
+Turning a body's child MO into a DN is what that reading is built on, and it
+lives here; what the comparisons make of it does not.
 
 The hard part is that an ACI body names its children by a naming property
 (``name``, ``ip``, ``tDn``, ...) rather than by DN. Turning that into a DN needs
@@ -64,77 +65,6 @@ class Change:
     # missing or extra along with it for a diff.
     child_count: int = 0
     message: str = ""
-
-
-@dataclass(frozen=True)
-class Node:
-    """An MO as the APIC returned it."""
-
-    class_name: str
-    dn: str
-    attributes: dict[str, Any]
-
-
-class Tree:
-    """A GET response flattened into an index of MOs by DN."""
-
-    def __init__(self, imdata: Any = None) -> None:
-        self.index: dict[str, Node] = {}
-        self.roots: list[Node] = []
-        if imdata is not None:
-            self.roots = self.add(imdata)
-
-    def add(self, imdata: Any, parent: str | None = None) -> list[Node]:
-        """Flatten a GET response into this tree, and return its top-level MOs.
-
-        DNs are worked out with :func:`child_dn`, the same way an intended
-        configuration's are, so that a response and a body naming the same MO
-        key alike. It has to be the same rule on both sides: a comparison keys
-        on the DN alone, so an MO the two read differently reads as one missing
-        and another extra.
-        """
-
-        nodes: list[Node] = []
-        for mo in imdata if isinstance(imdata, list) else []:
-            parsed = split_mo(mo)
-            if parsed is None:
-                continue
-            class_name, body = parsed
-            dn = _returned_dn(parent, class_name, body)
-            if dn is None:
-                continue
-            node = Node(class_name, dn, body.get("attributes") or {})
-            self.index[dn] = node
-            nodes.append(node)
-            self.add(body.get("children") or [], dn)
-        return nodes
-
-    def descendant_count(self, dn: str) -> int:
-        """Return how many MOs sit under ``dn``."""
-
-        prefix = f"{dn}/"
-        return sum(1 for key in self.index if key.startswith(prefix))
-
-
-def _returned_dn(parent: str | None, class_name: str, body: dict[str, Any]) -> str | None:
-    """Return the DN of an MO the APIC returned, or None when it cannot be placed.
-
-    Only a top-level MO can fail: with no parent to hang an RN off, what the
-    response calls it is all there is to go on.
-
-    Below that :func:`child_dn` always yields a key, a stand-in one where the RN
-    cannot be worked out. Standing one in is right for a response even though it
-    is not for an input: the fabric returned this MO, so it is there, and
-    dropping it would take everything under it along and read as a fabric
-    missing the lot.
-    """
-
-    if parent is None:
-        dn = (body.get("attributes") or {}).get("dn")
-        if not isinstance(dn, str) or not dn.strip("/"):
-            return None
-        return dn.strip("/")
-    return child_dn(parent, class_name, body)[0]
 
 
 def child_dn(parent: str, class_name: str, body: dict[str, Any]) -> tuple[str, bool]:

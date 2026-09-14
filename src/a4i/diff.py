@@ -3,7 +3,8 @@
 ``a4i diff`` reads the intended configuration, fetches everything under ``uni``
 from the APIC, and reports where the two disagree. Nothing in this module
 performs I/O: it takes the parsed configuration and the ``imdata`` of those
-GETs, and returns the differences.
+GETs, reads each into an index with :func:`a4i.merge.read`, and returns the
+differences.
 
 This runs both ways, which is the whole point and the difference from
 :mod:`a4i.dry_run`. A POST can only add or change, so a dry run need only look
@@ -23,11 +24,12 @@ condition -- ``uni/infra/accportprof-*/hports-*[descr=auto-*]`` -- for the MOs a
 DN cannot tell apart. :class:`a4i.mo.Exclusions` is what reads them.
 
 One configuration is compared, not several: folding several into one is
-:func:`a4i.merge.merge`, which this shares the reading of a body with but does
-not call. Both read an input into :class:`a4i.merge.Intended`; only merge writes
-one back out as a body, and how it writes one -- nested, or flat with absolute
-DNs as it once did -- is nothing this has to know: a body is read down from
-``uni`` either way.
+:func:`a4i.merge.merge`, which this shares its reading with but does not call.
+Both sides here go through :func:`a4i.merge.read`, the same one merge is built
+on, so what merge refuses this refuses -- on the fabric's side too. How merge
+writes an index back out as a body -- nested, or flat with absolute DNs as it
+once did -- is nothing this has to know: a body is read down from ``uni`` either
+way.
 """
 
 from __future__ import annotations
@@ -35,13 +37,16 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from a4i.merge import Intended, unidentified_message
-from a4i.mo import META, Change, Exclusions, Tree, parent_dn, split_condition, text
-from a4i.validate import check
+from a4i.merge import Intended, read
+from a4i.mo import Change, Exclusions, parent_dn, split_condition
 
 # What the merged configuration carries for the sake of a POST and a comparison
 # has nothing to say about: "status" tells the APIC what to do with an MO, so
 # the fabric never has a value to hold it against. See a4i.merge._DROPPED.
+#
+# It is the only one left to name. Both sides come through a4i.merge.read now,
+# which drops "dn", "rn" and "childAction" on the way in, so what a4i.mo.META
+# stands for is already gone by the time either side is looked at.
 _INSTRUCTION = frozenset({"status"})
 
 
@@ -83,13 +88,8 @@ def compare(
     means is almost always a path that pointed at nothing.
     """
 
-    check(config)
     excluded = _exclusions(exclude)
-    actual = Tree(imdata)
-    intended = Intended(excluded)
-    intended.absorb(config)
-    if intended.unidentified:
-        raise ValueError(unidentified_message(intended.unidentified))
+    intended = read(config, excluded=excluded)
     if not intended.index:
         raise ValueError(
             "the configuration is empty: it describes no MO at all, so every MO on the "
@@ -98,6 +98,7 @@ def compare(
     # Emptiness is judged before pruning, so a configuration whose every MO is
     # excluded is a comparison narrowed to nothing -- which is a report with no
     # differences in it -- and not an input that said nothing.
+    actual = read(imdata)
     excluded.resolve(intended.index)
     excluded.resolve(actual.index)
     if on_unused is not None and (unused := excluded.unused()):
@@ -198,7 +199,7 @@ def _prune(index: dict[str, Any], excluded: Exclusions) -> None:
 # -- the comparison --------------------------------------------------------
 
 
-def _missing_and_modified(intended: Intended, actual: Tree, *, expand: bool) -> list[Change]:
+def _missing_and_modified(intended: Intended, actual: Intended, *, expand: bool) -> list[Change]:
     changes: list[Change] = []
     for dn, node in intended.index.items():
         current = actual.index.get(dn)
@@ -221,7 +222,7 @@ def _missing_and_modified(intended: Intended, actual: Tree, *, expand: bool) -> 
     return changes
 
 
-def _extra(intended: Intended, actual: Tree, *, expand: bool) -> list[Change]:
+def _extra(intended: Intended, actual: Intended, *, expand: bool) -> list[Change]:
     changes: list[Change] = []
     for dn, node in actual.index.items():
         if dn in intended.index:
@@ -240,7 +241,7 @@ def _extra(intended: Intended, actual: Tree, *, expand: bool) -> list[Change]:
     return changes
 
 
-def _under_a_missing_parent(dn: str, intended: Intended, actual: Tree) -> bool:
+def _under_a_missing_parent(dn: str, intended: Intended, actual: Intended) -> bool:
     """True when this MO's parent is missing too, so it goes with the parent.
 
     Only the parent is looked at: a grandparent that is missing makes the parent
@@ -251,7 +252,7 @@ def _under_a_missing_parent(dn: str, intended: Intended, actual: Tree) -> bool:
     return parent is not None and parent in intended.index and parent not in actual.index
 
 
-def _under_an_extra_parent(dn: str, intended: Intended, actual: Tree) -> bool:
+def _under_an_extra_parent(dn: str, intended: Intended, actual: Intended) -> bool:
     """True when this MO's parent is extra too, so it goes with the parent."""
 
     parent = parent_dn(dn)
@@ -259,7 +260,7 @@ def _under_an_extra_parent(dn: str, intended: Intended, actual: Tree) -> bool:
 
 
 def _compare(
-    intended: dict[str, str], actual: dict[str, Any]
+    intended: dict[str, str], actual: dict[str, str]
 ) -> dict[str, tuple[str | None, str | None]]:
     """Diff one MO's attributes both ways.
 
@@ -273,14 +274,13 @@ def _compare(
     for key, value in intended.items():
         if key in _INSTRUCTION:
             continue
-        raw = actual.get(key)
-        before = None if raw is None else text(raw)
+        before = actual.get(key)
         if before != value:
             changed[key] = (before, value)
     for key, value in actual.items():
-        if key in META or key in intended:
+        if key in _INSTRUCTION or key in intended:
             continue
-        changed[key] = (text(value), None)
+        changed[key] = (value, None)
     # Sorted so that the report does not depend on the order the attributes were
     # written in, nor on the order the APIC returned them.
     return dict(sorted(changed.items()))
@@ -292,7 +292,7 @@ def _only_intended(attributes: dict[str, str]) -> dict[str, tuple[str | None, st
     }
 
 
-def _only_actual(attributes: dict[str, Any]) -> dict[str, tuple[str | None, str | None]]:
+def _only_actual(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
     return {
-        key: (text(value), None) for key, value in sorted(attributes.items()) if key not in META
+        key: (value, None) for key, value in sorted(attributes.items()) if key not in _INSTRUCTION
     }

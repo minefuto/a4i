@@ -230,7 +230,7 @@ def test_dry_run_fetches_the_current_state_and_never_posts(client, state) -> Non
     assert state["last_method"] == "GET"
     # The whole subtree, and only the settable properties.
     assert state["last_params"] == {"rsp-subtree": "full", "rsp-prop-include": "config-only"}
-    assert [(c.kind, c.dn) for c in changes] == [("modified", "uni/tn-common")]
+    assert [(c.kind, c.dn) for c in changes] == [("modified", "uni/tn-demo")]
     assert changes[0].attributes == {"name": ("common", "demo")}
 
 
@@ -256,7 +256,14 @@ def test_dry_run_reports_a_new_child(client) -> None:
     assert changes[0].class_name == "fvBD"
 
 
-def test_dry_run_walks_every_root_of_an_array_body(client, state) -> None:
+def test_dry_run_folds_two_roots_naming_one_mo_into_one_comparison(client, state) -> None:
+    """Both sides are read into an index keyed by DN, so one MO is one entry.
+
+    Two roots at the same DN are one MO the POST would write once, with the
+    later value winning as it does anywhere else. Fetching it twice and
+    reporting it twice would be the body's shape leaking into the report.
+    """
+
     changes = client.dry_run(
         "uni",
         [
@@ -265,8 +272,8 @@ def test_dry_run_walks_every_root_of_an_array_body(client, state) -> None:
         ],
         kind="mo",
     )
-    assert state["mo_requests"] == {"/api/mo/uni/tn-demo.json": 2}
-    assert [c.kind for c in changes] == ["modified", "modified"]
+    assert state["mo_requests"] == {"/api/mo/uni/tn-demo.json": 1}
+    assert [(c.kind, c.attributes) for c in changes] == [("modified", {"name": ("common", "b")})]
 
 
 def test_dry_run_splits_a_wrapped_body_into_one_request_per_top_level_mo(client, state) -> None:
@@ -307,21 +314,28 @@ def test_dry_run_compares_a_wrapped_child_against_its_own_subtree(client) -> Non
     assert changes[0].attributes == {"descr": (None, "x")}
 
 
-def test_dry_run_fetches_nothing_for_a_child_it_cannot_name(client, state) -> None:
-    # No name, so no RN: the DN is a stand-in and no MO on the fabric answers
-    # to it. Fetching it would only ask the APIC about an MO that cannot exist.
-    changes = client.dry_run(
-        "uni",
-        {
-            "polUni": {
-                "attributes": {"dn": "uni"},
-                "children": [{"fvTenant": {"attributes": {"descr": "x"}}}],
-            }
-        },
-        kind="mo",
-    )
+def test_dry_run_refuses_a_child_it_cannot_name_before_asking_the_apic(client, state) -> None:
+    """No name, so no RN: the body names no one MO, and merge.read refuses it.
+
+    Refused rather than compared against a stand-in DN, as merge and diff refuse
+    it: the MO the body meant may well be on the fabric, and reporting a made-up
+    DN as created would be the report talking about an MO nobody named. Nothing
+    is asked of the APIC on the strength of it either.
+    """
+
+    with pytest.raises(ValueError) as exc:
+        client.dry_run(
+            "uni",
+            {
+                "polUni": {
+                    "attributes": {"dn": "uni"},
+                    "children": [{"fvTenant": {"attributes": {"descr": "x"}}}],
+                }
+            },
+            kind="mo",
+        )
+    assert "fvTenant" in str(exc.value)
     assert state["mo_requests"] == {}
-    assert [c.kind for c in changes] == ["warning", "created"]
 
 
 def test_dry_run_refuses_a_paged_answer_rather_than_reporting_it_as_a_change(monkeypatch) -> None:
@@ -537,7 +551,12 @@ def test_fetch_refuses_an_empty_list_of_targets(client) -> None:
 INFRA = {"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}}
 # One naming an MO inside tn-common, for the tests that exclude that tenant: the
 # configuration is not empty, but nothing of it survives the exclusion.
-IN_COMMON = {"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}}
+IN_COMMON = {
+    "fvTenant": {
+        "attributes": {"dn": "uni/tn-common", "name": "common"},
+        "children": [{"fvBD": {"attributes": {"name": "default"}}}],
+    }
+}
 
 
 def test_diff_fetches_one_subtree_per_top_level_mo_and_never_writes(client, state) -> None:
