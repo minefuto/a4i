@@ -115,6 +115,18 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     return _body(intended, loose=loose)
 
 
+def empty() -> dict[str, Any]:
+    """Return the body that describes no MO at all: a polUni with no children.
+
+    :func:`merge` refuses to produce one, since a merge of nothing is a caller
+    who meant to describe something and gave paths that describe nothing. A
+    fetch asking the fabric for every MO of a class it holds none of is not
+    that: "none of those" is the answer, and this is the body that says so.
+    """
+
+    return {WRAPPER: {"attributes": {"dn": ROOT}, "children": []}}
+
+
 def _body(intended: Intended, *, loose: bool = False) -> dict[str, Any]:
     """Write the index back out as one body to post at ``uni``.
 

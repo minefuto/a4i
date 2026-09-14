@@ -570,6 +570,14 @@ def test_post_rejects_an_invalid_body_before_reaching_the_daemon(monkeypatch, ca
 # The fabric the mocked daemon serves: uni holds one tenant, fetched whole.
 FABRIC = {
     "uni": {"imdata": [{"fvTenant": {"attributes": {"dn": "uni/tn-demo"}}}]},
+    "uni/tn-demo/BD-bd1": {
+        "imdata": [
+            {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-bd1", "name": "bd1", "mtu": "1500"}}}
+        ]
+    },
+    # Answered to a class query rather than a DN, which is how a class target is
+    # turned into the DNs the subtrees are then read by.
+    "fvBD": {"imdata": [{"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-bd1"}}}]},
     "uni/tn-demo": {
         "imdata": [
             {
@@ -644,6 +652,46 @@ def test_fetch_writes_to_a_file_and_refuses_to_replace_one(monkeypatch, capsys, 
     assert _run_fetch(monkeypatch, ["fetch", "-o", str(out)])[0] == 1
     assert "--force" in capsys.readouterr().err
     assert _run_fetch(monkeypatch, ["fetch", "-o", str(out), "--force"])[0] == 0
+
+
+def test_fetch_of_a_dn_reads_that_subtree_alone(monkeypatch, capsys) -> None:
+    code, sent = _run_fetch(monkeypatch, ["fetch", "mo", "uni/tn-demo/BD-bd1"])
+    assert code == 0
+    # No listing of uni, and no walk of the tenant: one request, for the one DN.
+    assert [request["target"] for request in sent] == ["uni/tn-demo/BD-bd1"]
+    # Still a body to post at uni: the tenant the DN names is filled in around it.
+    tenant = json.loads(capsys.readouterr().out)["polUni"]["children"][0]["fvTenant"]
+    assert tenant["attributes"] == {"rn": "tn-demo"}
+    assert tenant["children"][0]["fvBD"]["attributes"]["name"] == "bd1"
+
+
+def test_fetch_of_a_class_names_its_mos_then_reads_each(monkeypatch, capsys) -> None:
+    code, sent = _run_fetch(monkeypatch, ["fetch", "class", "fvBD"])
+    assert code == 0
+    assert [(request["kind"], request["target"]) for request in sent] == [
+        ("class", "fvBD"),
+        ("mo", "uni/tn-demo/BD-bd1"),
+    ]
+    body = json.loads(capsys.readouterr().out)
+    assert body["polUni"]["children"][0]["fvTenant"]["children"][0]["fvBD"]["attributes"]["rn"] == (
+        "BD-bd1"
+    )
+
+
+def test_fetch_of_a_dn_the_fabric_has_nothing_at_fails(monkeypatch, capsys) -> None:
+    code, _ = _run_fetch(monkeypatch, ["fetch", "mo", "uni/tn-gone"])
+    assert code == 1
+    assert "uni/tn-gone" in capsys.readouterr().err
+
+
+def test_fetch_takes_output_on_either_side_of_the_target(monkeypatch, tmp_path) -> None:
+    """The reason the target is a positional and not a subcommand of its own."""
+
+    before = tmp_path / "before.json"
+    after = tmp_path / "after.json"
+    assert _run_fetch(monkeypatch, ["fetch", "-o", str(before), "mo", "uni/tn-demo"])[0] == 0
+    assert _run_fetch(monkeypatch, ["fetch", "mo", "uni/tn-demo", "-o", str(after)])[0] == 0
+    assert before.read_text() == after.read_text()
 
 
 def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:

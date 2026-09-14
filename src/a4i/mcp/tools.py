@@ -293,8 +293,29 @@ FETCH = _tool(
     "diff, or post it at 'uni'. It is not what a person would have written: the APIC "
     "sends every settable property, defaults included, so a whole fabric runs to "
     "megabytes. Pass 'output' -- without it this is almost certain to be refused for "
-    "size.",
+    "size. Pass 'mo' or 'cls' to read part of the fabric instead of all of it; the "
+    "result is shaped the same either way, and is still a body to post at 'uni', but "
+    "only the whole of uni is a body to hand to diff.",
     {
+        "mo": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "DNs to read the subtree of, e.g. uni/tn-prod, instead of all of uni. A "
+                "DN with no MO at it is an error naming it, rather than an empty answer. "
+                "Cannot be given together with 'cls'."
+            ),
+        },
+        "cls": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "ACI class names to read the subtree of every MO of, e.g. fvBD, wherever "
+                "in uni they sit. A class with no MOs returns an empty body; a class "
+                "whose MOs live outside uni, such as topSystem, is refused -- use get "
+                "for those. Cannot be given together with 'mo'."
+            ),
+        },
         "output": {
             "type": "string",
             "description": (
@@ -548,9 +569,10 @@ def _fetch(arguments: dict[str, Any]) -> str:
     from a4i.output import plural
 
     try:
-        body = _client().fetch()
-    except ValueError as exc:
-        # The fabric holds an MO no single body posted at uni could carry.
+        body = _client().fetch(mo=arguments.get("mo"), cls=arguments.get("cls"))
+    except (TypeError, ValueError) as exc:
+        # A DN naming no MO, both targets at once, or an MO no single body posted
+        # at uni could carry.
         raise ToolError(str(exc)) from None
     text = _json(body)
 
@@ -558,7 +580,7 @@ def _fetch(arguments: dict[str, Any]) -> str:
     if output is None:
         if len(text.encode()) > max_bytes():
             raise ToolError(
-                f"The fabric's configuration is {len(text):,} bytes, over the "
+                f"The configuration read is {len(text):,} bytes, over the "
                 f"{max_bytes():,} byte limit. Nothing was truncated -- pass 'output' with a "
                 "file path to write it there instead, then give that path to diff as 'path'."
             )

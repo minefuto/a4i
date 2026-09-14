@@ -227,6 +227,62 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                     ],
                 },
             )
+        if path == "/api/mo/uni/tn-common/BD-default.json":
+            # A DN below uni's top level: what a targeted fetch asks for, and
+            # what no walk of uni ever asks for on its own.
+            return httpx2.Response(
+                200,
+                json={
+                    "totalCount": "1",
+                    "imdata": [
+                        {
+                            "fvBD": {
+                                "attributes": {
+                                    "dn": "uni/tn-common/BD-default",
+                                    "name": "default",
+                                },
+                                "children": [
+                                    {"fvSubnet": {"attributes": {"rn": "subnet-[10.0.0.1/24]"}}}
+                                ],
+                            }
+                        }
+                    ],
+                },
+            )
+        if path == "/api/mo/uni/tn-nowhere.json":
+            # A DN the fabric has nothing at: the APIC answers, and answers empty.
+            return httpx2.Response(200, json={"totalCount": "0", "imdata": []})
+        if path == "/api/class/fvBD.json":
+            return httpx2.Response(
+                200,
+                json={
+                    "totalCount": "1",
+                    "imdata": [{"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}}],
+                },
+            )
+        if path == "/api/class/fvAp.json":
+            return httpx2.Response(200, json={"totalCount": "0", "imdata": []})
+        if path == "/api/class/topSystem.json":
+            # A class whose MOs live outside uni, so no polUni can hold them.
+            return httpx2.Response(
+                200,
+                json={
+                    "totalCount": "1",
+                    "imdata": [
+                        {"topSystem": {"attributes": {"dn": "topology/pod-1/node-101/sys"}}}
+                    ],
+                },
+            )
+        if path == "/api/mo/topology/pod-1/node-101/sys.json":
+            return httpx2.Response(
+                200,
+                json={
+                    "totalCount": "1",
+                    "imdata": [
+                        {"topSystem": {"attributes": {"dn": "topology/pod-1/node-101/sys"}}}
+                    ],
+                },
+            )
         if path == "/api/class/boom.json":
             return httpx2.Response(
                 400,

@@ -459,6 +459,75 @@ def test_fetch_then_diff_finds_no_difference(client) -> None:
     assert client.diff(client.fetch()) == []
 
 
+def test_fetch_of_a_dn_reads_that_subtree_and_nothing_else(client, state) -> None:
+    body = client.fetch(mo="uni/tn-common/BD-default")
+    # No listing of uni, and no sibling tenant: one request, for the one DN.
+    assert state["mo_requests"] == {"/api/mo/uni/tn-common/BD-default.json": 1}
+    assert state["last_params"]["rsp-subtree"] == "full"
+    assert state["last_params"]["rsp-prop-include"] == "config-only"
+    # Still one body to post at uni: the tenant the DN names is filled in.
+    tenant = body["polUni"]["children"][0]["fvTenant"]
+    assert tenant["attributes"]["rn"] == "tn-common"
+    bd = tenant["children"][0]["fvBD"]
+    assert bd["attributes"]["rn"] == "BD-default"
+    assert [next(iter(child)) for child in bd["children"]] == ["fvSubnet"]
+
+
+def test_fetch_of_uni_by_name_is_the_walk_of_uni(client, state) -> None:
+    assert client.fetch(mo="uni") == client.fetch()
+    assert state["mo_requests"] == {
+        "/api/mo/uni.json": 2,
+        "/api/mo/uni/tn-common.json": 2,
+        "/api/mo/uni/tn-infra.json": 2,
+    }
+
+
+def test_fetch_of_several_dns_folds_them_into_one_body(client) -> None:
+    body = client.fetch(mo=["uni/tn-infra", "uni/tn-common/BD-default"])
+    tenants = [child["fvTenant"]["attributes"]["rn"] for child in body["polUni"]["children"]]
+    assert tenants == ["tn-common", "tn-infra"]
+
+
+def test_fetch_of_a_dn_the_fabric_has_nothing_at_is_refused(client) -> None:
+    """A named DN answering empty is a mistyped DN far more often than a fact."""
+
+    with pytest.raises(ValueError) as exc:
+        client.fetch(mo="uni/tn-nowhere")
+    assert "uni/tn-nowhere" in str(exc.value)
+
+
+def test_fetch_of_a_class_reads_the_subtree_of_each_of_its_mos(client, state) -> None:
+    body = client.fetch(cls="fvBD")
+    # Named by the class query, then read by DN, as uni's top level is.
+    assert state["mo_requests"] == {"/api/mo/uni/tn-common/BD-default.json": 1}
+    bd = body["polUni"]["children"][0]["fvTenant"]["children"][0]["fvBD"]
+    assert bd["attributes"]["name"] == "default"
+
+
+def test_fetch_of_a_class_with_no_mos_is_an_empty_body(client) -> None:
+    """Unlike a named DN: "none of those" is an answer a fabric can truthfully give."""
+
+    assert client.fetch(cls="fvAp") == {"polUni": {"attributes": {"dn": "uni"}, "children": []}}
+
+
+def test_fetch_of_a_class_living_outside_uni_is_refused(client) -> None:
+    with pytest.raises(ValueError) as exc:
+        client.fetch(cls="topSystem")
+    assert "topology/pod-1/node-101/sys" in str(exc.value)
+
+
+def test_fetch_refuses_dns_and_classes_at_once(client) -> None:
+    with pytest.raises(TypeError):
+        client.fetch(mo="uni/tn-infra", cls="fvBD")
+
+
+def test_fetch_refuses_an_empty_list_of_targets(client) -> None:
+    """Not read as the whole of uni: a caller's list came out empty, not absent."""
+
+    with pytest.raises(ValueError):
+        client.fetch(mo=[])
+
+
 # -- diff (the fabric against an intended configuration) --------------------
 
 

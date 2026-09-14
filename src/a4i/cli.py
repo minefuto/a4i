@@ -290,6 +290,12 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     The output is therefore what diff compares against and what 'a4i post mo
     uni' takes: the fabric as an intended configuration, ready to keep in git.
 
+    'a4i fetch mo DN...' reads the subtree of each DN instead, and 'a4i fetch
+    class CLASS...' the subtree of every MO of each class, wherever it sits. The
+    shape does not change: the MOs come back nested under the MOs they hang off,
+    so the output is still a body to post at uni -- but not one to hand to diff,
+    which reads its configuration as describing the whole of uni.
+
     The APIC sends every settable property, its defaults included, so this is
     far longer than the configuration a person would have written by hand for
     the same fabric.
@@ -301,11 +307,16 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     from a4i.output import print_error
 
     try:
-        body = _client().fetch()
+        if args.kind == "mo":
+            body = _client().fetch(mo=args.targets)
+        elif args.kind == "class":
+            body = _client().fetch(cls=args.targets)
+        else:
+            body = _client().fetch()
     except ValueError as exc:
-        # The fabric holds an MO no single body posted at uni could carry, which
-        # is the bundled dictionary disagreeing with the fabric. Nothing is
-        # printed: half a configuration is worse than none.
+        # A DN naming no MO, a class living outside uni, or an MO no single body
+        # posted at uni could carry. Nothing is printed either way: half a
+        # configuration is worse than none.
         print_error(str(exc))
         return 1
     except A4iError as exc:
@@ -885,6 +896,21 @@ def build_parser() -> argparse.ArgumentParser:
         "fetch",
         help="write the fabric's own configuration out as one body",
         description=_cmd_fetch.__doc__,
+    )
+    # Positionals rather than subparsers, unlike get and post, so that -o and
+    # --force keep working on both sides of the target: a subparser of fetch's
+    # own would reset them to their defaults when it parses.
+    fetch.add_argument(
+        "kind",
+        nargs="?",
+        choices=query.KINDS,
+        help="narrow to MOs by DN, or to every MO of a class; omit for all of uni",
+    )
+    fetch.add_argument(
+        "targets",
+        nargs="*",
+        metavar="TARGET",
+        help="the DNs, or the ACI class names, to read",
     )
     fetch.add_argument(
         "-o",

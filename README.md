@@ -116,9 +116,20 @@ handed back to `diff`, or posted at `uni`. The APIC sends every settable
 property with its defaults, so this is far longer than a configuration written
 by hand for the same fabric.
 
+Name a target to read part of the fabric instead: `mo` takes DNs and reads the
+subtree of each, `class` takes ACI class names and reads the subtree of every MO
+of each, wherever in `uni` it sits. The body is shaped the same either way --
+the MOs come back nested under the MOs they hang off, whose DNs are filled in --
+so it is still one body to post at `uni`. Only the whole of `uni` is a body to
+hand to `diff`, which reads the configuration it is given as describing all of
+it.
+
 ```sh
 a4i fetch -o fabric.json           # -o and --force, as merge takes them
 a4i fetch | a4i diff               # says nothing differs, by construction
+a4i fetch mo uni/tn-demo           # one tenant, as a body to post at uni
+a4i fetch mo uni/tn-a uni/tn-b     # several, folded into one body
+a4i fetch class fvBD               # every BD in the fabric, tenants filled in
 ```
 
 `plan` narrows that same configuration to the MOs posting it would change, and

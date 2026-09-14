@@ -599,6 +599,22 @@ def test_fetch_returns_the_body_when_it_fits(daemon) -> None:
     assert json.loads(text)["polUni"]["attributes"] == {"dn": "uni"}
 
 
+def test_fetch_narrowed_to_a_dn_reads_that_subtree_alone(daemon) -> None:
+    _login()
+    text, is_error = _tool_text(Server(), "fetch", {"mo": ["uni/tn-common/BD-default"]})
+    assert not is_error
+    tenant = json.loads(text)["polUni"]["children"][0]["fvTenant"]
+    assert tenant["attributes"] == {"rn": "tn-common"}
+    assert tenant["children"][0]["fvBD"]["attributes"]["name"] == "default"
+
+
+def test_fetch_refuses_dns_and_classes_at_once(daemon) -> None:
+    _login()
+    text, is_error = _tool_text(Server(), "fetch", {"mo": ["uni/tn-infra"], "cls": ["fvBD"]})
+    assert is_error
+    assert "not both" in text
+
+
 def test_fetch_refuses_a_fabric_too_big_to_hand_over(daemon, monkeypatch) -> None:
     _login()
     monkeypatch.setenv(tools.MAX_BYTES_VAR, "10")
