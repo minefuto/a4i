@@ -15,7 +15,13 @@ import pytest
 from a4i import ipc
 from a4i.daemon import Daemon
 from a4i.daemon import main as daemon_main
-from a4i.errors import DaemonError, NotLoggedInError, SessionExpiredError
+from a4i.errors import (
+    ApicError,
+    DaemonError,
+    NoFabricError,
+    NotLoggedInError,
+    SessionExpiredError,
+)
 from a4i.session import DEFAULT_TIMEOUT
 from apic_mock import Clock, make_session_factory
 
@@ -208,6 +214,90 @@ def test_expiry_does_not_tell_the_apic(daemon) -> None:
     with pytest.raises(SessionExpiredError):
         ipc.get("fvTenant", "class", {}, None)
     assert state["logouts"] == []
+
+
+# -- the fabric a fetch leaves behind ----------------------------------------
+
+
+def test_fetch_holds_the_fabric_and_says_how_much(daemon) -> None:
+    _login()
+    held = ipc.fetch()
+    assert held["count"] == 4
+    body = ipc.fabric()
+    assert body["polUni"]["attributes"] == {"dn": "uni"}
+    # Held, not re-read: a second reader gets the same body without a request.
+    assert ipc.fabric() == body
+
+
+def test_a_fabric_nobody_fetched_is_refused(daemon) -> None:
+    _login()
+    with pytest.raises(NoFabricError) as exc:
+        ipc.fabric()
+    assert "run 'a4i fetch' first" in str(exc.value)
+
+
+def test_fetch_requires_a_session(daemon) -> None:
+    with pytest.raises(NotLoggedInError):
+        ipc.fetch()
+
+
+def test_a_post_drops_the_fabric(daemon) -> None:
+    _login()
+    ipc.fetch()
+    ipc.post("uni/tn-demo", "mo", '{"fvTenant": {"attributes": {"descr": "x"}}}')
+    with pytest.raises(NoFabricError):
+        ipc.fabric()
+
+
+def test_a_post_the_apic_refused_leaves_the_fabric_standing(daemon) -> None:
+    """One POST is one transaction there: a refusal changed nothing."""
+
+    state, _ = daemon
+    _login()
+    ipc.fetch()
+    state["fail_path"] = "/api/mo/uni/tn-demo.json"
+    with pytest.raises(ApicError):
+        ipc.post("uni/tn-demo", "mo", '{"fvTenant": {"attributes": {"descr": "x"}}}')
+    assert ipc.fabric()["polUni"]["attributes"] == {"dn": "uni"}
+
+
+def test_a_login_drops_the_fabric(daemon) -> None:
+    _login()
+    ipc.fetch()
+    _login("someone-else")
+    with pytest.raises(NoFabricError):
+        ipc.fabric()
+
+
+def test_a_logout_drops_the_fabric(daemon) -> None:
+    _login()
+    ipc.fetch()
+    ipc.logout()
+    with pytest.raises(NoFabricError):
+        ipc.fabric()
+
+
+def test_an_expired_session_drops_the_fabric(daemon) -> None:
+    """Sooner than the idle tick would: a request in between must not have it."""
+
+    _, clock = daemon
+    _login()
+    ipc.fetch()
+    clock.advance(600)
+    with pytest.raises(NoFabricError):
+        ipc.fabric()
+
+
+def test_status_says_what_is_held_and_how_old_it_is(daemon) -> None:
+    _, clock = daemon
+    _login()
+    assert ipc.status()["fabric"] is None
+    ipc.fetch()
+    clock.advance(120)
+    held = ipc.status()["fabric"]
+    assert held is not None
+    assert held["count"] == 4
+    assert held["fetched_ago"] == pytest.approx(120, abs=1)
 
 
 # -- startup -----------------------------------------------------------------

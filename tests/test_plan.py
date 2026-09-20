@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from a4i import plan
-from a4i.dry_run import compare
-from a4i.merge import merge, read
+from a4i.merge import merge
 from a4i.mo import Change
 
 CURRENT = [
@@ -24,9 +23,7 @@ CURRENT = [
 def _plan(config, imdata=CURRENT) -> plan.Plan:
     """Merge a configuration, compare it against a fabric, and narrow it."""
 
-    merged = merge(config)
-    changes = compare(read(merged), read(imdata, loose=True))
-    return plan.Plan(plan.body(merged, changes), changes)
+    return plan.create(config, fabric=imdata)
 
 
 def _children(built) -> list:
@@ -187,3 +184,13 @@ def test_counting_leaves_the_wrapper_out() -> None:
         }
     ).body
     assert plan.count(built) == 2
+
+
+def test_a_configuration_may_arrive_as_json_text() -> None:
+    import json
+
+    config = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "prod"}}}
+    assert (
+        plan.create(json.dumps(config), fabric=CURRENT).body
+        == plan.create(config, fabric=CURRENT).body
+    )

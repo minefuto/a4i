@@ -199,8 +199,17 @@ nothing can be written through it.
 
 ## Comparing a whole fabric
 
+`fetch` first, always. It reads the whole of `uni` into the session and returns
+only how much that was; `diff` and `plan` then compare against what it read and
+send nothing to the APIC themselves. One `fetch` serves any number of them.
+
+`post` drops what was read -- it is no longer what the fabric holds -- and so do
+a login, a logout and a session expiry. After any of those, `fetch` again. A
+`diff` or `plan` with nothing to compare against says so and stops rather than
+reading a fabric nobody asked for.
+
 `diff` takes one intended configuration -- a `body` inline, or a `path` to a file
-holding one -- and compares it against everything under `uni`, both ways: what
+holding one -- and compares it against everything `fetch` read, both ways: what
 the configuration asks for and the fabric lacks, and what the fabric carries and
 the configuration never mentions.
 
@@ -238,6 +247,12 @@ LIMITS = """\
 - **A dry run cannot show the APIC's defaults.** For an MO that does not exist
   yet it lists only the attributes your body sets. Whatever the APIC would fill
   in for the rest is not known here.
+
+- **`diff` and `plan` compare against what `fetch` read, not the fabric.** They
+  send nothing to the APIC, so a change made between the `fetch` and them is not
+  in the comparison. A `post` drops what was read for that reason; a change
+  somebody else makes cannot be noticed, so `fetch` again when the answer has to
+  be current.
 
 - **`diff` compares the whole of `uni`.** Everything the configuration leaves
   out is reported as extra, including the tenants and infrastructure policies

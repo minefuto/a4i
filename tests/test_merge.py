@@ -7,7 +7,9 @@ import pathlib
 import pytest
 
 from a4i import cli, ipc
+from a4i.client import Client
 from a4i.merge import merge
+from a4i.transport import DaemonTransport
 
 
 def mo(class_name: str, attributes: dict, children: list | None = None) -> dict:
@@ -696,6 +698,11 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
         return FABRIC.get(target, {"imdata": []})
 
     monkeypatch.setattr(ipc, "get", get)
+    # The fabric side comes from a fetch, which is what holds it in the daemon
+    # between the two commands. Run the real one over the mocked GETs rather
+    # than writing the body out by hand: half this seam is fetch's reading.
+    fabric = Client(transport=DaemonTransport()).fetch()
+    monkeypatch.setattr(ipc, "fabric", lambda: fabric)
     monkeypatch.setattr("sys.stdin", io.StringIO(merged.read_text()))
     # 0 is the fabric matching what the two files describe between them: the
     # override's descr won, and the BD it added is on the fabric.

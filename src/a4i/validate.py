@@ -26,6 +26,7 @@ were skipped, would be a diagnosis of the wrong thing.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from a4i.mo import ROOT, WRAPPER, child_dn
@@ -40,6 +41,26 @@ _MO_SHAPE = 'an MO is one class name mapped to a body: {"fvBD": {"attributes": {
 _BODY_SHAPE = 'an MO body is an object with "attributes" and an optional "children"'
 _VALUE_SHAPE = "an ACI attribute value is a string"
 _RESPONSE = 'this is a GET response, not a configuration. Pass what is inside "imdata".'
+
+
+def read_body(body: str | Any) -> tuple[str, Any]:
+    """Return the text to send and the object it parses to.
+
+    Text is passed through untouched rather than reserialized, so the key order
+    and the formatting reach the APIC exactly as the caller wrote them. A
+    comparison reads its one configuration through here too, and wants only the
+    object -- which is why the message below says "body" rather than "POST
+    body".
+    """
+
+    if not isinstance(body, str):
+        return json.dumps(body), body
+    if not body.strip():
+        raise ValueError("empty body")
+    try:
+        return body, json.loads(body)
+    except ValueError as exc:
+        raise ValueError(f"invalid JSON body: {exc}") from None
 
 
 def problems(config: Any, source: str | None = None) -> list[str]:

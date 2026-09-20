@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from a4i import ipc
-from a4i.errors import DaemonError, UnusableSocketError
+from a4i.errors import DaemonError, NoFabricError, UnusableSocketError
 
 SOCK = "daemon.sock"
 
@@ -177,6 +177,24 @@ def test_an_op_reports_too_long_path_as_an_unusable_socket(monkeypatch, short_di
     monkeypatch.setattr(ipc, "socket_path", lambda: short_dir / ("x" * 200))
     with pytest.raises(UnusableSocketError, match="cannot use the daemon socket"):
         ipc.status()
+
+
+def test_no_daemon_reads_as_no_fabric(monkeypatch, short_dir) -> None:
+    """A daemon that is not there holds no fabric, and the next move is a fetch either way."""
+
+    monkeypatch.setattr(ipc, "socket_path", lambda: short_dir / SOCK)
+    with pytest.raises(NoFabricError, match="run 'a4i fetch' first"):
+        ipc.fabric()
+
+
+def test_fabric_starts_no_daemon(monkeypatch, short_dir) -> None:
+    def spawn(path):
+        raise AssertionError("a daemon was started")
+
+    monkeypatch.setattr(ipc, "socket_path", lambda: short_dir / SOCK)
+    monkeypatch.setattr(ipc, "_spawn_daemon", spawn)
+    with pytest.raises(NoFabricError):
+        ipc.fabric()
 
 
 def test_spawn_daemon_fails_fast_when_daemon_cannot_bind() -> None:

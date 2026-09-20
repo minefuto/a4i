@@ -40,6 +40,25 @@ class NotLoggedInError(A4iError):
     """Raised when a request is attempted before a successful login."""
 
 
+class NoFabricError(A4iError):
+    """Raised when a comparison is asked for and no fabric has been fetched.
+
+    The daemon holds the fetched fabric, so this is what every reader of it
+    hears -- the MCP server and the command line alike -- and the message names
+    what drops it, because the state changes under a caller who did nothing but
+    post.
+    """
+
+
+# What that error says, here rather than beside either raiser: the daemon raises
+# it for a fabric it does not hold, and a4i.ipc for a daemon that is not there to
+# hold one, and the two are the same answer to the same question.
+NO_FABRIC_MESSAGE = (
+    "no fabric has been fetched: run 'a4i fetch' first\n"
+    "(the cache is dropped by a post, a login, a logout, and a session expiry)"
+)
+
+
 class ReadOnlyError(A4iError):
     """Raised when a POST is attempted on a session logged in read-only.
 
@@ -84,6 +103,7 @@ class NoDaemonError(DaemonError):
 _WIRE: dict[str, type[A4iError]] = {
     "apic": ApicError,
     "expired": SessionExpiredError,
+    "no_fabric": NoFabricError,
     "not_logged_in": NotLoggedInError,
     "read_only": ReadOnlyError,
 }

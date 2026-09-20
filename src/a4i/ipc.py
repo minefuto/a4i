@@ -28,7 +28,14 @@ import time
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from a4i.errors import DaemonError, NoDaemonError, UnusableSocketError, from_payload
+from a4i.errors import (
+    NO_FABRIC_MESSAGE,
+    DaemonError,
+    NoDaemonError,
+    NoFabricError,
+    UnusableSocketError,
+    from_payload,
+)
 
 _SPAWN_TIMEOUT = 10.0
 _CONNECT_RETRY = 0.05
@@ -64,11 +71,22 @@ class EndReply(TypedDict):
     apic_error: str | None
 
 
+class FabricHeld(TypedDict):
+    """The fetched fabric a daemon is holding, if it is holding one."""
+
+    count: int
+    # Elapsed rather than a timestamp: the daemon measures on a monotonic clock,
+    # which has no meaning in another process, and what a reader wants is how old
+    # the comparison about to run will be.
+    fetched_ago: float
+
+
 class LoggedOut(TypedDict):
     """A daemon running with no session in it."""
 
     logged_in: Literal[False]
     read_only: bool
+    fabric: FabricHeld | None
 
 
 class LoggedIn(TypedDict):
@@ -80,6 +98,7 @@ class LoggedIn(TypedDict):
     read_only: bool
     expires_in: float
     timeout: float
+    fabric: FabricHeld | None
 
 
 # Two shapes rather than one with holes in it: which fields are there follows
@@ -326,3 +345,30 @@ def post(target: str, kind: str, body: str, *, autostart: bool = True) -> Any:
     """POST through the daemon's session, and return the APIC's parsed response."""
 
     return _request("post", {"target": target, "kind": kind, "body": body}, autostart=autostart)
+
+
+def fetch(*, autostart: bool = True) -> dict[str, Any]:
+    """Read the whole of uni into the daemon and return how many MOs that was.
+
+    The body itself stays there: it is what :func:`fabric` hands to the next
+    comparison, and nothing this side does with it would survive the process.
+    """
+
+    return _request("fetch", {}, autostart=autostart)
+
+
+def fabric() -> Any:
+    """Return the fabric a fetch left in the daemon, as one body.
+
+    Starts nothing: a daemon brought into being to answer this would hold no
+    fabric, so a daemon that is not running is answered with what one that is
+    would have said. "No a4i daemon is running" is true and leads nowhere; the
+    next move is the same either way, and it is a fetch.
+
+    Raises :class:`~a4i.errors.NoFabricError` when nothing has been fetched.
+    """
+
+    try:
+        return _request("fabric", {}, autostart=False)
+    except NoDaemonError:
+        raise NoFabricError(NO_FABRIC_MESSAGE) from None

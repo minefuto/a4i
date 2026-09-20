@@ -8,11 +8,14 @@ import pytest
 
 from a4i import cli, ipc
 from a4i.errors import (
+    NO_FABRIC_MESSAGE,
     DaemonError,
     NoDaemonError,
+    NoFabricError,
     NotLoggedInError,
     UnusableSocketError,
 )
+from a4i.merge import merge
 from a4i.session import DEFAULT_TIMEOUT
 
 # -- an unusable socket must not read as "no daemon" ------------------------
@@ -59,6 +62,22 @@ def _record(monkeypatch, sent: list[dict], reply) -> None:
 
     monkeypatch.setattr(ipc, "get", get)
     monkeypatch.setattr(ipc, "post", post)
+
+
+def _hold(monkeypatch, response) -> None:
+    """Stand in for the daemon holding what a fetch read, built from a mocked response."""
+
+    body = merge(response["imdata"])
+    monkeypatch.setattr(ipc, "fabric", lambda: body)
+
+
+def _hold_nothing(monkeypatch) -> None:
+    """Stand in for a daemon that has not been fetched into."""
+
+    def fabric():
+        raise NoFabricError(NO_FABRIC_MESSAGE)
+
+    monkeypatch.setattr(ipc, "fabric", fabric)
 
 
 @pytest.fixture
@@ -358,6 +377,20 @@ def _run_dry_run(monkeypatch, argv: list[str], response=None) -> tuple[int, list
     return cli.main(argv), sent
 
 
+def _run_plan(monkeypatch, argv: list[str], response=None) -> tuple[int, list[dict]]:
+    """Run a plan command line against a fabric already fetched.
+
+    The requests are still recorded, and a plan should make none of them: what
+    it compares against was read by the fetch before it.
+    """
+
+    sent: list[dict] = []
+    held = TENANT if response is None else response
+    _record(monkeypatch, sent, held)
+    _hold(monkeypatch, held)
+    return cli.main(argv), sent
+
+
 def test_dry_run_gets_the_current_subtree_and_never_posts(monkeypatch, capsys) -> None:
     code, sent = _run_dry_run(
         monkeypatch,
@@ -428,12 +461,12 @@ def test_dry_run_reports_a_daemon_error(monkeypatch, capsys) -> None:
 
 
 def test_plan_writes_the_body_to_stdout_and_the_report_to_stderr(monkeypatch, capsys) -> None:
-    code, sent = _run_dry_run(
+    code, sent = _run_plan(
         monkeypatch,
         ["plan", '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}'],
     )
-    # Only the tenant the configuration describes is read, not uni whole.
-    assert [(request["op"], request["target"]) for request in sent] == [("get", "uni/tn-demo")]
+    # Nothing is read at all: the fabric it compared against is the fetch's.
+    assert sent == []
     captured = capsys.readouterr()
     assert '~ descr: "" -> "prod"' in captured.err
     assert json.loads(captured.out) == {
@@ -453,7 +486,7 @@ def test_plan_writes_the_body_to_stdout_and_the_report_to_stderr(monkeypatch, ca
 
 
 def test_plan_carries_an_unchanged_ancestor_and_says_how_many(monkeypatch, capsys) -> None:
-    code, _ = _run_dry_run(
+    code, _ = _run_plan(
         monkeypatch,
         [
             "plan",
@@ -476,7 +509,7 @@ def test_plan_carries_an_unchanged_ancestor_and_says_how_many(monkeypatch, capsy
 
 
 def test_plan_writes_an_empty_body_when_nothing_would_change(monkeypatch, capsys) -> None:
-    code, _ = _run_dry_run(
+    code, _ = _run_plan(
         monkeypatch,
         ["plan", '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","name":"demo"}}}'],
     )
@@ -488,7 +521,7 @@ def test_plan_writes_an_empty_body_when_nothing_would_change(monkeypatch, capsys
 
 
 def test_plan_refuses_to_write_a_body_the_dry_run_warned_about(monkeypatch, capsys) -> None:
-    code, _ = _run_dry_run(
+    code, _ = _run_plan(
         monkeypatch,
         [
             "plan",
@@ -503,7 +536,7 @@ def test_plan_refuses_to_write_a_body_the_dry_run_warned_about(monkeypatch, caps
 
 
 def test_plan_refuses_an_mo_that_does_not_sit_under_uni(monkeypatch, capsys) -> None:
-    code, sent = _run_dry_run(
+    code, sent = _run_plan(
         monkeypatch,
         ["plan", '{"fabricNode":{"attributes":{"dn":"topology/pod-1/node-101"}}}'],
     )
@@ -515,7 +548,7 @@ def test_plan_refuses_an_mo_that_does_not_sit_under_uni(monkeypatch, capsys) -> 
 def test_plan_writes_to_a_file_and_refuses_to_overwrite_one(monkeypatch, capsys, tmp_path) -> None:
     out = tmp_path / "plan.json"
     body = '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}'
-    code, _ = _run_dry_run(monkeypatch, ["plan", body, "-o", str(out)])
+    code, _ = _run_plan(monkeypatch, ["plan", body, "-o", str(out)])
     assert code == 0
     assert json.loads(out.read_text())["polUni"]["attributes"] == {"dn": "uni"}
     # The report still goes to stderr, and stdout stays empty for the file.
@@ -523,17 +556,17 @@ def test_plan_writes_to_a_file_and_refuses_to_overwrite_one(monkeypatch, capsys,
     assert captured.out == ""
     assert '~ descr: "" -> "prod"' in captured.err
 
-    code, _ = _run_dry_run(monkeypatch, ["plan", body, "-o", str(out)])
+    code, _ = _run_plan(monkeypatch, ["plan", body, "-o", str(out)])
     assert code == 1
     assert "--force" in capsys.readouterr().err
-    assert _run_dry_run(monkeypatch, ["plan", body, "-o", str(out), "--force"])[0] == 0
+    assert _run_plan(monkeypatch, ["plan", body, "-o", str(out), "--force"])[0] == 0
 
 
 def test_plan_reads_the_body_from_stdin(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "sys.stdin", io.StringIO('{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}')
     )
-    code, _ = _run_dry_run(monkeypatch, ["plan"])
+    code, _ = _run_plan(monkeypatch, ["plan"])
     assert code == 0
     assert (
         json.loads(capsys.readouterr().out)["polUni"]["children"][0]["fvTenant"]["attributes"][
@@ -543,11 +576,15 @@ def test_plan_reads_the_body_from_stdin(monkeypatch, capsys) -> None:
     )
 
 
-def test_plan_reports_a_daemon_error(monkeypatch, capsys) -> None:
-    _raise_request(monkeypatch, NotLoggedInError("not logged in"))
+def test_plan_without_a_fetch_says_to_fetch(monkeypatch, capsys) -> None:
+    _hold_nothing(monkeypatch)
     body = '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"x"}}}'
     assert cli.main(["plan", body]) == 1
-    assert "run 'a4i login'" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "no fabric has been fetched" in captured.err
+    # What dropped it, because a post drops it under a caller who did nothing else.
+    assert "dropped by a post" in captured.err
+    assert captured.out == ""
 
 
 def test_post_without_dry_run_still_posts(monkeypatch) -> None:
@@ -609,7 +646,7 @@ INTENDED = {
 }
 
 
-# -- fetch (the fabric as an intended configuration) ------------------------
+# -- fetch (the fabric, read into the daemon) -------------------------------
 
 
 def _run_fetch(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
@@ -618,100 +655,67 @@ def _run_fetch(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
     sent: list[dict] = []
 
     _record(monkeypatch, sent, lambda target: FABRIC.get(target, {"imdata": []}))
+    monkeypatch.setattr(ipc, "fetch", lambda **kwargs: _fetch_through_daemon())
     return cli.main(argv), sent
 
 
-def test_fetch_reads_uni_and_writes_a_merged_body_to_stdout(monkeypatch, capsys) -> None:
+def _fetch_through_daemon() -> dict:
+    """What the daemon's fetch op does: read uni with the client, count what it read."""
+
+    from a4i.client import Client
+    from a4i.merge import count
+    from a4i.transport import DaemonTransport
+
+    body = Client(transport=DaemonTransport()).fetch()
+    return {"count": count(body)}
+
+
+def test_fetch_reads_uni_and_says_what_it_held(monkeypatch, capsys) -> None:
     code, sent = _run_fetch(monkeypatch, ["fetch"])
     assert code == 0
-    # The same walk a diff makes: uni is listed, then each child fetched whole.
+    # uni is listed, then each child fetched whole.
     assert [request["target"] for request in sent] == ["uni", "uni/tn-demo"]
-    assert json.loads(capsys.readouterr().out) == {
-        "polUni": {
-            "attributes": {"dn": "uni"},
-            "children": [
-                {
-                    "fvTenant": {
-                        "attributes": {"rn": "tn-demo", "name": "demo", "descr": ""},
-                        "children": [
-                            {"fvBD": {"attributes": {"rn": "BD-bd1", "name": "bd1", "mtu": "1500"}}}
-                        ],
-                    }
-                }
-            ],
-        }
-    }
+    out = capsys.readouterr().out
+    # The body is not printed: it is held for diff and plan, and saying so is
+    # the whole of what a person needs from this command.
+    assert "fvTenant" not in out
+    assert "fetched 2 MOs into the daemon cache" in out
+    assert "until the next post" in out
 
 
-def test_fetch_writes_to_a_file_and_refuses_to_replace_one(monkeypatch, capsys, tmp_path) -> None:
-    out = tmp_path / "fabric.json"
-    assert _run_fetch(monkeypatch, ["fetch", "-o", str(out)])[0] == 0
-    assert capsys.readouterr().out == ""
-    assert json.loads(out.read_text())["polUni"]["attributes"] == {"dn": "uni"}
+def test_fetch_takes_no_arguments(capsys) -> None:
+    """The targets are gone with the body: this reads uni, because diff compares it."""
 
-    assert _run_fetch(monkeypatch, ["fetch", "-o", str(out)])[0] == 1
-    assert "--force" in capsys.readouterr().err
-    assert _run_fetch(monkeypatch, ["fetch", "-o", str(out), "--force"])[0] == 0
-
-
-def test_fetch_of_a_dn_reads_that_subtree_alone(monkeypatch, capsys) -> None:
-    code, sent = _run_fetch(monkeypatch, ["fetch", "mo", "uni/tn-demo/BD-bd1"])
-    assert code == 0
-    # No listing of uni, and no walk of the tenant: one request, for the one DN.
-    assert [request["target"] for request in sent] == ["uni/tn-demo/BD-bd1"]
-    # Still a body to post at uni: the tenant the DN names is filled in around it.
-    tenant = json.loads(capsys.readouterr().out)["polUni"]["children"][0]["fvTenant"]
-    assert tenant["attributes"] == {"rn": "tn-demo"}
-    assert tenant["children"][0]["fvBD"]["attributes"]["name"] == "bd1"
-
-
-def test_fetch_of_a_class_names_its_mos_then_reads_each(monkeypatch, capsys) -> None:
-    code, sent = _run_fetch(monkeypatch, ["fetch", "class", "fvBD"])
-    assert code == 0
-    assert [(request["kind"], request["target"]) for request in sent] == [
-        ("class", "fvBD"),
-        ("mo", "uni/tn-demo/BD-bd1"),
-    ]
-    body = json.loads(capsys.readouterr().out)
-    assert body["polUni"]["children"][0]["fvTenant"]["children"][0]["fvBD"]["attributes"]["rn"] == (
-        "BD-bd1"
-    )
-
-
-def test_fetch_of_a_dn_the_fabric_has_nothing_at_fails(monkeypatch, capsys) -> None:
-    code, _ = _run_fetch(monkeypatch, ["fetch", "mo", "uni/tn-gone"])
-    assert code == 1
-    assert "uni/tn-gone" in capsys.readouterr().err
-
-
-def test_fetch_takes_output_on_either_side_of_the_target(monkeypatch, tmp_path) -> None:
-    """The reason the target is a positional and not a subcommand of its own."""
-
-    before = tmp_path / "before.json"
-    after = tmp_path / "after.json"
-    assert _run_fetch(monkeypatch, ["fetch", "-o", str(before), "mo", "uni/tn-demo"])[0] == 0
-    assert _run_fetch(monkeypatch, ["fetch", "mo", "uni/tn-demo", "-o", str(after)])[0] == 0
-    assert before.read_text() == after.read_text()
+    with pytest.raises(SystemExit) as exit:
+        cli.main(["fetch", "mo", "uni/tn-demo"])
+    assert exit.value.code == 2
 
 
 def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
-    """Run a diff command line and return its exit code and the requests made."""
+    """Run a diff command line against a fabric already fetched.
+
+    The fetch is run first, through the same mocked daemon, so what the diff
+    compares against is what the real walk of uni would have left behind. The
+    requests recorded are therefore the fetch's; a diff makes none of its own.
+    """
 
     sent: list[dict] = []
 
     _record(monkeypatch, sent, lambda target: FABRIC.get(target, {"imdata": []}))
+    from a4i.client import Client
+    from a4i.transport import DaemonTransport
+
+    body = Client(transport=DaemonTransport()).fetch()
+    monkeypatch.setattr(ipc, "fabric", lambda: body)
+    sent.clear()
     return cli.main(argv), sent
 
 
-def test_diff_lists_uni_then_fetches_each_top_level_subtree(monkeypatch) -> None:
+def test_diff_asks_the_fabric_for_nothing(monkeypatch) -> None:
+    """Every request it rests on was the fetch's, and is already paid for."""
+
     _, sent = _run_diff(monkeypatch, ["diff", json.dumps(INTENDED)])
-    assert [request["op"] for request in sent] == ["get", "get"]
-    # Every DN travels bare, with "mo" alongside it saying how to read it.
-    assert sent[0]["target"] == "uni"
-    assert sent[0]["kind"] == "mo"
-    assert sent[0]["params"] == {"query-target": "children", "rsp-prop-include": "config-only"}
-    assert sent[1]["target"] == "uni/tn-demo"
-    assert sent[1]["params"] == {"rsp-subtree": "full", "rsp-prop-include": "config-only"}
+    assert sent == []
 
 
 def test_diff_reports_a_clean_fabric_with_a_clean_exit(monkeypatch, capsys) -> None:
@@ -825,14 +829,6 @@ def test_diff_takes_exclude_more_than_once(monkeypatch, capsys) -> None:
     assert code == 0
 
 
-def test_diff_still_fetches_an_excluded_subtree(monkeypatch) -> None:
-    # The exclusion narrows the comparison, not the fetch: the fabric is read the
-    # same way whether or not anything is left out of the report.
-    argv = ["diff", json.dumps(INTENDED), "--exclude", "uni/tn-demo"]
-    _, sent = _run_diff(monkeypatch, argv)
-    assert [request["target"] for request in sent] == ["uni", "uni/tn-demo"]
-
-
 def test_diff_rejects_an_exclude_that_names_no_mo_at_all(monkeypatch, capsys) -> None:
     assert _run_diff(monkeypatch, ["diff", json.dumps(INTENDED), "--exclude", "/"])[0] == 1
     assert "cannot be empty" in capsys.readouterr().err
@@ -869,10 +865,14 @@ def test_diff_refuses_an_mo_it_cannot_tell_from_the_ones_on_the_fabric(monkeypat
     assert code == 1
 
 
-def test_diff_reports_a_daemon_error(monkeypatch, capsys) -> None:
-    _raise_request(monkeypatch, NotLoggedInError("not logged in"))
+def test_diff_without_a_fetch_says_to_fetch(monkeypatch, capsys) -> None:
+    _hold_nothing(monkeypatch)
     assert cli.main(["diff", json.dumps(INTENDED)]) == 1
-    assert "run 'a4i login'" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "no fabric has been fetched" in captured.err
+    assert "dropped by a post" in captured.err
+    # Not 2: nothing was compared, so "it differs" is not what happened.
+    assert captured.out == ""
 
 
 # -- list -------------------------------------------------------------------

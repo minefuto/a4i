@@ -1,10 +1,10 @@
 """Compare a fabric's whole configuration against the one it is meant to have.
 
-``a4i diff`` reads the intended configuration, fetches everything under ``uni``
-from the APIC, and reports where the two disagree. Nothing in this module
-performs I/O: it takes the parsed configuration and the ``imdata`` of those
-GETs, reads each into an index with :func:`a4i.merge.read`, and returns the
-differences.
+``a4i diff`` reads the intended configuration and reports where it and the
+fabric disagree. Nothing in this module performs I/O: it takes the
+configuration and the fabric as it was fetched -- :meth:`a4i.Client.fetch`
+reads that, and the daemon holds it between commands -- reads each into an
+index with :func:`a4i.merge.read`, and returns the differences.
 
 This runs both ways, which is the whole point and the difference from
 :mod:`a4i.dry_run`. A POST can only add or change, so a dry run need only look
@@ -39,6 +39,7 @@ from typing import Any
 
 from a4i.merge import Intended, read
 from a4i.mo import Change, Exclusions, parent_dn, split_condition
+from a4i.validate import read_body
 
 # What the merged configuration carries for the sake of a POST and a comparison
 # has nothing to say about: "status" tells the APIC what to do with an MO, so
@@ -51,19 +52,22 @@ _INSTRUCTION = frozenset({"status"})
 
 
 def compare(
-    config: Any,
-    imdata: Any,
+    config: str | Any,
     *,
+    fabric: Any,
     expand: bool = False,
     exclude: str | Sequence[str] | None = None,
     on_unused: Callable[[list[str]], None] | None = None,
 ) -> list[Change]:
-    """Return how ``imdata`` differs from the intended configuration.
+    """Return how ``fabric`` differs from the intended configuration.
 
-    ``config`` is one ACI body -- one MO, or a list of them -- describing the
-    whole of ``uni``; ``imdata`` is everything under ``uni``. Several
-    configurations are merged into that one body beforehand by
-    :func:`a4i.merge.merge`. Without ``expand``, a subtree that is wholly
+    ``config`` is one ACI body -- one MO, a list of them, or the same as JSON
+    text -- describing the whole of ``uni``. ``fabric`` is the fabric it is
+    compared against, which is what :meth:`a4i.Client.fetch` returns: everything
+    under ``uni``, as one body. It is keyword-only so that every call says the
+    word, a comparison being worth only as much as the reader knows of where its
+    other side came from. Several configurations are merged into that one body
+    beforehand by :func:`a4i.merge.merge`. Without ``expand``, a subtree that is wholly
     missing or wholly extra is reported as its top MO alone, with the MOs below
     it counted rather than listed.
 
@@ -89,7 +93,8 @@ def compare(
     """
 
     excluded = _exclusions(exclude)
-    intended = read(config, excluded=excluded)
+    _, parsed = read_body(config)
+    intended = read(parsed, excluded=excluded)
     if not intended.index:
         raise ValueError(
             "the configuration is empty: it describes no MO at all, so every MO on the "
@@ -98,7 +103,7 @@ def compare(
     # Emptiness is judged before pruning, so a configuration whose every MO is
     # excluded is a comparison narrowed to nothing -- which is a report with no
     # differences in it -- and not an input that said nothing.
-    actual = read(imdata)
+    actual = read(fabric)
     excluded.resolve(intended.index)
     excluded.resolve(actual.index)
     if on_unused is not None and (unused := excluded.unused()):

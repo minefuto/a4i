@@ -283,67 +283,47 @@ def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
 
 
 def _cmd_fetch(args: argparse.Namespace) -> int:
-    """Write the fabric's own configuration out as one body.
+    """Read the whole fabric into the daemon, for diff and plan to compare against.
 
-    Everything under uni is read one top-level subtree at a time, as 'a4i diff'
-    reads it, and folded into a polUni shaped exactly as 'a4i merge' shapes one.
-    The output is therefore what diff compares against and what 'a4i post mo
-    uni' takes: the fabric as an intended configuration, ready to keep in git.
+    Everything under uni is read one top-level subtree at a time and folded into
+    the one body those MOs describe, which is the shape 'a4i merge' writes. The
+    body stays in the daemon: diff and plan take their fabric side from there,
+    so the three commands compare against a single reading of the fabric rather
+    than three.
 
-    'a4i fetch mo DN...' reads the subtree of each DN instead, and 'a4i fetch
-    class CLASS...' the subtree of every MO of each class, wherever it sits. The
-    shape does not change: the MOs come back nested under the MOs they hang off,
-    so the output is still a body to post at uni -- but not one to hand to diff,
-    which reads its configuration as describing the whole of uni.
-
-    The APIC sends every settable property, its defaults included, so this is
-    far longer than the configuration a person would have written by hand for
-    the same fabric.
+    It is dropped by a post -- what was read is no longer what is there -- and
+    by a login, a logout and a session expiry. diff and plan then say so and
+    stop, rather than comparing against a fabric nobody read.
     """
 
-    import json
-
-    from a4i import config
     from a4i.output import print_error
 
     try:
-        if args.kind == "mo":
-            body = _client().fetch(mo=args.targets)
-        elif args.kind == "class":
-            body = _client().fetch(cls=args.targets)
-        else:
-            body = _client().fetch()
+        held = ipc.fetch()
     except ValueError as exc:
-        # A DN naming no MO, a class living outside uni, or an MO no single body
-        # posted at uni could carry. Nothing is printed either way: half a
-        # configuration is worse than none.
+        # An MO no single body posted at uni could carry. Nothing is held, and
+        # nothing is printed: half a fabric is worse than none.
         print_error(str(exc))
         return 1
     except A4iError as exc:
         return _fail(exc)
-    text = json.dumps(body, indent=2, ensure_ascii=False)
-    if args.output is None:
-        print(text)
-        return 0
-    try:
-        config.write(args.output, text, overwrite=args.force)
-    except FileExistsError as exc:
-        # Before the OSError below, which it is one of, as in _cmd_plan.
-        print_error(f"{exc} (pass --force to overwrite it)")
-        return 1
-    except OSError as exc:
-        print_error(str(exc))
-        return 1
+    print(
+        f"fetched {held['count']:,} MOs into the daemon cache; "
+        "diff and plan will use it until the next post"
+    )
     return 0
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
     """Compare the fabric against one intended configuration (body or stdin).
 
-    One body, as post takes one body. A configuration written across several
-    files is folded into that one body first with 'a4i merge'.
+    The fabric side is what 'a4i fetch' last read: this sends nothing to the
+    APIC, so run a fetch first, and again after any post. One body, as post
+    takes one body. A configuration written across several files is folded into
+    that one body first with 'a4i merge'.
     """
 
+    from a4i import diff
     from a4i.output import print_error, print_warning, render_diff
 
     def unused(names: list[str]) -> None:
@@ -355,7 +335,13 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
     config = args.body if args.body is not None else sys.stdin.read()
     try:
-        changes = _client().diff(config, expand=args.expand, exclude=args.exclude, on_unused=unused)
+        changes = diff.compare(
+            config,
+            fabric=ipc.fabric(),
+            expand=args.expand,
+            exclude=args.exclude,
+            on_unused=unused,
+        )
     except ValueError as exc:
         # An MO in the input whose DN cannot be worked out, or an --exclude that
         # is empty or holds "**". Comparing the rest would report a fabric that
@@ -378,9 +364,11 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     uni does what the report says and touches nothing else, so an MO the fabric
     already agrees with is never written again.
 
-    The report goes to standard error and the body to standard output, both from
-    one read of the fabric: what is read and what would be sent cannot be
-    answers to two different questions.
+    The fabric side is what 'a4i fetch' last read: this sends nothing to the
+    APIC, so run a fetch first, and again after any post. The report goes to
+    standard error and the body to standard output, both from that one fabric:
+    what was read and what would be sent cannot be answers to two different
+    questions.
 
     The MOs the report has no line for are the ones the body only nests what
     changes under. Each says status="modified", so a fabric without one refuses
@@ -390,11 +378,12 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     import json
 
     from a4i import config
+    from a4i import plan as plan_
     from a4i.output import plural, print_error, print_note, render_dry_run
 
     body = args.body if args.body is not None else sys.stdin.read()
     try:
-        plan = _client().plan(body)
+        narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
         # A body that is not written as ACI expects, one holding an MO that
         # cannot be placed under uni, or a dry run that warned the POST would
@@ -405,14 +394,14 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         return _fail(exc)
     # stderr, so that the report cannot land in the middle of the body about to
     # be piped or redirected somewhere.
-    render_dry_run(plan.changes, raw=args.raw, stderr=True)
-    if plan.containers:
+    render_dry_run(narrowed.changes, raw=args.raw, stderr=True)
+    if narrowed.containers:
         print_note(
-            f"{plural(plan.containers, 'MO')} the report has no line for "
+            f"{plural(narrowed.containers, 'MO')} the report has no line for "
             'carry rn and status="modified" only, to nest what does change '
             "under them; the POST fails if the fabric does not have them"
         )
-    text = json.dumps(plan.body, indent=2, ensure_ascii=False)
+    text = json.dumps(narrowed.body, indent=2, ensure_ascii=False)
     if args.output is None:
         print(text)
         return 0
@@ -589,6 +578,7 @@ def _cmd_daemon_status(args: argparse.Namespace) -> int:
     # answered narrows to one shape and the fields below follow from it.
     if not info["logged_in"]:
         print(f"daemon running, logged out{read_only}")
+        _print_fabric(info.get("fabric"))
         return 0
     # "request timeout" spelled out rather than left as "timeout": the line
     # already carries an "expires in" that comes from the token's lifetime, and
@@ -598,7 +588,33 @@ def _cmd_daemon_status(args: argparse.Namespace) -> int:
         f"expires in {int(info['expires_in'])}s, "
         f"request timeout {info['timeout']:g}s"
     )
+    # .get, where the fields above are read as the keys they are: a daemon left
+    # running across an upgrade answers without this one, and a daemon from
+    # before there was a cache is a daemon holding no fabric.
+    _print_fabric(info.get("fabric"))
     return 0
+
+
+def _print_fabric(held: ipc.FabricHeld | None) -> None:
+    """Say what fetch left behind, since nothing else will.
+
+    How old it is, rather than when it was read: a comparison is as good as the
+    fabric under it, and a reader deciding whether to fetch again is asking how
+    stale this one is.
+    """
+
+    if held is None:
+        print("fabric cache  none (run 'a4i fetch')")
+        return
+    print(f"fabric cache  {held['count']:,} MOs, fetched {_ago(held['fetched_ago'])} ago")
+
+
+def _ago(seconds: float) -> str:
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    return f"{int(seconds // 3600)}h{int(seconds % 3600 // 60)}m"
 
 
 def _cmd_daemon_stop(args: argparse.Namespace) -> int:
@@ -894,33 +910,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch = commands.add_parser(
         "fetch",
-        help="write the fabric's own configuration out as one body",
+        help="read the fabric into the daemon, for diff and plan to compare against",
         description=_cmd_fetch.__doc__,
     )
-    # Positionals rather than subparsers, unlike get and post, so that -o and
-    # --force keep working on both sides of the target: a subparser of fetch's
-    # own would reset them to their defaults when it parses.
-    fetch.add_argument(
-        "kind",
-        nargs="?",
-        choices=query.KINDS,
-        help="narrow to MOs by DN, or to every MO of a class; omit for all of uni",
-    )
-    fetch.add_argument(
-        "targets",
-        nargs="*",
-        metavar="TARGET",
-        help="the DNs, or the ACI class names, to read",
-    )
-    fetch.add_argument(
-        "-o",
-        "--output",
-        metavar="FILE",
-        help="write the body here instead of stdout",
-    )
-    fetch.add_argument(
-        "--force", action="store_true", help="overwrite the output file if it exists"
-    )
+    # No arguments at all: it reads the whole of uni, because that is what a
+    # comparison against a configuration describing the whole of uni needs, and
+    # it writes nowhere, because what it read is held for the next command.
     fetch.set_defaults(func=_cmd_fetch)
 
     plan = commands.add_parser(

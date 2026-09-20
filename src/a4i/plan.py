@@ -6,8 +6,10 @@ way. The APIC touches every one of them. This module takes the same comparison
 ``post --dry-run`` reports and writes it back out as a body, so that what is
 posted is the report and nothing besides.
 
-Nothing here performs I/O. It takes a merged body and the changes
-:func:`a4i.dry_run.compare` found for it, and returns the body to post.
+Nothing here performs I/O. :func:`create` takes a configuration and the fabric
+as it was fetched -- :meth:`a4i.Client.fetch` reads that, and the daemon holds
+it between commands -- runs the dry run over the two, and returns both the
+report and the body to post.
 
 The guarantee is one-way, and that is the point. If the comparison misses a
 change, the MO is left out and the fabric keeps what it has -- a configuration
@@ -22,8 +24,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from a4i import dry_run, merge
 from a4i.mo import ROOT, WRAPPER, Change, child_dn, split_mo, tail_rn
 from a4i.output import plural
+from a4i.validate import read_body
 
 # What a container is: an MO no change names, standing in the output only
 # because something under it changed. It is on the fabric already -- a
@@ -67,6 +71,38 @@ class Plan:
         """
 
         return count(self.body) - len(self.changes)
+
+
+def create(config: str | Any, *, fabric: Any) -> Plan:
+    """Return ``config`` narrowed to the MOs posting it at uni would change.
+
+    ``config`` is one ACI body, as :func:`a4i.diff.compare` takes one: several
+    configurations are folded into it beforehand with :func:`a4i.merge.merge`,
+    which this runs it through in any case -- the placement rules, the refusals
+    and the output shape are the merged body's, and merging is idempotent, so a
+    body that has been through it already comes out unchanged.
+
+    ``fabric`` is what the POST would land on, as :meth:`a4i.Client.fetch`
+    returns it, and is keyword-only for the reason :func:`a4i.diff.compare`
+    gives. Only what the configuration names is looked at, the rest of the
+    fabric being nothing a POST of it could touch.
+
+    The result carries the changes ``post --dry-run`` reports and the body those
+    changes make between them. Posting that body at uni does what the changes
+    say and touches nothing else, so an MO the configuration already agrees with
+    is never handed back to the APIC to be written again.
+
+    Raises ``ValueError`` if the dry run warns that the POST would fail -- the
+    body written for a warned MO would be a body nobody read. See :func:`body`.
+    """
+
+    _, parsed = read_body(config)
+    merged = merge.merge(parsed)
+    intended = merge.read(dry_run.rooted(merge.ROOT, "mo", merged))
+    # loose, as a dry run reads its fabric side: what came back names DNs whose
+    # ancestors carry no configuration of their own to have been returned.
+    changes = dry_run.compare(intended, merge.read(fabric, loose=True))
+    return Plan(body(merged, changes), changes)
 
 
 def body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:

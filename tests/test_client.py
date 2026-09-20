@@ -6,8 +6,9 @@ import json
 
 import pytest
 
-from a4i import ipc
+from a4i import diff, ipc
 from a4i import mo as mo_
+from a4i import plan as plan_
 from a4i.client import Client
 from a4i.errors import ApicError, NotLoggedInError, SessionExpiredError
 from a4i.session import DEFAULT_TIMEOUT
@@ -390,49 +391,62 @@ def test_post_with_dry_run_compares_instead_of_sending(client, state) -> None:
 
 # -- plan (what a POST would change, as a body) -----------------------------
 
+# plan and diff perform no I/O now: they take the fabric a fetch read. What is
+# tested here is the pair as a caller runs them -- a real fetch of the mocked
+# APIC on one side, the comparison on the other. What each reports on a fabric
+# written by hand is tests/test_plan.py's and tests/test_diff.py's.
+
 
 def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
-    plan = client.plan(
+    narrowed = plan_.create(
         {
             "fvTenant": {
                 "attributes": {"dn": "uni/tn-common", "name": "common"},
                 "children": [{"fvBD": {"attributes": {"name": "default", "mtu": "9000"}}}],
             }
-        }
+        },
+        fabric=client.fetch(),
     )
-    assert [(c.kind, c.dn) for c in plan.changes] == [("modified", "uni/tn-common/BD-default")]
-    tenant = plan.body["polUni"]["children"][0]["fvTenant"]
+    assert [(c.kind, c.dn) for c in narrowed.changes] == [("modified", "uni/tn-common/BD-default")]
+    tenant = narrowed.body["polUni"]["children"][0]["fvTenant"]
     # The tenant is only what the BD hangs under: the fabric already agrees with
     # it, so it carries rn and status="modified" and no attribute of its own.
     assert tenant["attributes"] == {"rn": "tn-common", "status": "modified"}
     assert tenant["children"][0]["fvBD"]["attributes"]["mtu"] == "9000"
-    assert plan.containers == 1
+    assert narrowed.containers == 1
 
 
-def test_plan_reads_only_what_the_configuration_describes(client, state) -> None:
-    # uni holds tn-common as well, and a fabric-wide comparison would read it.
-    # A plan cannot act on what nothing describes, so it never asks.
-    client.plan({"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}})
-    assert state["mo_requests"] == {"/api/mo/uni/tn-infra.json": 1}
+def test_plan_asks_the_fabric_for_nothing(client, state) -> None:
+    """Every request a plan rests on was the fetch's, and is already paid for."""
+
+    fabric = client.fetch()
+    state["mo_requests"].clear()
+    plan_.create(
+        {"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}}, fabric=fabric
+    )
+    assert state["mo_requests"] == {}
 
 
-def test_plan_refuses_an_mo_that_cannot_be_folded_into_one_body(client, state) -> None:
+def test_plan_refuses_an_mo_that_cannot_be_folded_into_one_body(client) -> None:
     # merge's refusal, and its wording: a plan is posted at uni like a merged
     # body, so the same DNs fit in one and the same DNs do not.
     with pytest.raises(ValueError) as exc:
-        client.plan({"fabricNode": {"attributes": {"dn": "topology/pod-1/node-101"}}})
+        plan_.create(
+            {"fabricNode": {"attributes": {"dn": "topology/pod-1/node-101"}}},
+            fabric=client.fetch(),
+        )
     assert "into one body" in str(exc.value)
-    assert state["mo_requests"] == {}
 
 
 def test_plan_refuses_a_body_the_dry_run_warned_about(client) -> None:
     with pytest.raises(ValueError) as exc:
-        client.plan(
+        plan_.create(
             {
                 "fvTenant": {
                     "attributes": {"dn": "uni/tn-infra", "name": "infra", "status": "created"}
                 }
-            }
+            },
+            fabric=client.fetch(),
         )
     assert "refusing to write a plan" in str(exc.value)
 
@@ -440,14 +454,16 @@ def test_plan_refuses_a_body_the_dry_run_warned_about(client) -> None:
 # -- fetch (the fabric as an intended configuration) ------------------------
 
 
-def test_fetch_reads_uni_the_way_a_diff_reads_it(client, state) -> None:
+def test_fetch_reads_one_subtree_per_top_level_mo_and_never_writes(client, state) -> None:
     client.fetch()
+    # uni is listed once, then each of its children is fetched whole.
     assert state["mo_requests"] == {
         "/api/mo/uni.json": 1,
         "/api/mo/uni/tn-common.json": 1,
         "/api/mo/uni/tn-infra.json": 1,
     }
     assert state["last_method"] == "GET"
+    assert state["last_params"] == {"rsp-subtree": "full", "rsp-prop-include": "config-only"}
 
 
 def test_fetch_returns_a_body_shaped_as_merge_shapes_one(client) -> None:
@@ -470,76 +486,8 @@ def test_fetch_then_diff_finds_no_difference(client) -> None:
     apart on what a body means, the fabric will start differing from itself.
     """
 
-    assert client.diff(client.fetch()) == []
-
-
-def test_fetch_of_a_dn_reads_that_subtree_and_nothing_else(client, state) -> None:
-    body = client.fetch(mo="uni/tn-common/BD-default")
-    # No listing of uni, and no sibling tenant: one request, for the one DN.
-    assert state["mo_requests"] == {"/api/mo/uni/tn-common/BD-default.json": 1}
-    assert state["last_params"]["rsp-subtree"] == "full"
-    assert state["last_params"]["rsp-prop-include"] == "config-only"
-    # Still one body to post at uni: the tenant the DN names is filled in.
-    tenant = body["polUni"]["children"][0]["fvTenant"]
-    assert tenant["attributes"]["rn"] == "tn-common"
-    bd = tenant["children"][0]["fvBD"]
-    assert bd["attributes"]["rn"] == "BD-default"
-    assert [next(iter(child)) for child in bd["children"]] == ["fvSubnet"]
-
-
-def test_fetch_of_uni_by_name_is_the_walk_of_uni(client, state) -> None:
-    assert client.fetch(mo="uni") == client.fetch()
-    assert state["mo_requests"] == {
-        "/api/mo/uni.json": 2,
-        "/api/mo/uni/tn-common.json": 2,
-        "/api/mo/uni/tn-infra.json": 2,
-    }
-
-
-def test_fetch_of_several_dns_folds_them_into_one_body(client) -> None:
-    body = client.fetch(mo=["uni/tn-infra", "uni/tn-common/BD-default"])
-    tenants = [child["fvTenant"]["attributes"]["rn"] for child in body["polUni"]["children"]]
-    assert tenants == ["tn-common", "tn-infra"]
-
-
-def test_fetch_of_a_dn_the_fabric_has_nothing_at_is_refused(client) -> None:
-    """A named DN answering empty is a mistyped DN far more often than a fact."""
-
-    with pytest.raises(ValueError) as exc:
-        client.fetch(mo="uni/tn-nowhere")
-    assert "uni/tn-nowhere" in str(exc.value)
-
-
-def test_fetch_of_a_class_reads_the_subtree_of_each_of_its_mos(client, state) -> None:
-    body = client.fetch(cls="fvBD")
-    # Named by the class query, then read by DN, as uni's top level is.
-    assert state["mo_requests"] == {"/api/mo/uni/tn-common/BD-default.json": 1}
-    bd = body["polUni"]["children"][0]["fvTenant"]["children"][0]["fvBD"]
-    assert bd["attributes"]["name"] == "default"
-
-
-def test_fetch_of_a_class_with_no_mos_is_an_empty_body(client) -> None:
-    """Unlike a named DN: "none of those" is an answer a fabric can truthfully give."""
-
-    assert client.fetch(cls="fvAp") == {"polUni": {"attributes": {"dn": "uni"}, "children": []}}
-
-
-def test_fetch_of_a_class_living_outside_uni_is_refused(client) -> None:
-    with pytest.raises(ValueError) as exc:
-        client.fetch(cls="topSystem")
-    assert "topology/pod-1/node-101/sys" in str(exc.value)
-
-
-def test_fetch_refuses_dns_and_classes_at_once(client) -> None:
-    with pytest.raises(TypeError):
-        client.fetch(mo="uni/tn-infra", cls="fvBD")
-
-
-def test_fetch_refuses_an_empty_list_of_targets(client) -> None:
-    """Not read as the whole of uni: a caller's list came out empty, not absent."""
-
-    with pytest.raises(ValueError):
-        client.fetch(mo=[])
+    fabric = client.fetch()
+    assert diff.compare(fabric, fabric=fabric) == []
 
 
 # -- diff (the fabric against an intended configuration) --------------------
@@ -559,20 +507,8 @@ IN_COMMON = {
 }
 
 
-def test_diff_fetches_one_subtree_per_top_level_mo_and_never_writes(client, state) -> None:
-    client.diff(INFRA)
-    assert state["last_method"] == "GET"
-    # uni is listed once, then each of its children is fetched whole.
-    assert state["mo_requests"] == {
-        "/api/mo/uni.json": 1,
-        "/api/mo/uni/tn-common.json": 1,
-        "/api/mo/uni/tn-infra.json": 1,
-    }
-    assert state["last_params"] == {"rsp-subtree": "full", "rsp-prop-include": "config-only"}
-
-
 def test_diff_reports_everything_the_configuration_leaves_out(client) -> None:
-    changes = client.diff(INFRA)
+    changes = diff.compare(INFRA, fabric=client.fetch())
     # A wholly extra subtree is its top MO alone, the MOs below it counted.
     assert [(c.kind, c.dn) for c in changes] == [("extra", "uni/tn-common")]
     assert changes[0].child_count == 2
@@ -581,56 +517,49 @@ def test_diff_reports_everything_the_configuration_leaves_out(client) -> None:
 def test_diff_is_empty_when_the_configuration_describes_the_fabric(client) -> None:
     # One body, as post takes one body: a list of MOs is one body. Several are
     # folded into one beforehand by a4i.merge.
-    changes = client.diff(
+    changes = diff.compare(
         [
             {"fvTenant": {"attributes": {"dn": "uni/tn-common", "name": "common"}}},
             {"fvAp": {"attributes": {"dn": "uni/tn-common/ap-web"}}},
             {"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}},
             INFRA,
-        ]
+        ],
+        fabric=client.fetch(),
     )
     assert changes == []
 
 
 def test_diff_takes_the_body_as_json_text_as_post_does(client) -> None:
-    assert client.diff(json.dumps(INFRA)) == client.diff(INFRA)
+    fabric = client.fetch()
+    assert diff.compare(json.dumps(INFRA), fabric=fabric) == diff.compare(INFRA, fabric=fabric)
 
 
 def test_diff_refuses_a_configuration_that_describes_no_mo(client) -> None:
     # Taken at face value it means every MO on the fabric is extra, which is
     # never what an empty input meant.
     with pytest.raises(ValueError) as exc:
-        client.diff([])
+        diff.compare([], fabric=client.fetch())
     assert "empty" in str(exc.value)
 
 
 def test_diff_leaves_an_excluded_subtree_out_of_the_report(client) -> None:
     # The configuration says nothing but what the exclusion then removes, which
     # is a comparison narrowed to nothing rather than an input that said nothing.
-    changes = client.diff(IN_COMMON, exclude="uni/tn-common")
+    changes = diff.compare(IN_COMMON, fabric=client.fetch(), exclude="uni/tn-common")
     # Everything under tn-common goes with it; tn-infra is untouched.
     assert [(c.kind, c.dn) for c in changes] == [("extra", "uni/tn-infra")]
 
 
-def test_diff_fetches_an_excluded_subtree_all_the_same(client, state) -> None:
-    # The exclusion narrows what is compared, not what is read: the fabric sees
-    # the same requests either way.
-    client.diff(INFRA, exclude="uni/tn-common")
-    assert state["mo_requests"] == {
-        "/api/mo/uni.json": 1,
-        "/api/mo/uni/tn-common.json": 1,
-        "/api/mo/uni/tn-infra.json": 1,
-    }
-
-
 def test_diff_takes_a_sequence_of_excluded_dns(client) -> None:
-    assert client.diff(INFRA, exclude=["uni/tn-common", "uni/tn-infra"]) == []
+    assert (
+        diff.compare(INFRA, fabric=client.fetch(), exclude=["uni/tn-common", "uni/tn-infra"]) == []
+    )
 
 
-def test_diff_names_the_subtree_it_could_not_fetch(client, state) -> None:
+def test_fetch_names_the_subtree_it_could_not_read(client, state) -> None:
     state["fail_path"] = "/api/mo/uni/tn-infra.json"
     with pytest.raises(ApicError) as exc:
-        client.diff(INFRA)
+        client.fetch()
     assert "uni/tn-infra" in str(exc.value)
     assert "forbidden" in str(exc.value)
 
@@ -771,7 +700,7 @@ def test_the_apic_host_is_normalized(state) -> None:
     assert client._session.base_url == f"https://{APIC_HOST}"
 
 
-def test_diff_refuses_a_paged_answer_rather_than_reporting_it_as_a_diff(monkeypatch) -> None:
+def test_fetch_refuses_a_paged_answer_rather_than_holding_half_a_fabric(monkeypatch) -> None:
     # The APIC says uni has three children and hands back two. Comparing the
     # two would report everything under the third as missing from a fabric that
     # is carrying it, so the fetch fails instead.
@@ -786,15 +715,15 @@ def test_diff_refuses_a_paged_answer_rather_than_reporting_it_as_a_diff(monkeypa
 
     monkeypatch.setattr(ipc, "get", get)
     with pytest.raises(ApicError) as exc:
-        Client(transport=DaemonTransport()).diff(INFRA)
+        Client(transport=DaemonTransport()).fetch()
     assert "uni: the APIC returned 2 of 3 MOs" in str(exc.value)
 
 
-def test_diff_does_not_walk_the_runtime_containers_under_uni(client, state) -> None:
+def test_fetch_does_not_walk_the_runtime_containers_under_uni(client, state) -> None:
     # uni holds runtime children as well as configuration. Listing them with
     # "config-only", as the subtrees are then fetched, keeps them out of the
     # walk: an intended configuration never names one, so every one walked
     # would be reported extra.
-    client.diff(INFRA)
+    fabric = client.fetch()
     assert "/api/mo/uni/epp.json" not in state["mo_requests"]
-    assert [c.dn for c in client.diff(INFRA)] == ["uni/tn-common"]
+    assert [c.dn for c in diff.compare(INFRA, fabric=fabric)] == ["uni/tn-common"]

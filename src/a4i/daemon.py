@@ -4,6 +4,13 @@ The daemon listens on a Unix domain socket and serves one request per
 connection. It owns a single :class:`~a4i.session.Session`; the token lives only
 in this process's memory and is never written to disk. The session is refreshed
 lazily on command activity and expires on its own once idle past its lifetime.
+
+It owns one other thing: the fabric a ``fetch`` read, which ``diff`` and
+``plan`` then compare against. That too is a thing no CLI process can keep --
+each one ends -- and holding it here is what lets three commands compare against
+a single reading of the fabric rather than three. It is dropped the moment it
+could no longer be true of the session that answers: on a POST, a login, a
+logout, and an expiry.
 """
 
 from __future__ import annotations
@@ -17,7 +24,7 @@ from collections.abc import Callable
 from typing import Any
 
 from a4i import query
-from a4i.errors import DaemonError, ReadOnlyError, to_payload
+from a4i.errors import NO_FABRIC_MESSAGE, DaemonError, NoFabricError, ReadOnlyError, to_payload
 from a4i.ipc import create_socket_dir
 from a4i.session import DEFAULT_TIMEOUT, ApicError, NotLoggedInError, Session
 
@@ -52,6 +59,13 @@ class Daemon:
         # would be no guarantee at all: the point of it is that nothing reaching
         # this daemon can write, and "nothing" has to include the next login.
         self._read_only = False
+        # The fabric a fetch read, as the one body a comparison takes, and when
+        # it was read. Held here rather than in the caller because a CLI run is
+        # a process that ends: this is the only thing either side of the socket
+        # has that outlives one.
+        self._fabric: dict[str, Any] | None = None
+        self._fetched_at = 0.0
+        self._fabric_count = 0
         self._last_activity = clock()
         self._running = True
         self._server: socket.socket | None = None
@@ -107,6 +121,7 @@ class Daemon:
             # session is only closed here, never logged out.
             self._session.close()
             self._session = None
+            self._drop_fabric()
         if self._session is None and self._clock() - self._last_activity > IDLE_GRACE:
             self._running = False
 
@@ -149,6 +164,11 @@ class Daemon:
     def _op_login(self, args: dict[str, Any]) -> Any:
         if self._session is not None:
             self._session.close()
+        # Before the login rather than after it: a login that fails must not
+        # leave the previous fabric behind for a comparison to read as this
+        # one's, and the fabric of the APIC just logged out of is not this
+        # APIC's however alike the two may be.
+        self._drop_fabric()
         self._read_only = self._read_only or bool(args.get("read_only"))
         self._session = self._session_factory(
             args["host"],
@@ -185,6 +205,7 @@ class Daemon:
                 apic_error = str(exc)
             self._session.close()
             self._session = None
+        self._drop_fabric()
         return apic_error
 
     def _op_logout(self, args: dict[str, Any]) -> Any:
@@ -194,12 +215,13 @@ class Daemon:
 
     def _op_status(self, args: dict[str, Any]) -> Any:
         if self._session is None or not self._session.logged_in:
-            return {"logged_in": False, "read_only": self._read_only}
+            return {"logged_in": False, "read_only": self._read_only, "fabric": self._fabric_held()}
         return {
             "logged_in": True,
             "user": self._session.user,
             "host": self._session.base_url,
             "read_only": self._read_only,
+            "fabric": self._fabric_held(),
             "expires_in": max(
                 0.0, self._session.refresh_timeout - self._session.seconds_since_auth()
             ),
@@ -220,13 +242,63 @@ class Daemon:
         if self._read_only:
             raise ReadOnlyError(READ_ONLY_MESSAGE)
         session = self._require_session()
-        return session.post(query.build_path(args["target"], args["kind"]), args["body"])
+        data = session.post(query.build_path(args["target"], args["kind"]), args["body"])
+        # After the POST, so that a body the APIC refused leaves the fabric
+        # standing: one POST is one transaction there, so a refusal changed
+        # nothing and what was read is still what is on the fabric.
+        self._drop_fabric()
+        return data
+
+    def _op_fetch(self, args: dict[str, Any]) -> Any:
+        """Read the whole of uni and hold it, for the comparisons to come.
+
+        The reading is the client's own -- the same code a library caller runs --
+        over a transport that talks to this daemon's session directly. Running it
+        here rather than in the caller is what makes the result something the
+        next process can have: a command ends, and this does not.
+        """
+
+        # Imported here rather than at module scope: it pulls in the whole
+        # comparison stack, and a daemon that is only ever logged in to and
+        # queried should not pay for it at startup.
+        from a4i.client import Client
+        from a4i.merge import count
+        from a4i.transport import DirectTransport
+
+        session = self._require_session()
+        fabric = Client(transport=DirectTransport(session)).fetch()
+        self._fabric = fabric
+        self._fetched_at = self._clock()
+        self._fabric_count = count(fabric)
+        return {"count": self._fabric_count}
+
+    def _op_fabric(self, args: dict[str, Any]) -> Any:
+        # Expiry is evaluated here as well as on the idle tick, which runs at
+        # most every ACCEPT_TIMEOUT seconds: a session that ended in between
+        # would otherwise hand out a fabric it no longer has any claim to.
+        if self._session is None or self._session.is_expired():
+            self._drop_fabric()
+        if self._fabric is None:
+            raise NoFabricError(NO_FABRIC_MESSAGE)
+        return self._fabric
 
     def _op_stop(self, args: dict[str, Any]) -> Any:
         # Logging out here rather than in _cleanup, so that the reply carries
         # what the APIC made of it; _cleanup then finds nothing left to end.
         self._running = False
         return {"apic_error": self._end_session()}
+
+    def _drop_fabric(self) -> None:
+        self._fabric = None
+        self._fetched_at = 0.0
+        self._fabric_count = 0
+
+    def _fabric_held(self) -> dict[str, Any] | None:
+        """What is cached, or None. Elapsed rather than a timestamp, as expires_in is."""
+
+        if self._fabric is None:
+            return None
+        return {"count": self._fabric_count, "fetched_ago": self._clock() - self._fetched_at}
 
     def _require_session(self) -> Session:
         if self._session is None or not self._session.logged_in:

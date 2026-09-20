@@ -386,6 +386,7 @@ INFRA = {"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}}
 
 def test_diff_takes_one_inline_body(daemon) -> None:
     _login()
+    _tool_text(Server(), "fetch", {})
     text, is_error = _tool_text(Server(), "diff", {"body": INFRA, "exclude": ["uni/tn-common"]})
     assert not is_error
     assert "uni/tn-common" not in text
@@ -393,6 +394,7 @@ def test_diff_takes_one_inline_body(daemon) -> None:
 
 def test_diff_reads_the_body_from_a_path(daemon, tmp_path) -> None:
     _login()
+    _tool_text(Server(), "fetch", {})
     config = tmp_path / "fabric.json"
     config.write_text(json.dumps(INFRA))
     text, is_error = _tool_text(
@@ -431,6 +433,7 @@ def test_diff_reports_a_path_that_is_not_there(daemon, tmp_path) -> None:
 
 def test_plan_returns_the_report_and_the_body(daemon) -> None:
     _login()
+    _tool_text(Server(), "fetch", {})
     text, is_error = _tool_text(Server(), "plan", {"body": INFRA})
     assert not is_error
     report, _, body = text.partition("{")
@@ -440,6 +443,7 @@ def test_plan_returns_the_report_and_the_body(daemon) -> None:
 
 def test_plan_writes_the_body_to_a_file_and_keeps_it_out_of_the_reply(daemon, tmp_path) -> None:
     _login()
+    _tool_text(Server(), "fetch", {})
     out = tmp_path / "plan.json"
     body = {
         "fvTenant": {
@@ -475,6 +479,7 @@ def test_plan_sends_a_directory_back_to_merge(daemon, tmp_path) -> None:
 
 def test_plan_refuses_a_body_the_dry_run_warned_about(daemon) -> None:
     _login()
+    _tool_text(Server(), "fetch", {})
     warned = {
         "fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra", "status": "created"}}
     }
@@ -576,51 +581,38 @@ def test_merge_with_nothing_to_merge_says_what_it_wants(no_daemon) -> None:
     assert "paths" in text and "configs" in text
 
 
-def test_fetch_writes_the_fabric_out_and_keeps_it_out_of_the_reply(daemon, tmp_path) -> None:
+def test_fetch_holds_the_fabric_and_says_how_much_it_read(daemon) -> None:
     _login()
-    out = tmp_path / "fabric.json"
-    text, is_error = _tool_text(Server(), "fetch", {"output": str(out)})
+    text, is_error = _tool_text(Server(), "fetch", {})
     assert not is_error
-    assert f"to {out}" in text
+    # Not the body: a whole fabric is megabytes, and nothing here has to see it.
     assert "polUni" not in text
-    body = json.loads(out.read_text())
-    assert body["polUni"]["attributes"] == {"dn": "uni"}
-    assert [next(iter(child)) for child in body["polUni"]["children"]] == ["fvTenant", "fvTenant"]
+    assert "MOs into the session cache" in text
+    assert "until the next post" in text
 
-    text, is_error = _tool_text(Server(), "fetch", {"output": str(out)})
+
+def test_diff_without_a_fetch_says_to_fetch(daemon) -> None:
+    _login()
+    text, is_error = _tool_text(Server(), "diff", {"body": INFRA})
     assert is_error
-    assert "overwrite" in text
+    assert "no fabric has been fetched" in text
+    assert "dropped by a post" in text
 
 
-def test_fetch_returns_the_body_when_it_fits(daemon) -> None:
+def test_a_post_drops_what_the_fetch_read(daemon) -> None:
+    """The one thing a model cannot work out for itself: the fabric moved."""
+
     _login()
-    text, is_error = _tool_text(Server(), "fetch", {})
-    assert not is_error
-    assert json.loads(text)["polUni"]["attributes"] == {"dn": "uni"}
-
-
-def test_fetch_narrowed_to_a_dn_reads_that_subtree_alone(daemon) -> None:
-    _login()
-    text, is_error = _tool_text(Server(), "fetch", {"mo": ["uni/tn-common/BD-default"]})
-    assert not is_error
-    tenant = json.loads(text)["polUni"]["children"][0]["fvTenant"]
-    assert tenant["attributes"] == {"rn": "tn-common"}
-    assert tenant["children"][0]["fvBD"]["attributes"]["name"] == "default"
-
-
-def test_fetch_refuses_dns_and_classes_at_once(daemon) -> None:
-    _login()
-    text, is_error = _tool_text(Server(), "fetch", {"mo": ["uni/tn-infra"], "cls": ["fvBD"]})
+    assert not _tool_text(Server(), "fetch", {})[1]
+    assert not _tool_text(Server(), "diff", {"body": INFRA})[1]
+    _tool_text(
+        Server(),
+        "post",
+        {"kind": "mo", "target": "uni/tn-demo", "body": {"fvTenant": {"attributes": {}}}},
+    )
+    text, is_error = _tool_text(Server(), "diff", {"body": INFRA})
     assert is_error
-    assert "not both" in text
-
-
-def test_fetch_refuses_a_fabric_too_big_to_hand_over(daemon, monkeypatch) -> None:
-    _login()
-    monkeypatch.setenv(tools.MAX_BYTES_VAR, "10")
-    text, is_error = _tool_text(Server(), "fetch", {})
-    assert is_error
-    assert "output" in text
+    assert "no fabric has been fetched" in text
 
 
 def test_fetch_is_offered_to_a_read_only_session() -> None:

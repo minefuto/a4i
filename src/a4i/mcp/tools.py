@@ -237,7 +237,9 @@ DIFF = _tool(
     "diff",
     "Compare an intended configuration against everything under 'uni' on the fabric, "
     "both ways: what the configuration asks for and the fabric lacks, and what the "
-    "fabric carries and the configuration never mentions. Reads only. Takes one body, "
+    "fabric carries and the configuration never mentions. Reads only, and sends nothing "
+    "to the APIC: the fabric side is what fetch last read, so call fetch first, and "
+    "again after any post. Takes one body, "
     "as post does -- run merge first if the configuration is spread across files. Note "
     "that the configuration is taken to describe the whole of 'uni', so anything it "
     "omits is reported as extra -- use 'exclude' for the subtrees you are not describing.",
@@ -286,57 +288,23 @@ DIFF = _tool(
 
 FETCH = _tool(
     "fetch",
-    "Read the fabric's own configuration and return it as one body, shaped exactly as "
-    "merge shapes one: a polUni holding every MO under 'uni', each nested under the MO "
-    "it hangs off. Reads only, and works when the session is read-only. This is the "
-    "fabric written as an intended configuration -- keep it in git, hand it back to "
-    "diff, or post it at 'uni'. It is not what a person would have written: the APIC "
-    "sends every settable property, defaults included, so a whole fabric runs to "
-    "megabytes. Pass 'output' -- without it this is almost certain to be refused for "
-    "size. Pass 'mo' or 'cls' to read part of the fabric instead of all of it; the "
-    "result is shaped the same either way, and is still a body to post at 'uni', but "
-    "only the whole of uni is a body to hand to diff.",
-    {
-        "mo": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": (
-                "DNs to read the subtree of, e.g. uni/tn-prod, instead of all of uni. A "
-                "DN with no MO at it is an error naming it, rather than an empty answer. "
-                "Cannot be given together with 'cls'."
-            ),
-        },
-        "cls": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": (
-                "ACI class names to read the subtree of every MO of, e.g. fvBD, wherever "
-                "in uni they sit. A class with no MOs returns an empty body; a class "
-                "whose MOs live outside uni, such as topSystem, is refused -- use get "
-                "for those. Cannot be given together with 'mo'."
-            ),
-        },
-        "output": {
-            "type": "string",
-            "description": (
-                "Write the body to this file and return a summary instead of the body "
-                "itself, keeping it out of the conversation. An existing file is refused "
-                "unless 'overwrite' is true."
-            ),
-        },
-        "overwrite": {
-            "type": "boolean",
-            "description": "Allow 'output' to replace a file that already exists.",
-        },
-    },
+    "Read the whole fabric into the session and hold it there, for diff and plan to "
+    "compare against. Reads only, and works when the session is read-only. Returns how "
+    "much was read, not the configuration itself: a whole fabric runs to megabytes, and "
+    "nothing here needs to see it -- diff and plan take their fabric side from what this "
+    "left behind. Call it before either of them, and again after a post: posting drops "
+    "what was read, because it is no longer what the fabric holds. A login, a logout and "
+    "a session expiry drop it too. diff and plan say so and stop when nothing is held.",
+    {},
     [],
 )
 
 PLAN = _tool(
     "plan",
     "Narrow an intended configuration to the MOs posting it would change, and return "
-    "that as a body to post at 'uni'. Reads only, and works when the session is "
-    "read-only. Use this between merge and post: posting the whole configuration hands "
+    "that as a body to post at 'uni'. Reads only, and sends nothing to the APIC: the "
+    "fabric side is what fetch last read, so call fetch first, and again after any "
+    "post. Use this between merge and post: posting the whole configuration hands "
     "the APIC every MO it already agrees with, and the APIC writes all of them. The "
     "result is a polUni shaped as merge shapes one, holding the changed MOs and the "
     'MOs they hang under -- those carry rn and status="modified" only, so the post '
@@ -564,35 +532,15 @@ def _merge(arguments: dict[str, Any]) -> str:
 
 
 def _fetch(arguments: dict[str, Any]) -> str:
-    from a4i import config
-    from a4i.merge import count
-    from a4i.output import plural
+    from a4i import ipc
 
-    try:
-        body = _client().fetch(mo=arguments.get("mo"), cls=arguments.get("cls"))
-    except (TypeError, ValueError) as exc:
-        # A DN naming no MO, both targets at once, or an MO no single body posted
-        # at uni could carry.
-        raise ToolError(str(exc)) from None
-    text = _json(body)
-
-    output = arguments.get("output")
-    if output is None:
-        if len(text.encode()) > max_bytes():
-            raise ToolError(
-                f"The configuration read is {len(text):,} bytes, over the "
-                f"{max_bytes():,} byte limit. Nothing was truncated -- pass 'output' with a "
-                "file path to write it there instead, then give that path to diff as 'path'."
-            )
-        return text
-    try:
-        config.write(output, text, overwrite=bool(arguments.get("overwrite")))
-    except FileExistsError as exc:
-        # Before the OSError below, which it is one of, as in _merge.
-        raise ToolError(f"{exc} (pass overwrite: true to replace it)") from None
-    except OSError as exc:
-        raise ToolError(f"cannot write {output}: {exc}") from None
-    return f"wrote {plural(count(body), 'MO')} to {output}; pass it to diff as path='{output}'"
+    # autostart=False, as every other request from this server: a daemon started
+    # here would be one nobody is logged in to.
+    held = ipc.fetch(autostart=False)
+    return (
+        f"read {held['count']:,} MOs into the session cache; "
+        "diff and plan will use it until the next post"
+    )
 
 
 def _one_body(arguments: dict[str, Any], tool: str) -> Any:
@@ -624,13 +572,14 @@ def _one_body(arguments: dict[str, Any], tool: str) -> Any:
 
 
 def _plan(arguments: dict[str, Any]) -> str:
-    from a4i import config
+    from a4i import config, ipc
+    from a4i import plan as plan_
     from a4i.output import dry_run_report, plural
     from a4i.plan import count
 
     body = _one_body(arguments, "plan")
     try:
-        narrowed = _client().plan(body)
+        narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
         raise ToolError(str(exc)) from None
     report = dry_run_report(narrowed.changes)
@@ -653,12 +602,14 @@ def _plan(arguments: dict[str, Any]) -> str:
 
 
 def _diff(arguments: dict[str, Any]) -> str:
+    from a4i import diff, ipc
     from a4i.output import diff_report
 
     body = _one_body(arguments, "diff")
     unused: list[str] = []
-    changes = _client().diff(
+    changes = diff.compare(
         body,
+        fabric=ipc.fabric(),
         expand=bool(arguments.get("expand")),
         exclude=list(arguments.get("exclude") or []) or None,
         on_unused=unused.extend,

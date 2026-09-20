@@ -12,21 +12,19 @@ the client lives. No daemon is involved, and nothing is written to disk.
 :class:`AsyncClient` is the same object awaited. It is spelled out separately
 rather than shared with :class:`Client`, because what the two have in common is
 already outside both of them -- the parameters in :mod:`a4i.query`, the
-comparisons in :mod:`a4i.dry_run` and :mod:`a4i.diff` -- and what is left is
-the awaiting.
+comparison in :mod:`a4i.dry_run` -- and what is left is the awaiting.
 """
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
-from a4i import diff, dry_run, merge, mo, query
-from a4i import plan as plan_
+from a4i import dry_run, merge, mo, query
 from a4i.errors import ApicError
 from a4i.transport import AsyncDirectTransport, AsyncTransport, DirectTransport, Transport
+from a4i.validate import read_body
 
 if TYPE_CHECKING:
     from a4i.session import AsyncSession, Session
@@ -51,14 +49,7 @@ _UNI_CHILDREN = {"query-target": "children", "rsp-prop-include": "config-only"}
 # browse, and leaves nothing out.
 _CHILDREN = {"query-target": "children", "rsp-prop-include": "naming-only"}
 
-# Naming the MOs of a class, so that the subtree of each can be fetched by DN
-# afterwards. "config-only" for the reason _UNI_CHILDREN gives: this list decides
-# what gets walked. It returns the DNs all the same.
-_CLASS_MEMBERS = {"rsp-prop-include": "config-only"}
-
 _NO_SESSION = "this client has no session of its own"
-
-_BOTH_TARGETS = "name DNs or classes, not both"
 
 
 class Client:
@@ -227,7 +218,7 @@ class Client:
 
         if dry_run:
             return self.dry_run(target, body, kind=kind)
-        text, _ = _read_body(body)
+        text, _ = read_body(body)
         return self._transport.post(target, kind, text)
 
     def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> list[mo.Change]:
@@ -245,197 +236,46 @@ class Client:
         ``polUni`` is fetched one top-level subtree at a time rather than as uni
         whole, for the reason :meth:`_fetch_uni` gives.
 
-        Both sides are read by :func:`a4i.merge.read`, the one :meth:`diff` and
-        :meth:`fetch` read theirs with. So the body is refused here exactly as
+        Both sides are read by :func:`a4i.merge.read`, the one :meth:`fetch`
+        and :func:`a4i.diff.compare` read theirs with. So the body is refused exactly as
         :func:`a4i.merge.merge` would refuse it -- before any GET goes out on
         the strength of it -- and a fabric this cannot read is one none of the
         three can. The fabric side is read with ``loose``, since a body posted
         below uni names a DN whose ancestors no response of that subtree holds.
         """
 
-        _, parsed = _read_body(body)
+        _, parsed = read_body(body)
         intended = merge.read(dry_run.rooted(target, kind, parsed))
         current = merge.read(self._fetch_subtrees(dry_run.roots(intended.index)), loose=True)
         return dry_run.compare(intended, current)
 
-    def plan(self, config: str | Any) -> plan_.Plan:
-        """Return ``config`` narrowed to the MOs posting it would change.
-
-        ``config`` is one ACI body, as :meth:`diff` takes one: several
-        configurations are folded into it beforehand with
-        :func:`a4i.merge.merge`, which this runs it through in any case -- the
-        placement rules, the refusals and the output shape are the merged
-        body's, and merging is idempotent, so a body that has been through it
-        already comes out unchanged.
-
-        The result carries the changes :meth:`dry_run` found and the body those
-        changes make between them, both from one read of the fabric. Posting
-        that body at uni does what the changes say and touches nothing else, so
-        an MO the configuration already agrees with is never handed back to the
-        APIC to be written again.
-
-        Only what the configuration describes is read: the subtree of each MO
-        under uni that it names, and no more. A fabric-wide comparison has to
-        read the rest to report what nothing describes; this one cannot act on
-        it either way.
-
-        Raises ``ValueError`` if the dry run warns that the POST would fail --
-        the body written for a warned MO would be a body nobody read. See
-        :func:`a4i.plan.body`.
-        """
-
-        _, parsed = _read_body(config)
-        merged = merge.merge(parsed)
-        changes = self.dry_run(merge.ROOT, merged, kind="mo")
-        return plan_.Plan(plan_.body(merged, changes), changes)
-
-    def fetch(
-        self,
-        *,
-        mo: str | Sequence[str] | None = None,
-        cls: str | Sequence[str] | None = None,
-    ) -> dict[str, Any]:
+    def fetch(self) -> dict[str, Any]:
         """Return the fabric's own configuration, shaped as :func:`a4i.merge.merge` shapes one.
 
-        Everything under uni is read the way :meth:`diff` reads it, and what
+        Everything under uni is read one top-level subtree at a time, and what
         comes back is folded into the one body those MOs describe: a ``polUni``
         holding each of them nested under the MO it hangs off, siblings in RN
         order. Nothing is compared -- this is the fabric written as an intended
-        configuration, ready to be kept in git, handed back to :meth:`diff`, or
-        posted at uni.
-
-        ``mo`` is a DN, or a sequence of them, to read instead of all of uni:
-        the subtree of each, and nothing else. ``cls`` is an ACI class name, or
-        a sequence of them, and reads the subtree of every MO of that class
-        wherever it sits. A single string is one target and is never split,
-        since an ACI naming value can hold a comma. The two cannot be named at
-        once (``TypeError``) -- they are different questions of the fabric, and
-        one body answering both would not say which answered what; run the two
-        and fold them with :func:`a4i.merge.merge`.
-
-        The shape of the result does not change with the target. The MOs named
-        are still nested under the MOs they hang off, whose DNs are filled in
-        from the DNs themselves, so what comes back is still one body to post at
-        uni. What it is not is a body to hand to :meth:`diff`, which reads the
-        configuration it is given as describing the whole of uni.
-
-        A DN with no MO at it is a ``ValueError`` naming it: the DN was asked
-        for on the understanding that the fabric has one, so an empty answer is
-        a mistyped DN far more often than a fact about the fabric. A class with
-        no MOs is not -- "none of those" is a real answer, and a fabric with no
-        BD is a fabric.
+        configuration, ready to be kept in git, posted at uni, or handed to
+        :func:`a4i.diff.compare` and :func:`a4i.plan.create` as the fabric they
+        compare against.
 
         What the APIC sends is every settable property, its defaults included,
         so this is a great deal longer than the configuration a person would
         have written for the same fabric.
 
-        Raises ``ValueError`` if the fabric holds an MO that no single body
+        Raises :class:`ValueError` if the fabric holds an MO that no single body
         posted at uni could carry -- see :func:`a4i.merge.merge`. That is the
         bundled dictionary disagreeing with the fabric in front of it, and it
-        names the MO rather than quietly leaving it out. A class that lives
-        outside uni -- ``topSystem``, whose MOs hang under ``topology`` -- is
-        refused there for the same reason: a polUni has nowhere to put it. Use
-        :meth:`get` for those.
+        names the MO rather than quietly leaving it out.
         """
 
-        imdata = self._fetch_targets(mo, cls)
+        imdata = self._fetch_uni()
         if not imdata:
             return merge.empty()
-        return merge.merge(imdata, loose=mo is not None or cls is not None)
-
-    def diff(
-        self,
-        config: str | Any,
-        *,
-        expand: bool = False,
-        exclude: str | Sequence[str] | None = None,
-        on_unused: Callable[[list[str]], None] | None = None,
-    ) -> list[mo.Change]:
-        """Return how the fabric differs from the configuration ``config`` gives.
-
-        ``config`` is one ACI body -- one MO, a list of them, or the same as
-        JSON text -- describing the configuration the whole of ``uni`` is meant
-        to have. It is one body, as :meth:`post` takes one body; several are
-        folded into one beforehand with :func:`a4i.merge.merge`. Everything
-        under ``uni`` is then fetched and compared both ways, so an MO or an
-        attribute the fabric carries and the configuration does not is reported
-        as well. An empty list means the fabric matches.
-
-        ``exclude`` is a DN, or a sequence of them, to leave out of the
-        comparison along with everything under each: nothing about those MOs is
-        reported, whichever side carries them. A single string is one DN and is
-        never split, since an ACI naming value can hold a comma. A "*" in one
-        makes it a pattern matching within a single RN -- ``uni/tn-test*`` is
-        every tenant whose name starts with ``test`` -- and everything else,
-        brackets included, matches itself. A leading "!" makes one an exception
-        to the others, so ``["uni/tn-*", "!uni/tn-mgmt"]`` leaves out every
-        tenant but that one; exceptions alone are refused, as they would exclude
-        nothing. A trailing ``[key=value]`` narrows one to the MOs whose attribute
-        matches -- ``uni/tn-*/BD-*[descr=auto-*]`` -- the value read as a "*"
-        pattern, and either side's value is enough to leave the MO out.
-        ``on_unused`` is called with the conditioned names that matched no MO at
-        all, a misspelt attribute being the one way this quietly leaves nothing
-        out. See :class:`a4i.mo.Exclusions`.
-
-        This writes nothing: it issues GETs and nothing else, an excluded
-        subtree included -- the exclusion is a comparison narrowed, not a fabric
-        half read. Without ``expand``, a wholly missing or wholly extra subtree
-        is reported as its top MO alone, with the MOs below it counted rather
-        than listed.
-        """
-
-        _, parsed = _read_body(config)
-        return diff.compare(
-            parsed, self._fetch_uni(), expand=expand, exclude=exclude, on_unused=on_unused
-        )
+        return merge.merge(imdata)
 
     # -- internals --------------------------------------------------------
-
-    def _fetch_targets(
-        self,
-        dns: str | Sequence[str] | None,
-        classes: str | Sequence[str] | None,
-    ) -> list[Any]:
-        """Fetch the subtrees ``dns`` and ``classes`` name, or the whole of uni.
-
-        A named DN is fetched in one request rather than split at its own
-        children the way uni is: splitting is what keeps one response down to
-        one tenant, and naming a DN below uni has already done that or better.
-        ``uni`` named here is the same walk as naming nothing.
-        """
-
-        if dns is not None and classes is not None:
-            raise TypeError(_BOTH_TARGETS)
-        if classes is not None:
-            found: list[str] = []
-            for name in _targets(classes, "class name"):
-                found.extend(self._member_dns(name))
-            return self._fetch_subtrees(sorted(set(found)))
-        if dns is None:
-            return self._fetch_uni()
-        imdata: list[Any] = []
-        for dn in _targets(dns, "DN"):
-            if dn == merge.ROOT:
-                imdata.extend(self._fetch_uni())
-                continue
-            subtree = self._fetch_subtrees([dn])
-            if not subtree:
-                raise ValueError(f"{dn}: the fabric holds no such MO")
-            imdata.extend(subtree)
-        return imdata
-
-    def _member_dns(self, class_name: str) -> list[str]:
-        """Return the DNs of every MO of ``class_name``, sorted.
-
-        The class query names them and nothing else; the subtree of each is
-        fetched by DN afterwards. One class query with ``rsp-subtree=full``
-        would be a single response carrying every MO of that class and all that
-        hangs under them, which is the request :meth:`_fetch_uni` avoids for the
-        same reason.
-        """
-
-        data = self._fetch(class_name, dict(_CLASS_MEMBERS), kind="class")
-        return mo.top_level_dns(data.get("imdata"))
 
     def _fetch_uni(self) -> list[Any]:
         """Fetch every MO under uni, one top-level subtree per request.
@@ -624,7 +464,7 @@ class AsyncClient:
 
         if dry_run:
             return await self.dry_run(target, body, kind=kind)
-        text, _ = _read_body(body)
+        text, _ = read_body(body)
         return await self._transport.post(target, kind, text)
 
     async def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> list[mo.Change]:
@@ -633,93 +473,20 @@ class AsyncClient:
         See :meth:`Client.dry_run`.
         """
 
-        _, parsed = _read_body(body)
+        _, parsed = read_body(body)
         intended = merge.read(dry_run.rooted(target, kind, parsed))
         current = merge.read(await self._fetch_subtrees(dry_run.roots(intended.index)), loose=True)
         return dry_run.compare(intended, current)
 
-    async def plan(self, config: str | Any) -> plan_.Plan:
-        """Return ``config`` narrowed to the MOs posting it would change.
-
-        See :meth:`Client.plan`.
-        """
-
-        _, parsed = _read_body(config)
-        merged = merge.merge(parsed)
-        changes = await self.dry_run(merge.ROOT, merged, kind="mo")
-        return plan_.Plan(plan_.body(merged, changes), changes)
-
-    async def fetch(
-        self,
-        *,
-        mo: str | Sequence[str] | None = None,
-        cls: str | Sequence[str] | None = None,
-    ) -> dict[str, Any]:
+    async def fetch(self) -> dict[str, Any]:
         """Return the fabric's own configuration as one body. See :meth:`Client.fetch`."""
 
-        imdata = await self._fetch_targets(mo, cls)
+        imdata = await self._fetch_uni()
         if not imdata:
             return merge.empty()
-        return merge.merge(imdata, loose=mo is not None or cls is not None)
-
-    async def diff(
-        self,
-        config: str | Any,
-        *,
-        expand: bool = False,
-        exclude: str | Sequence[str] | None = None,
-        on_unused: Callable[[list[str]], None] | None = None,
-    ) -> list[mo.Change]:
-        """Return how the fabric differs from the configuration ``config`` gives.
-
-        See :meth:`Client.diff`.
-        """
-
-        _, parsed = _read_body(config)
-        return diff.compare(
-            parsed, await self._fetch_uni(), expand=expand, exclude=exclude, on_unused=on_unused
-        )
+        return merge.merge(imdata)
 
     # -- internals --------------------------------------------------------
-
-    async def _fetch_targets(
-        self,
-        dns: str | Sequence[str] | None,
-        classes: str | Sequence[str] | None,
-    ) -> list[Any]:
-        """Fetch the subtrees ``dns`` and ``classes`` name, or the whole of uni.
-
-        See :meth:`Client._fetch_targets`.
-        """
-
-        if dns is not None and classes is not None:
-            raise TypeError(_BOTH_TARGETS)
-        if classes is not None:
-            found: list[str] = []
-            for name in _targets(classes, "class name"):
-                found.extend(await self._member_dns(name))
-            return await self._fetch_subtrees(sorted(set(found)))
-        if dns is None:
-            return await self._fetch_uni()
-        imdata: list[Any] = []
-        for dn in _targets(dns, "DN"):
-            if dn == merge.ROOT:
-                imdata.extend(await self._fetch_uni())
-                continue
-            subtree = await self._fetch_subtrees([dn])
-            if not subtree:
-                raise ValueError(f"{dn}: the fabric holds no such MO")
-            imdata.extend(subtree)
-        return imdata
-
-    async def _member_dns(self, class_name: str) -> list[str]:
-        """Return the DNs of every MO of ``class_name``, sorted.
-
-        See :meth:`Client._member_dns`.
-        """
-
-        data = await self._fetch(class_name, dict(_CLASS_MEMBERS), kind="class")
-        return mo.top_level_dns(data.get("imdata"))
 
     async def _fetch_uni(self) -> list[Any]:
         """Fetch every MO under uni, one top-level subtree per request.
@@ -770,23 +537,6 @@ class AsyncClient:
         return self._session
 
 
-def _targets(names: str | Sequence[str], what: str) -> list[str]:
-    """Return the targets ``names`` gives, one string being one target.
-
-    A single string is one target and is never split, as one exclusion is not:
-    an ACI naming value can hold a comma. Surrounding whitespace and slashes go,
-    as they do there. Naming nothing at all is refused rather than read as the
-    whole of uni: an empty list is a caller whose own list of targets came out
-    empty, which is not the same request as one that named no target.
-    """
-
-    given = [names] if isinstance(names, str) else list(names)
-    found = [str(name).strip().strip("/") for name in given]
-    if not found or not all(found):
-        raise ValueError(f"a {what} is required")
-    return found
-
-
 def _check_complete(dn: str, data: Any) -> None:
     """Raise when the APIC returned fewer MOs than it says the query has.
 
@@ -810,22 +560,3 @@ def _check_complete(dn: str, data: Any) -> None:
             f"{dn}: the APIC returned {returned} of {total} MOs, so this is one page of "
             f"the answer and not all of it"
         )
-
-
-def _read_body(body: str | Any) -> tuple[str, Any]:
-    """Return the text to send and the object it parses to.
-
-    Text is passed through untouched rather than reserialized, so the key order
-    and the formatting reach the APIC exactly as the caller wrote them. A diff
-    reads its one configuration through here too, and wants only the object --
-    which is why the message below says "body" rather than "POST body".
-    """
-
-    if not isinstance(body, str):
-        return json.dumps(body), body
-    if not body.strip():
-        raise ValueError("empty body")
-    try:
-        return body, json.loads(body)
-    except ValueError as exc:
-        raise ValueError(f"invalid JSON body: {exc}") from None

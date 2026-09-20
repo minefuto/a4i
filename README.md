@@ -11,6 +11,10 @@ CLI/MCP/Python Library for the Cisco ACI REST API.
 - **The ACI object model ships with it.** `search` and `describe` answer what a
   class is called and what a body may set on it, without an APIC and without a
   login.
+- **`fetch` reads the fabric once, and the daemon holds it.** `diff` and `plan`
+  compare against what it read and send nothing of their own, so a fabric read
+  once answers any number of questions. A POST drops it, because it is no longer
+  what the fabric holds.
 - **`merge` and `diff` compare a fabric against an intended configuration**,
   reporting both what the configuration asks for and the fabric lacks, and what
   the fabric carries and the configuration never mentions.
@@ -43,7 +47,7 @@ a4i get class fvTenant --query-target subtree --rsp-subtree full
 a4i get class l1PhysIf --node leaf101.example.com # query a switch with the same token
 echo '{"fvTenant":{"attributes":{"name":"demo"}}}' | a4i post mo uni/tn-demo
 a4i logout                                        # drop the in-memory session
-a4i daemon status                                 # is a token held, and for how long
+a4i daemon status                                 # what is held: a token, and a fabric
 a4i login apic1.example.com -u admin --read-only  # a session that will refuse every POST
 a4i mcp                                           # serve MCP on stdio for an LLM client
 ```
@@ -101,45 +105,41 @@ said so. The result is a `polUni` holding every merged MO nested under the MO it
 hangs off, which is the shape a POST to `uni` takes; `diff` compares that same
 body against everything the fabric has under `uni`.
 
+`fetch` is what reads the fabric. It walks everything under `uni` and leaves it
+in the daemon, where `diff` and `plan` take it from: they send nothing to the
+APIC themselves, so one `fetch` serves as many comparisons as you like. It
+prints what it read and nothing else -- the body is not output, because nothing
+downstream needs it in a file.
+
 ```sh
 a4i merge ./configs/ -o merged.json               # every *.json, in path order
-a4i merge ./configs/ | a4i post mo uni --dry-run  # what posting it would change
-a4i merge ./configs/ | a4i post mo uni
-a4i merge ./configs/ | a4i diff
-a4i merge ./configs/ | a4i diff --exclude uni/tn-common --exclude uni/infra
+a4i fetch                                         # read the fabric, once
+a4i diff merged.json
+a4i diff merged.json --exclude uni/tn-common --exclude uni/infra
 a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 ```
 
-`fetch` goes the other way: it reads everything under `uni` and writes it out as
-one body shaped exactly as a merged one, so the fabric can be kept in git,
-handed back to `diff`, or posted at `uni`. The APIC sends every settable
-property with its defaults, so this is far longer than a configuration written
-by hand for the same fabric.
+A POST drops what `fetch` read: it is no longer what the fabric holds. So do a
+login, a logout and a session expiry. `diff` and `plan` say so and stop rather
+than comparing against a fabric nobody read:
 
-Name a target to read part of the fabric instead: `mo` takes DNs and reads the
-subtree of each, `class` takes ACI class names and reads the subtree of every MO
-of each, wherever in `uni` it sits. The body is shaped the same either way --
-the MOs come back nested under the MOs they hang off, whose DNs are filled in --
-so it is still one body to post at `uni`. Only the whole of `uni` is a body to
-hand to `diff`, which reads the configuration it is given as describing all of
-it.
-
-```sh
-a4i fetch -o fabric.json           # -o and --force, as merge takes them
-a4i fetch | a4i diff               # says nothing differs, by construction
-a4i fetch mo uni/tn-demo           # one tenant, as a body to post at uni
-a4i fetch mo uni/tn-a uni/tn-b     # several, folded into one body
-a4i fetch class fvBD               # every BD in the fabric, tenants filled in
 ```
+$ a4i post mo uni plan.json && a4i diff merged.json
+error: no fabric has been fetched: run 'a4i fetch' first
+(the cache is dropped by a post, a login, a logout, and a session expiry)
+```
+
+`a4i daemon status` says what is held and how old it is.
 
 `plan` narrows that same configuration to the MOs posting it would change, and
 writes them out as a body of their own. Posting the whole configuration hands
 the APIC every MO it already agrees with, and the APIC writes all of them;
 posting a plan writes what the report named and nothing else. The report goes to
-standard error and the body to standard output, both from one read of the
-fabric.
+standard error and the body to standard output, both from the one fabric
+`fetch` read.
 
 ```sh
+a4i fetch
 a4i merge ./configs/ | a4i plan            # report on stderr, body on stdout
 a4i plan merged.json -o plan.json          # -o and --force, as merge takes them
 a4i plan merged.json -o plan.json && a4i post mo uni plan.json
@@ -147,8 +147,8 @@ a4i plan merged.json -o plan.json && a4i post mo uni plan.json
 
 The body is shaped exactly as a merged one is, so the two can be read side by
 side. An MO that changes carries the attributes that change and a `status`
-saying what the fabric was just found to be -- so a fabric that has moved on
-refuses the POST rather than doing something nobody read. The MOs the report has
+saying what the fetched fabric was found to be -- so a fabric that has moved on
+since refuses the POST rather than doing something nobody read. The MOs the report has
 no line for are there to nest what does change under them, and carry `rn` and
 `status="modified"` only.
 
@@ -196,7 +196,7 @@ in their exit code whether anything would change:
 | --- | --- |
 | `0` | the fabric matches / posting this body would change nothing |
 | `2` | it differs / the body would change something |
-| `1` | the command itself failed (not logged in, bad JSON, unknown DN) |
+| `1` | the command itself failed (nothing fetched, not logged in, bad JSON) |
 
 ## MCP server
 
@@ -218,7 +218,7 @@ login tool, because this server never handles a password.
 | `dry_run` | what a POST would change, sending nothing |
 | `post` | POST a body |
 | `merge` | several bodies or paths folded into one |
-| `fetch` | the fabric's own configuration, as one body |
+| `fetch` | read the fabric into the session, for `diff` and `plan` |
 | `plan` | one configuration narrowed to the MOs a POST would change |
 | `diff` | the fabric compared against one configuration |
 
@@ -226,7 +226,7 @@ login tool, because this server never handles a password.
 | --- | --- |
 | `a4i://guide/post-body` | how an ACI body nests, how a child MO gets its DN, what `status` does |
 | `a4i://guide/query` | class against MO queries, the two subtree controls, keeping a response small |
-| `a4i://guide/workflow` | the order: search or list, describe, get, dry run, post |
+| `a4i://guide/workflow` | the order: search or list, describe, get, fetch, dry run, post |
 | `a4i://guide/limits` | where the bundled model, the dry run and the diff each stop short |
 
 A `get` whose response would exceed 64 KB is refused, with the total count and
@@ -240,22 +240,32 @@ and keeps the token in memory for as long as it lives.
 
 ```python
 import a4i
+from a4i.diff import compare
 from a4i.merge import merge
+from a4i.plan import create
 
 with a4i.Client("apic1.example.com", verify=False) as client:
     client.login("admin", password)
 
     data = client.get("fvTenant", kind="class", query_target="subtree", rsp_subtree="full")
     client.post("uni/tn-demo", {"fvTenant": {"attributes": {"name": "demo"}}}, kind="mo")
-    changes = client.diff(merge(base, override))
-    client.post("uni", client.plan(merge(base, override)).body, kind="mo")
+
+    fabric = client.fetch()
+    changes = compare(merge(base, override), fabric=fabric)
+    client.post("uni", create(merge(base, override), fabric=fabric).body, kind="mo")
 ```
 
 `kind` is the subcommand the CLI takes, and it is required: `"class"` for a
 class name, `"mo"` for a DN. Every other keyword argument is the CLI option of
 the same name with underscores. `verify` is what `-k/--insecure` and `--ca`
-express, `timeout` is `login --timeout`, and `dry_run()`, `diff()`, `plan()`
-and `a4i.merge.merge()` are the commands of those names.
+express, and `timeout` is `login --timeout`.
+
+`fetch()` reads the whole of `uni` and returns it as one body; no daemon is
+involved here, so it is yours to hold for as long as it is worth holding.
+`a4i.diff.compare()` and `a4i.plan.create()` are `diff` and `plan`, and both
+take that body as a keyword-only `fabric` -- they perform no I/O, so what they
+compared against is whatever you last read. `dry_run()` reads the fabric itself,
+as `post --dry-run` does.
 
 `AsyncClient` is `Client` awaited: the same arguments, the same return values
 and the same exceptions, sending the same requests in the same order.

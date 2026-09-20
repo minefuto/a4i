@@ -69,7 +69,7 @@ def compare(
     config = [one for arg in mos for one in (arg if isinstance(arg, list) else [arg])]
     return diff.compare(
         config,
-        FABRIC if imdata is None else imdata,
+        fabric=FABRIC if imdata is None else imdata,
         expand=expand,
         exclude=exclude,
         on_unused=on_unused,
@@ -194,14 +194,14 @@ def test_an_empty_attribute_the_configuration_does_not_mention_is_reported() -> 
     # configuration has not accounted for.
     tenant = mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo"})
     imdata = [mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "descr": ""})]
-    (change,) = diff.compare([tenant], imdata)
+    (change,) = diff.compare([tenant], fabric=imdata)
     assert change.attributes == {"descr": ("", None)}
 
 
 def test_an_attribute_the_configuration_asks_for_and_the_fabric_lacks_is_reported() -> None:
     tenant = mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "nameAlias": "prod"})
     imdata = [mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo"})]
-    (change,) = diff.compare([tenant], imdata)
+    (change,) = diff.compare([tenant], fabric=imdata)
     assert change.attributes == {"nameAlias": (None, "prod")}
 
 
@@ -210,13 +210,13 @@ def test_identity_attributes_are_never_diffed() -> None:
     imdata = [
         mo("fvTenant", {"dn": "uni/tn-demo", "rn": "tn-demo", "name": "demo", "childAction": ""})
     ]
-    assert diff.compare([tenant], imdata) == []
+    assert diff.compare([tenant], fabric=imdata) == []
 
 
 def test_attributes_are_reported_in_name_order() -> None:
     tenant = mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "descr": "b"})
     imdata = [mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "zzz": "z", "aaa": "a"})]
-    (change,) = diff.compare([tenant], imdata)
+    (change,) = diff.compare([tenant], fabric=imdata)
     assert list(change.attributes) == ["aaa", "descr", "zzz"]
 
 
@@ -434,7 +434,7 @@ def test_a_malformed_input_is_refused_rather_than_skipped() -> None:
 
 
 def test_a_response_compared_against_itself_shows_no_differences() -> None:
-    assert diff.compare([mo("polUni", {"dn": "uni"}, FABRIC)], FABRIC) == []
+    assert diff.compare([mo("polUni", {"dn": "uni"}, FABRIC)], fabric=FABRIC) == []
 
 
 def test_a_child_named_only_by_an_rn_is_read_the_same_on_both_sides() -> None:
@@ -445,7 +445,7 @@ def test_a_child_named_only_by_an_rn_is_read_the_same_on_both_sides() -> None:
             [mo("fvBD", {"rn": "BD-bd1", "name": "bd1"})],
         )
     ]
-    assert diff.compare([mo("polUni", {"dn": "uni"}, imdata)], imdata) == []
+    assert diff.compare([mo("polUni", {"dn": "uni"}, imdata)], fabric=imdata) == []
 
 
 def test_a_child_named_by_neither_a_dn_nor_an_rn_is_kept_on_the_fabric_side() -> None:
@@ -459,7 +459,7 @@ def test_a_child_named_by_neither_a_dn_nor_an_rn_is_kept_on_the_fabric_side() ->
             [mo("fvAp", {"name": "ap1"}, [mo("fvAEPg", {"name": "epg1"})])],
         )
     ]
-    assert diff.compare([mo("polUni", {"dn": "uni"}, imdata)], imdata) == []
+    assert diff.compare([mo("polUni", {"dn": "uni"}, imdata)], fabric=imdata) == []
 
 
 # -- MOs left out of the comparison ----------------------------------------
