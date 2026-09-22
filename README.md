@@ -135,13 +135,14 @@ error: no fabric has been fetched: run 'a4i fetch' first
 `plan` narrows that same configuration to the MOs posting it would change, and
 writes them out as a body of their own. Posting the whole configuration hands
 the APIC every MO it already agrees with, and the APIC writes all of them;
-posting a plan writes what the report named and nothing else. The report goes to
-standard error and the body to standard output, both from the one fabric
-`fetch` read.
+posting a plan writes those MOs and nothing else. It prints no report: run
+`post mo uni merged.json --dry-run` to read what changes, against the same
+fetched fabric, and then plan and post it.
 
 ```sh
 a4i fetch
-a4i merge ./configs/ | a4i plan            # report on stderr, body on stdout
+a4i post mo uni merged.json --dry-run      # what would change
+a4i merge ./configs/ | a4i plan            # the body, on stdout
 a4i plan merged.json -o plan.json          # -o and --force, as merge takes them
 a4i plan merged.json -o plan.json && a4i post mo uni plan.json
 ```
@@ -149,9 +150,9 @@ a4i plan merged.json -o plan.json && a4i post mo uni plan.json
 The body is shaped exactly as a merged one is, so the two can be read side by
 side. An MO that changes carries the attributes that change and a `status`
 saying what the fetched fabric was found to be -- so a fabric that has moved on
-since refuses the POST rather than doing something nobody read. The MOs the report has
-no line for are there to nest what does change under them, and carry `rn` and
-`status="modified"` only.
+since refuses the POST rather than doing something nobody read. The only MOs it
+can create are the ones it marks `status="created"`; the rest are there to nest
+what does change under them, and carry `rn` and `status="modified"` only.
 
 Every DN on the way down from `uni` has to be described by something: a BD
 written without its tenant is refused rather than nested under a tenant `merge`
@@ -260,7 +261,7 @@ with a4i.Client("apic1.example.com", verify=False) as client:
     changes = compare(merge(base, override), fabric=fabric)
     tenant = {"fvTenant": {"attributes": {"descr": "prod"}}}
     check("uni/tn-demo", tenant, kind="mo", fabric=fabric)  # or client.dry_run(...)
-    client.post("uni", create(merge(base, override), fabric=fabric).body, kind="mo")
+    client.post("uni", create(merge(base, override), fabric=fabric), kind="mo")
 ```
 
 `kind` is the subcommand the CLI takes, and it is required: `"class"` for a

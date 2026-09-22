@@ -1,8 +1,9 @@
 """Narrow a merged body down to the MOs a POST of it would actually change.
 
 :func:`create` runs the comparison ``post --dry-run`` reports and writes it back
-out as a body, so that what is posted is the report and nothing besides.
-Nothing here performs I/O.
+out as a body, so that what is posted is what that comparison found and nothing
+besides. Nothing here performs I/O, and nothing here reports: the report is
+``post --dry-run``'s, run against the same fetched fabric.
 
 The guarantee is one-way, and that is the point: a change the comparison misses
 leaves the fabric as it is, to be reported again next run, where a body wide
@@ -11,7 +12,6 @@ enough to be safe against a missed comparison would be the whole configuration.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 from a4i import dry_run, merge
@@ -27,7 +27,8 @@ _CONTAINER_STATUS = "modified"
 
 _WARNED = (
     "refusing to write a plan: the dry run reported {count}, "
-    "so this POST would fail as written. Fix the body and try again"
+    "so this POST would fail as written. Fix the body and try again; "
+    "post --dry-run names the MOs"
 )
 _LOST = (
     "refusing to write a plan: {count} the dry run reported "
@@ -35,31 +36,7 @@ _LOST = (
 )
 
 
-@dataclass(frozen=True)
-class Plan:
-    """A POST narrowed to what it changes: the body to send, and what it means.
-
-    ``changes`` is the report ``post --dry-run`` prints, and ``body`` is those
-    same changes as one body. They come from a single read of the fabric, so
-    what a reader is shown and what a POST would send cannot be answers to two
-    different questions.
-    """
-
-    body: dict[str, Any]
-    changes: list[Change] = field(default_factory=list)
-
-    @property
-    def containers(self) -> int:
-        """How many MOs the body carries that no change names.
-
-        The report has no line for these (see :data:`_CONTAINER_STATUS`), so a
-        reader comparing the two has to be told how many.
-        """
-
-        return count(self.body) - len(self.changes)
-
-
-def create(config: str | Any, *, fabric: Any) -> Plan:
+def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     """Return ``config`` narrowed to the MOs posting it at uni would change.
 
     ``config`` is one ACI body, as :func:`a4i.diff.compare` takes one: several
@@ -72,46 +49,18 @@ def create(config: str | Any, *, fabric: Any) -> Plan:
     gives. The comparison itself is :func:`a4i.dry_run.check`, the one
     ``post --dry-run`` reports, run over the merged body at uni.
 
-    The result carries the changes ``post --dry-run`` reports and the body those
-    changes make between them. Posting that body at uni does what the changes
-    say and touches nothing else, so an MO the configuration already agrees with
-    is never handed back to the APIC to be written again.
+    Posting the result at uni does what that comparison found and touches
+    nothing else, so an MO the configuration already agrees with is never handed
+    back to the APIC to be written again. Every MO it can create says
+    ``status="created"``; the rest assert what the fabric already had.
 
     Raises ``ValueError`` if the dry run warns that the POST would fail -- the
-    body written for a warned MO would be a body nobody read. See :func:`body`.
+    body written for a warned MO would be a body nobody read.
     """
 
     _, parsed = read_body(config)
     merged = merge.merge(parsed)
-    changes = dry_run.check(ROOT, merged, kind="mo", fabric=fabric)
-    return Plan(body(merged, changes), changes)
-
-
-def body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:
-    """Return the body posting only ``changes`` takes, wrapped for uni.
-
-    Shaped exactly as the merged body it was made from, so the two can be read
-    side by side; what differs is what is in it.
-
-    Every MO carries the ``status`` the change says it is, and the status the
-    input wrote is not carried over: that said what the configuration meant in
-    general, where this asserts what one read of one fabric found. Where the
-    assertion is wrong the APIC refuses the POST, which is the failure this is
-    meant to have.
-
-    Raises ``ValueError`` if any change is a warning -- the report says the POST
-    will fail, and a body that quietly succeeded instead would be doing
-    something nobody read.
-    """
-
-    warnings = sum(1 for change in changes if change.kind == "warning")
-    if warnings:
-        raise ValueError(_WARNED.format(count=plural(warnings, "warning")))
-    wanted = {change.dn: change for change in changes if change.kind != "warning"}
-    children = _children(ROOT, merged.get(WRAPPER) or {}, wanted)
-    if wanted:
-        raise ValueError(_LOST.format(count=plural(len(wanted), "MO")))
-    return {WRAPPER: {"attributes": {"dn": ROOT}, "children": children}}
+    return _body(merged, dry_run.check(ROOT, merged, kind="mo", fabric=fabric))
 
 
 def count(plan: dict[str, Any]) -> int:
@@ -132,12 +81,35 @@ def count(plan: dict[str, Any]) -> int:
 # -- walking the merged body -----------------------------------------------
 
 
+def _body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:
+    """Return the body posting only ``changes`` takes, wrapped for uni.
+
+    Shaped exactly as the merged body it was made from, so the two can be read
+    side by side; what differs is what is in it.
+
+    Every MO carries the ``status`` the change says it is, and the status the
+    input wrote is not carried over: that said what the configuration meant in
+    general, where this asserts what one read of one fabric found. Where the
+    assertion is wrong the APIC refuses the POST, which is the failure this is
+    meant to have.
+    """
+
+    warnings = sum(1 for change in changes if change.kind == "warning")
+    if warnings:
+        raise ValueError(_WARNED.format(count=plural(warnings, "warning")))
+    wanted = {change.dn: change for change in changes if change.kind != "warning"}
+    children = _children(ROOT, merged.get(WRAPPER) or {}, wanted)
+    if wanted:
+        raise ValueError(_LOST.format(count=plural(len(wanted), "MO")))
+    return {WRAPPER: {"attributes": {"dn": ROOT}, "children": children}}
+
+
 def _children(dn: str, body_of: dict[str, Any], wanted: dict[str, Change]) -> list[dict[str, Any]]:
     """Return the MOs under ``dn`` that belong in the plan, in the merged order.
 
     ``wanted`` is emptied as it goes, so that a change left in it at the end is
     one this walk never reached -- a change that would otherwise be posted by
-    nobody while the report said it would be.
+    nobody while the comparison said it would be.
     """
 
     kept: list[dict[str, Any]] = []

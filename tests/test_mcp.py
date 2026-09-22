@@ -446,14 +446,13 @@ def test_diff_reports_a_path_that_is_not_there(daemon, tmp_path) -> None:
 # -- plan ------------------------------------------------------------------
 
 
-def test_plan_returns_the_report_and_the_body(daemon) -> None:
+def test_plan_returns_the_body_alone(daemon) -> None:
     _login()
     _tool_text(Server(), "fetch", {})
     text, is_error = _tool_text(Server(), "plan", {"body": INFRA})
     assert not is_error
-    report, _, body = text.partition("{")
-    assert "no changes" in report or "modified" in report
-    assert json.loads("{" + body)["polUni"]["attributes"] == {"dn": "uni"}
+    # The body and nothing else: the report is what dry_run answers with.
+    assert json.loads(text)["polUni"]["attributes"] == {"dn": "uni"}
 
 
 def test_plan_writes_the_body_to_a_file_and_keeps_it_out_of_the_reply(daemon, tmp_path) -> None:

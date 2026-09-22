@@ -308,12 +308,14 @@ PLAN = _tool(
     "that as a body to post at 'uni'. Reads only, and sends nothing to the APIC: the "
     "fabric side is what fetch last read, so call fetch first, and again after any "
     "post. Use this between merge and post: posting the whole configuration hands "
-    "the APIC every MO it already agrees with, and the APIC writes all of them. The "
-    "result is a polUni shaped as merge shapes one, holding the changed MOs and the "
-    'MOs they hang under -- those carry rn and status="modified" only, so the post '
-    "fails rather than creating one the fabric turns out not to have. Refused if the "
-    "comparison warns the post would fail. Read the report it returns before posting: "
-    "nothing outside it can be written by the body.",
+    "the APIC every MO it already agrees with, and the APIC writes all of them. Run "
+    "dry_run on the same body first -- that is the report on what changes, from the "
+    "same fetched fabric, and this returns no report of its own. The result is a "
+    "polUni shaped as merge shapes one, holding the changed MOs and the MOs they hang "
+    'under -- those carry rn and status="modified" only, so the post fails rather than '
+    "creating one the fabric turns out not to have. The only MOs it can create are the "
+    'ones it marks status="created". Refused if the comparison warns the post '
+    "would fail.",
     {
         "body": {
             "type": ["object", "array", "string"],
@@ -332,9 +334,9 @@ PLAN = _tool(
         "output": {
             "type": "string",
             "description": (
-                "Write the body to this file and return the report and a summary instead "
-                "of the body itself, then post it from there. Do this for a configuration "
-                "of any size: it keeps the whole body out of the conversation. An existing "
+                "Write the body to this file and return a summary instead of the body "
+                "itself, then post it from there. Do this for a configuration of any "
+                "size: it keeps the whole body out of the conversation. An existing "
                 "file is refused unless 'overwrite' is true."
             ),
         },
@@ -584,7 +586,7 @@ def _one_body(arguments: dict[str, Any], tool: str) -> Any:
 def _plan(arguments: dict[str, Any]) -> str:
     from a4i import config, ipc
     from a4i import plan as plan_
-    from a4i.output import dry_run_report, plural
+    from a4i.output import plural
     from a4i.plan import count
 
     body = _one_body(arguments, "plan")
@@ -592,23 +594,16 @@ def _plan(arguments: dict[str, Any]) -> str:
         narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
         raise ToolError(str(exc)) from None
-    report = dry_run_report(narrowed.changes)
-    if narrowed.containers:
-        report += (
-            f"\n\n{plural(narrowed.containers, 'MO')} the report has no line for carry rn and "
-            'status="modified" only, to nest what does change under them; the POST fails '
-            "if the fabric does not have them."
-        )
     output = arguments.get("output")
     if output is None:
-        return f"{report}\n\n{_json(narrowed.body)}"
+        return _json(narrowed)
     try:
-        config.write(output, _json(narrowed.body), overwrite=bool(arguments.get("overwrite")))
+        config.write(output, _json(narrowed), overwrite=bool(arguments.get("overwrite")))
     except FileExistsError:
         raise ToolError(f"{output} exists. Pass overwrite: true to replace it.") from None
     except OSError as exc:
         raise ToolError(f"cannot write {output}: {exc}") from None
-    return f"{report}\n\nwrote {plural(count(narrowed.body), 'MO')} to {output}"
+    return f"wrote {plural(count(narrowed), 'MO')} to {output}"
 
 
 def _diff(arguments: dict[str, Any]) -> str:

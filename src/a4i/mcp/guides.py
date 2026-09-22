@@ -96,10 +96,11 @@ Call `dry_run` with the same arguments first. It sends nothing: it fetches what
 is there and reports what the POST would change. An empty result means the body
 would do nothing at all, which usually means it does not say what you meant.
 
-Better still for a merged configuration, call `plan`. It reports the same thing
-and hands back a body holding only the MOs that change, so posting it leaves
-every MO the fabric already agrees with untouched instead of handing all of them
-back to the APIC to be written again.
+For a merged configuration, follow that dry run with `plan`. It compares the
+same body against the same fetched fabric and hands back a body holding only the
+MOs that change, so posting it leaves every MO the fabric already agrees with
+untouched instead of handing all of them back to the APIC to be written again.
+It returns no report of its own: the dry run you just read is the report.
 """
 
 
@@ -202,10 +203,12 @@ the two it did.
 2. `fetch` reads the whole of `uni` into the session and returns only how much
    that was. `diff` and `plan` compare against what it read and send nothing to
    the APIC themselves, so one `fetch` serves any number of them.
-3. `diff` to see how the fabric and the configuration disagree, `plan` to turn
-   that into a body holding only what changes.
-4. `post` the body `plan` returned. It carries the changes the report named and
-   nothing else, so nothing unread is written.
+3. `dry_run` the body at `uni` to read what would change, `diff` to see how the
+   fabric and the configuration disagree either way round.
+4. `plan` turns the same comparison into a body holding only what changes. It
+   prints no report -- the dry run in step 3 is it.
+5. `post` the body `plan` returned. It carries the changes that dry run named
+   and nothing else, so nothing unread is written.
 
 If `post` is missing from the tool list, this session was started read-only and
 nothing can be written through it.
@@ -340,8 +343,9 @@ Work in this order:
 
 That is the path for changing one MO, and it needs no `fetch`. A whole
 configuration goes the other way: `merge` it into one body, `fetch` the fabric
-once, then `plan` -- same report as a dry run, plus a body holding only what
-changes -- and `post` that body. `diff` answers how the two disagree without
+once, `dry_run` it at `uni` to read what changes, then `plan` -- the same
+comparison as a body, with no report of its own -- and `post` that body.
+`diff` answers how the two disagree without
 writing anything. `fetch`, `diff` and `plan` are for that path only; `dry_run`
 uses a fetched fabric when there is one and reads what your body names when
 there is not, and says which it did.

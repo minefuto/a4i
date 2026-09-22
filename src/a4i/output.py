@@ -79,24 +79,11 @@ def render(data: Any, *, raw: bool = False, console: Console | None = None) -> N
 
 
 def render_dry_run(
-    changes: list[Change],
-    *,
-    raw: bool = False,
-    console: Console | None = None,
-    stderr: bool = False,
+    changes: list[Change], *, raw: bool = False, console: Console | None = None
 ) -> None:
-    """Print the changes a POST would cause: colorized on a TTY, plain otherwise.
+    """Print the changes a POST would cause: colorized on a TTY, plain otherwise."""
 
-    ``stderr`` puts the report there instead, for a command whose standard
-    output is the body the report is about: a report printed into a body is a
-    body nothing can post.
-    """
-
-    _print(
-        _report(changes, _DRY_RUN_KINDS, "no changes"),
-        raw=raw,
-        console=console or _console(stderr=stderr),
-    )
+    _print(_report(changes, _DRY_RUN_KINDS, "no changes"), raw=raw, console=console or _console())
 
 
 def render_diff(

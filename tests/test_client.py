@@ -404,13 +404,12 @@ def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
         },
         fabric=client.fetch(),
     )
-    assert [(c.kind, c.dn) for c in narrowed.changes] == [("modified", "uni/tn-common/BD-default")]
-    tenant = narrowed.body["polUni"]["children"][0]["fvTenant"]
+    tenant = narrowed["polUni"]["children"][0]["fvTenant"]
     # The tenant is only what the BD hangs under, so it carries rn and
     # status="modified" and no attribute of its own.
     assert tenant["attributes"] == {"rn": "tn-common", "status": "modified"}
+    assert tenant["children"][0]["fvBD"]["attributes"]["status"] == "modified"
     assert tenant["children"][0]["fvBD"]["attributes"]["mtu"] == "9000"
-    assert narrowed.containers == 1
 
 
 def test_plan_asks_the_fabric_for_nothing(client, state) -> None:

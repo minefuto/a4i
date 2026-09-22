@@ -501,16 +501,14 @@ def test_dry_run_reports_a_daemon_error(monkeypatch, capsys) -> None:
 # -- plan ------------------------------------------------------------------
 
 
-def test_plan_writes_the_body_to_stdout_and_the_report_to_stderr(monkeypatch, capsys) -> None:
+def test_plan_writes_the_body_to_stdout(monkeypatch, capsys) -> None:
     code, sent = _run_plan(
         monkeypatch,
         ["plan", '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}'],
     )
     # Nothing is read at all: the fabric it compared against is the fetch's.
     assert sent == []
-    captured = capsys.readouterr()
-    assert '~ descr: "" -> "prod"' in captured.err
-    assert json.loads(captured.out) == {
+    assert json.loads(capsys.readouterr().out) == {
         "polUni": {
             "attributes": {"dn": "uni"},
             "children": [
@@ -526,7 +524,7 @@ def test_plan_writes_the_body_to_stdout_and_the_report_to_stderr(monkeypatch, ca
     assert code == 0
 
 
-def test_plan_carries_an_unchanged_ancestor_and_says_how_many(monkeypatch, capsys) -> None:
+def test_plan_carries_an_unchanged_ancestor(monkeypatch, capsys) -> None:
     code, _ = _run_plan(
         monkeypatch,
         [
@@ -535,13 +533,9 @@ def test_plan_carries_an_unchanged_ancestor_and_says_how_many(monkeypatch, capsy
             '"children":[{"fvBD":{"attributes":{"name":"bd2"}}}]}}',
         ],
     )
-    captured = capsys.readouterr()
-    # The tenant does not change, so the report has no line for it; the body
-    # carries it because the BD hangs under it.
-    assert "fvTenant" not in captured.err
-    assert "1 created, 0 modified, 0 deleted" in captured.err
-    assert "1 MO the report has no line for" in captured.err
-    tenant = json.loads(captured.out)["polUni"]["children"][0]["fvTenant"]
+    # The tenant itself does not change; the body carries it because the BD
+    # hangs under it, and it says status="modified" to assert it is there.
+    tenant = json.loads(capsys.readouterr().out)["polUni"]["children"][0]["fvTenant"]
     assert tenant["attributes"] == {"rn": "tn-demo", "status": "modified"}
     assert tenant["children"] == [
         {"fvBD": {"attributes": {"rn": "BD-bd2", "status": "created", "name": "bd2"}}}
@@ -554,10 +548,10 @@ def test_plan_writes_an_empty_body_when_nothing_would_change(monkeypatch, capsys
         monkeypatch,
         ["plan", '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","name":"demo"}}}'],
     )
-    captured = capsys.readouterr()
-    assert captured.err.strip().splitlines()[0] == "no changes"
     # A body all the same, so that what reads it next needs no special case.
-    assert json.loads(captured.out) == {"polUni": {"attributes": {"dn": "uni"}, "children": []}}
+    assert json.loads(capsys.readouterr().out) == {
+        "polUni": {"attributes": {"dn": "uni"}, "children": []}
+    }
     assert code == 0
 
 
@@ -592,10 +586,8 @@ def test_plan_writes_to_a_file_and_refuses_to_overwrite_one(monkeypatch, capsys,
     code, _ = _run_plan(monkeypatch, ["plan", body, "-o", str(out)])
     assert code == 0
     assert json.loads(out.read_text())["polUni"]["attributes"] == {"dn": "uni"}
-    # The report still goes to stderr, and stdout stays empty for the file.
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert '~ descr: "" -> "prod"' in captured.err
+    # Nothing on stdout: the body went to the file.
+    assert capsys.readouterr().out == ""
 
     code, _ = _run_plan(monkeypatch, ["plan", body, "-o", str(out)])
     assert code == 1

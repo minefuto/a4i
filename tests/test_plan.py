@@ -20,7 +20,7 @@ CURRENT = [
 ]
 
 
-def _plan(config, imdata=CURRENT) -> plan.Plan:
+def _plan(config, imdata=CURRENT) -> dict:
     """Merge a configuration, compare it against a fabric, and narrow it."""
 
     return plan.create(config, fabric=imdata)
@@ -40,7 +40,7 @@ def test_a_modified_mo_carries_only_the_attributes_that_change() -> None:
                 "attributes": {"dn": "uni/tn-demo", "name": "demo", "descr": "prod"},
             }
         }
-    ).body
+    )
     # "name" is in the configuration and unchanged, so posting it back would
     # hand the fabric its own value.
     assert _children(built) == [
@@ -56,7 +56,7 @@ def test_a_created_mo_carries_every_attribute_the_configuration_gives() -> None:
                 "children": [{"fvBD": {"attributes": {"name": "bd2", "mtu": "9000"}}}],
             }
         }
-    ).body
+    )
     tenant = _children(built)[0]["fvTenant"]
     assert tenant["children"] == [
         {
@@ -70,12 +70,12 @@ def test_a_created_mo_carries_every_attribute_the_configuration_gives() -> None:
 def test_an_mo_that_does_not_change_is_left_out() -> None:
     built = _plan(
         {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "name": "demo", "descr": "dev"}}}
-    ).body
+    )
     assert _children(built) == []
 
 
 def test_an_unchanged_ancestor_is_carried_as_a_container() -> None:
-    plan_ = _plan(
+    built = _plan(
         {
             "fvTenant": {
                 "attributes": {"dn": "uni/tn-demo", "name": "demo", "descr": "dev"},
@@ -83,13 +83,15 @@ def test_an_unchanged_ancestor_is_carried_as_a_container() -> None:
             }
         }
     )
-    tenant = _children(plan_.body)[0]["fvTenant"]
+    tenant = _children(built)[0]["fvTenant"]
     # It is on the fabric already -- the comparison found it -- so it says so,
     # and a fabric without it refuses the POST rather than growing an empty one.
     assert tenant["attributes"] == {"rn": "tn-demo", "status": "modified"}
-    assert tenant["children"][0]["fvBD"]["attributes"]["mtu"] == "9000"
-    assert [(c.kind, c.dn) for c in plan_.changes] == [("modified", "uni/tn-demo/BD-bd1")]
-    assert plan_.containers == 1
+    assert tenant["children"][0]["fvBD"]["attributes"] == {
+        "rn": "BD-bd1",
+        "status": "modified",
+        "mtu": "9000",
+    }
 
 
 def test_a_deleted_mo_carries_its_status_and_none_of_its_subtree() -> None:
@@ -102,7 +104,7 @@ def test_a_deleted_mo_carries_its_status_and_none_of_its_subtree() -> None:
                 ],
             }
         }
-    ).body
+    )
     bd = _children(built)[0]["fvTenant"]["children"][0]["fvBD"]
     assert bd == {"attributes": {"rn": "BD-bd1", "status": "deleted"}}
 
@@ -121,7 +123,7 @@ def test_the_status_the_configuration_wrote_is_not_carried_over() -> None:
                 }
             }
         }
-    ).body
+    )
     assert _children(built)[0]["fvTenant"]["attributes"]["status"] == "modified"
 
 
@@ -136,7 +138,7 @@ def test_a_plan_is_shaped_as_a_merged_body_is() -> None:
                 ],
             }
         }
-    ).body
+    )
     assert built["polUni"]["attributes"] == {"dn": "uni"}
     bds = _children(built)[0]["fvTenant"]["children"]
     # RN order, as merge writes it: the plan and the configuration it came from
@@ -170,7 +172,7 @@ def test_a_warning_is_refused_rather_than_written_into_a_body() -> None:
 def test_a_change_the_merged_body_cannot_hold_is_refused() -> None:
     merged = merge({"fvTenant": {"attributes": {"dn": "uni/tn-demo", "name": "demo"}}})
     with pytest.raises(ValueError) as exc:
-        plan.body(merged, [Change("modified", "fvBD", "uni/tn-other/BD-bd1")])
+        plan._body(merged, [Change("modified", "fvBD", "uni/tn-other/BD-bd1")])
     assert "cannot be placed" in str(exc.value)
 
 
@@ -182,7 +184,7 @@ def test_counting_leaves_the_wrapper_out() -> None:
                 "children": [{"fvBD": {"attributes": {"name": "bd2"}}}],
             }
         }
-    ).body
+    )
     assert plan.count(built) == 2
 
 
@@ -190,7 +192,4 @@ def test_a_configuration_may_arrive_as_json_text() -> None:
     import json
 
     config = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "prod"}}}
-    assert (
-        plan.create(json.dumps(config), fabric=CURRENT).body
-        == plan.create(config, fabric=CURRENT).body
-    )
+    assert plan.create(json.dumps(config), fabric=CURRENT) == plan.create(config, fabric=CURRENT)
