@@ -13,8 +13,8 @@ CLI/MCP/Python Library for the Cisco ACI REST API.
   login.
 - **`fetch` reads the fabric once, and the daemon holds it.** `diff` and `plan`
   compare against what it read and send nothing of their own, so a fabric read
-  once answers any number of questions. A POST drops it, because it is no longer
-  what the fabric holds.
+  once answers any number of questions, and `post --dry-run` uses it too when it
+  is there. A POST drops it, because it is no longer what the fabric holds.
 - **`merge` and `diff` compare a fabric against an intended configuration**,
   reporting both what the configuration asks for and the fabric lacks, and what
   the fabric carries and the configuration never mentions.
@@ -121,7 +121,8 @@ a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 
 A POST drops what `fetch` read: it is no longer what the fabric holds. So do a
 login, a logout and a session expiry. `diff` and `plan` say so and stop rather
-than comparing against a fabric nobody read:
+than comparing against a fabric nobody read (`post --dry-run` does not -- it
+reads what the body names instead, and says so):
 
 ```
 $ a4i post mo uni plan.json && a4i diff merged.json
@@ -188,9 +189,13 @@ other. A trailing `[key=value]` narrows one to the MOs whose attribute matches,
 for what a DN cannot tell apart:
 `--exclude 'uni/infra/accportprof-*/hports-*[descr=auto-*]'`.
 
-`post --dry-run` reads the same way over a single POST: it fetches the subtree
-the body targets, prints what would change, and sends nothing. Both commands say
-in their exit code whether anything would change:
+`post --dry-run` asks the same question of a single POST, and takes whichever
+fabric is cheaper. If `fetch` has left one in the daemon it compares against
+that and sends nothing; if it has not, it reads the subtree the body targets --
+one GET, where a fetch would have read the whole of `uni` to answer the same
+question about one tenant. It says which of the two it did, and never stops for
+want of a fetch the way `diff` and `plan` do. Both commands say in their exit
+code whether anything would change:
 
 | Code | Meaning |
 | --- | --- |
@@ -215,7 +220,7 @@ login tool, because this server never handles a password.
 | `describe` | one class from the bundled model, as a JSON record |
 | `list` | class names by prefix, or the DNs one level under a DN |
 | `get` | a class or MO query, with every query option under its own name |
-| `dry_run` | what a POST would change, sending nothing |
+| `dry_run` | what a POST would change, sending no POST |
 | `post` | POST a body |
 | `merge` | several bodies or paths folded into one |
 | `fetch` | read the fabric into the session, for `diff` and `plan` |
@@ -226,7 +231,7 @@ login tool, because this server never handles a password.
 | --- | --- |
 | `a4i://guide/post-body` | how an ACI body nests, how a child MO gets its DN, what `status` does |
 | `a4i://guide/query` | class against MO queries, the two subtree controls, keeping a response small |
-| `a4i://guide/workflow` | the order: search or list, describe, get, fetch, dry run, post |
+| `a4i://guide/workflow` | the two paths: changing one MO, and applying a whole configuration |
 | `a4i://guide/limits` | where the bundled model, the dry run and the diff each stop short |
 
 A `get` whose response would exceed 64 KB is refused, with the total count and
@@ -241,6 +246,7 @@ and keeps the token in memory for as long as it lives.
 ```python
 import a4i
 from a4i.diff import compare
+from a4i.dry_run import check
 from a4i.merge import merge
 from a4i.plan import create
 
@@ -252,6 +258,8 @@ with a4i.Client("apic1.example.com", verify=False) as client:
 
     fabric = client.fetch()
     changes = compare(merge(base, override), fabric=fabric)
+    tenant = {"fvTenant": {"attributes": {"descr": "prod"}}}
+    check("uni/tn-demo", tenant, kind="mo", fabric=fabric)  # or client.dry_run(...)
     client.post("uni", create(merge(base, override), fabric=fabric).body, kind="mo")
 ```
 
@@ -262,10 +270,11 @@ express, and `timeout` is `login --timeout`.
 
 `fetch()` reads the whole of `uni` and returns it as one body; no daemon is
 involved here, so it is yours to hold for as long as it is worth holding.
-`a4i.diff.compare()` and `a4i.plan.create()` are `diff` and `plan`, and both
-take that body as a keyword-only `fabric` -- they perform no I/O, so what they
-compared against is whatever you last read. `dry_run()` reads the fabric itself,
-as `post --dry-run` does.
+`a4i.diff.compare()`, `a4i.plan.create()` and `a4i.dry_run.check()` are `diff`,
+`plan` and the dry run, and each takes that body as a keyword-only `fabric` --
+they perform no I/O, so what they compared against is whatever you last read.
+`client.dry_run()` is the one that reads for itself, fetching only the subtrees
+the body names, which is what `post --dry-run` falls back to.
 
 `AsyncClient` is `Client` awaited: the same arguments, the same return values
 and the same exceptions, sending the same requests in the same order.

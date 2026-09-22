@@ -167,41 +167,53 @@ so anything written there is overwritten at the next policy resolution.
 WORKFLOW = """\
 # Working with this fabric
 
-## Finding your way to a class
+There are two ways through these tools, and the first thing to settle is which
+one you are on. Changing one MO, or a handful you can name, is the first.
+Bringing the fabric in line with a configuration written down somewhere is the
+second. They differ in what they read: the first reads only what your body
+names, the second reads the whole of `uni` once and works from that.
+
+## Changing one MO
 
 1. `search` with a plain-language term ("bridge domain", "contract") when you do
-   not know the class name.
-2. `list` with `kind: "class"` and a prefix when you know how the name begins.
-3. `describe` with the class name, always, before writing a body for it. It
+   not know the class name, or `list` with `kind: "class"` and a prefix when you
+   know how the name begins.
+2. `describe` with the class name, always, before writing a body for it. It
    gives you the properties you may set, their permitted values, their defaults,
    what the RN is built from, and which classes may hang under it.
-
-## Reading
-
-4. `get` with `kind: "mo"` on a DN you know, or `kind: "class"` when you are
+3. `get` with `kind: "mo"` on a DN you know, or `kind: "class"` when you are
    looking for all of something. Reading one real MO of the class you are about
    to write is the surest way to see the shape the fabric actually has -- more
    reliable than any bundled dictionary, because it is this fabric and this
    release.
-
-## Writing
-
-5. `dry_run` with exactly the arguments you would give `post`. It sends nothing
+4. `dry_run` with exactly the arguments you would give `post`. It sends no POST
    and reports what would change. Read it before going on: an empty result means
    your body would change nothing.
-6. `post` once the dry run says what you expect. For a whole configuration, run
-   `plan` instead of `dry_run` and post the body it returns: it reports the same
-   changes and carries only those, so nothing the report did not name is
-   written.
+5. `post` once the dry run says what you expect.
+
+No `fetch` on this path. `dry_run` uses one if the session happens to hold it,
+but reads the few subtrees your body names when it does not, which is far less
+than reading the whole of `uni` to check one tenant. Its report says which of
+the two it did.
+
+## Applying a whole configuration
+
+1. `merge` folds a configuration spread across files or directories into the one
+   body the rest of this path takes, later values winning attribute by
+   attribute. Give it an `output` path and pass that path on, so a whole
+   fabric's configuration never travels through this conversation.
+2. `fetch` reads the whole of `uni` into the session and returns only how much
+   that was. `diff` and `plan` compare against what it read and send nothing to
+   the APIC themselves, so one `fetch` serves any number of them.
+3. `diff` to see how the fabric and the configuration disagree, `plan` to turn
+   that into a body holding only what changes.
+4. `post` the body `plan` returned. It carries the changes the report named and
+   nothing else, so nothing unread is written.
 
 If `post` is missing from the tool list, this session was started read-only and
 nothing can be written through it.
 
-## Comparing a whole fabric
-
-`fetch` first, always. It reads the whole of `uni` into the session and returns
-only how much that was; `diff` and `plan` then compare against what it read and
-send nothing to the APIC themselves. One `fetch` serves any number of them.
+## What the fetched fabric is worth
 
 `post` drops what was read -- it is no longer what the fabric holds -- and so do
 a login, a logout and a session expiry. After any of those, `fetch` again. A
@@ -212,12 +224,6 @@ reading a fabric nobody asked for.
 holding one -- and compares it against everything `fetch` read, both ways: what
 the configuration asks for and the fabric lacks, and what the fabric carries and
 the configuration never mentions.
-
-A configuration spread across files or directories goes through `merge` first,
-which folds it into that one body. Give `merge` an `output` path and pass the
-same path to `diff` as `path`: the body then never has to travel through this
-conversation, which for a whole fabric is the difference between working and
-running out of room.
 
 Note that it treats the configuration as describing the *whole* of `uni`, so a
 configuration covering one tenant reports the rest of the fabric as extra. Use
@@ -253,6 +259,11 @@ LIMITS = """\
   in the comparison. A `post` drops what was read for that reason; a change
   somebody else makes cannot be noticed, so `fetch` again when the answer has to
   be current.
+
+- **`dry_run` compares against the same fetched fabric, when there is one.** It
+  falls back to reading the subtrees your body names, which is always current,
+  and its report says which of the two it did. So the staleness above is the
+  dry run's too whenever it says it used the fetched fabric.
 
 - **`diff` compares the whole of `uni`.** Everything the configuration leaves
   out is reported as extra, including the tenants and infrastructure policies
@@ -300,7 +311,7 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     ),
     "workflow": (
         "Working with this fabric",
-        "The order to use these tools in: find, describe, read, dry run, post.",
+        "The two paths through these tools: changing one MO, and applying a whole configuration.",
         WORKFLOW,
     ),
     "limits": (
@@ -326,17 +337,21 @@ Work in this order:
 3. `get` to read. `kind: "class"` for every MO of a class, `kind: "mo"` for one
    DN. Add `rsp_prop_include: "config-only"` when the question is about
    configuration -- responses over the size limit are refused, not truncated.
-4. `dry_run` before every `post`, with the same arguments. It sends nothing and
-   reports what would change. For a whole configuration, `plan` instead: same
-   report, plus a body holding only what changes.
-5. `post` only once the dry run says what you expect -- the body `plan` returned,
-   where you ran it.
+4. `dry_run` before every `post`, with the same arguments. It sends no POST and
+   reports what would change.
+5. `post` only once the dry run says what you expect.
 
-`post` and `diff` each take one body. A configuration spread across files or
-directories is folded into one by `merge` first, later values winning attribute
-by attribute. Give `merge` an `output` path and hand that path to `diff` as
-`path`, so a whole fabric's configuration never travels through this
-conversation.
+That is the path for changing one MO, and it needs no `fetch`. A whole
+configuration goes the other way: `merge` it into one body, `fetch` the fabric
+once, then `plan` -- same report as a dry run, plus a body holding only what
+changes -- and `post` that body. `diff` answers how the two disagree without
+writing anything. `fetch`, `diff` and `plan` are for that path only; `dry_run`
+uses a fetched fabric when there is one and reads what your body names when
+there is not, and says which it did.
+
+`post` and `diff` each take one body. Give `merge` an `output` path and hand
+that path to `diff` as `path`, so a whole fabric's configuration never travels
+through this conversation.
 
 Writing a body: an MO is `{"className": {"attributes": {...}, "children": [...]}}`.
 Children are named by a naming property (`name`, `ip`, ...), not by DN -- `fvBD`

@@ -381,6 +381,27 @@ def test_dry_run_sends_nothing_and_reports_the_change(daemon) -> None:
     assert daemon.get("last_method") == "GET"
 
 
+def test_dry_run_uses_the_fetched_fabric_and_says_so(daemon) -> None:
+    # The same answer as in a shell, from the same fabric: a report read in a
+    # chat and one read in a terminal cannot differ on what a POST would do.
+    _login()
+    _tool_text(Server(), "fetch", {})
+    daemon["last_method"] = None
+    text, is_error = _tool_text(
+        Server(),
+        "dry_run",
+        {
+            "kind": "mo",
+            "target": "uni/tn-infra",
+            "body": {"fvTenant": {"attributes": {"name": "infra", "descr": "changed"}}},
+        },
+    )
+    assert not is_error
+    assert "descr" in text
+    assert "Compared against the fabric fetch read." in text
+    assert daemon["last_method"] is None
+
+
 INFRA = {"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}}
 
 

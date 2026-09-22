@@ -84,8 +84,10 @@ def create(config: str | Any, *, fabric: Any) -> Plan:
 
     ``fabric`` is what the POST would land on, as :meth:`a4i.Client.fetch`
     returns it, and is keyword-only for the reason :func:`a4i.diff.compare`
-    gives. Only what the configuration names is looked at, the rest of the
-    fabric being nothing a POST of it could touch.
+    gives. The comparison itself is :func:`a4i.dry_run.check`, the one
+    ``post --dry-run`` reports, run over the merged body at uni. Only what the
+    configuration names is looked at, the rest of the fabric being nothing a
+    POST of it could touch.
 
     The result carries the changes ``post --dry-run`` reports and the body those
     changes make between them. Posting that body at uni does what the changes
@@ -98,10 +100,7 @@ def create(config: str | Any, *, fabric: Any) -> Plan:
 
     _, parsed = read_body(config)
     merged = merge.merge(parsed)
-    intended = merge.read(dry_run.rooted(merge.ROOT, "mo", merged))
-    # loose, as a dry run reads its fabric side: what came back names DNs whose
-    # ancestors carry no configuration of their own to have been returned.
-    changes = dry_run.compare(intended, merge.read(fabric, loose=True))
+    changes = dry_run.check(ROOT, merged, kind="mo", fabric=fabric)
     return Plan(body(merged, changes), changes)
 
 

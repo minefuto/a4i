@@ -21,6 +21,7 @@ from a4i.completion import attach, complete_csv, complete_from
 from a4i.errors import (
     A4iError,
     DaemonError,
+    NoFabricError,
     NotLoggedInError,
     SessionExpiredError,
     UnusableSocketError,
@@ -269,14 +270,36 @@ def _cmd_post(args: argparse.Namespace) -> int:
 def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
     """Show what the POST would change, without sending it.
 
-    The APIC has no server-side dry run, so the current state is fetched and the
-    comparison happens here. This path never reaches the post op.
+    The APIC has no server-side dry run, so the comparison happens here, against
+    whichever fabric is cheaper to have. A fetch left one in the daemon: it
+    covers the whole of uni, so it answers for any body a POST could carry, and
+    nothing goes out. Nothing fetched means reading the subtrees this body
+    stands at -- one GET each, which for a single MO is a great deal less than
+    the fetch that would spare them.
+
+    Unlike diff and plan, this does not stop when nothing has been fetched: they
+    compare against the whole of uni and have nothing to fall back to, and this
+    has the body's own DNs to read. Which of the two it was is printed either
+    way, a comparison being worth only as much as the reader knows of where its
+    other side came from. This path never reaches the post op.
     """
 
-    from a4i.output import render_dry_run
+    from a4i import dry_run
+    from a4i.output import print_note, render_dry_run
 
-    changes = client.dry_run(args.target, body, kind=args.kind)
+    try:
+        fabric = ipc.fabric()
+    except NoFabricError:
+        changes = client.dry_run(args.target, body, kind=args.kind)
+        note = "read the subtrees this body names (nothing fetched)"
+    else:
+        changes = dry_run.check(args.target, body, kind=args.kind, fabric=fabric)
+        note = "compared against the fabric 'a4i fetch' read"
     render_dry_run(changes, raw=args.raw)
+    # Not with --raw: the report is then something a script reads, and a note
+    # about where the other side came from is not part of what it asked for.
+    if not args.raw:
+        print_note(note)
     # 0 means posting this body would do nothing at all; 2 means it would change
     # something or fail. Errors are raised to _cmd_post, which keeps the usual 1.
     return 2 if changes else 0
@@ -289,7 +312,8 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     the one body those MOs describe, which is the shape 'a4i merge' writes. The
     body stays in the daemon: diff and plan take their fabric side from there,
     so the three commands compare against a single reading of the fabric rather
-    than three.
+    than three. 'post --dry-run' takes it too when it is there, but does not
+    need it: it reads the subtrees its body names when it is not.
 
     It is dropped by a post -- what was read is no longer what is there -- and
     by a login, a logout and a session expiry. diff and plan then say so and
@@ -309,7 +333,7 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
         return _fail(exc)
     print(
         f"fetched {held['count']:,} MOs into the daemon cache; "
-        "diff and plan will use it until the next post"
+        "diff, plan and dry runs will use it until the next post"
     )
     return 0
 
@@ -731,7 +755,8 @@ def _add_post_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="show what the POST would change instead of sending it",
+        help="show what the POST would change instead of sending it "
+        "(against the fetched fabric if there is one, else the body's own subtrees)",
     )
     # Not "uncolored JSON output" as on get: --dry-run prints a change report,
     # not JSON.

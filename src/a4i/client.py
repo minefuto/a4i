@@ -222,11 +222,11 @@ class Client:
         return self._transport.post(target, kind, text)
 
     def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> list[mo.Change]:
-        """Return the changes posting ``body`` would cause, sending nothing.
+        """Return the changes posting ``body`` would cause, reading the fabric first.
 
         The APIC has no server-side dry run, so the current state is fetched and
-        the comparison happens here. An empty list means the POST would change
-        nothing at all.
+        the comparison happens here, in :func:`a4i.dry_run.check`. An empty list
+        means the POST would change nothing at all.
 
         What is fetched is the subtree of each MO the body stands at, one
         request per subtree and each of them checked against its own
@@ -236,18 +236,19 @@ class Client:
         ``polUni`` is fetched one top-level subtree at a time rather than as uni
         whole, for the reason :meth:`_fetch_uni` gives.
 
-        Both sides are read by :func:`a4i.merge.read`, the one :meth:`fetch`
-        and :func:`a4i.diff.compare` read theirs with. So the body is refused exactly as
-        :func:`a4i.merge.merge` would refuse it -- before any GET goes out on
-        the strength of it -- and a fabric this cannot read is one none of the
-        three can. The fabric side is read with ``loose``, since a body posted
-        below uni names a DN whose ancestors no response of that subtree holds.
+        A caller already holding a fabric -- :meth:`fetch` returns one -- calls
+        :func:`a4i.dry_run.check` with it instead, and sends nothing. That is
+        what ``post --dry-run`` does when ``a4i fetch`` has left one in the
+        daemon; this is what it falls back to when none has.
+
+        The body is refused before any GET goes out on the strength of it: the
+        placement is worked out first, and only the DNs it arrives at are read.
         """
 
         _, parsed = read_body(body)
         intended = merge.read(dry_run.rooted(target, kind, parsed))
-        current = merge.read(self._fetch_subtrees(dry_run.roots(intended.index)), loose=True)
-        return dry_run.compare(intended, current)
+        current = self._fetch_subtrees(dry_run.roots(intended.index))
+        return dry_run.check(target, parsed, kind=kind, fabric=current)
 
     def fetch(self) -> dict[str, Any]:
         """Return the fabric's own configuration, shaped as :func:`a4i.merge.merge` shapes one.
@@ -475,8 +476,8 @@ class AsyncClient:
 
         _, parsed = read_body(body)
         intended = merge.read(dry_run.rooted(target, kind, parsed))
-        current = merge.read(await self._fetch_subtrees(dry_run.roots(intended.index)), loose=True)
-        return dry_run.compare(intended, current)
+        current = await self._fetch_subtrees(dry_run.roots(intended.index))
+        return dry_run.check(target, parsed, kind=kind, fabric=current)
 
     async def fetch(self) -> dict[str, Any]:
         """Return the fabric's own configuration as one body. See :meth:`Client.fetch`."""

@@ -21,7 +21,13 @@ import os
 from typing import Any
 
 from a4i import metadata, query
-from a4i.errors import A4iError, NoDaemonError, NotLoggedInError, SessionExpiredError
+from a4i.errors import (
+    A4iError,
+    NoDaemonError,
+    NoFabricError,
+    NotLoggedInError,
+    SessionExpiredError,
+)
 
 # How much of a response this server will hand back. A class query against a
 # real fabric can return tens of megabytes, which is not a failure of the query
@@ -173,9 +179,13 @@ POST = _tool(
 
 DRY_RUN = _tool(
     "dry_run",
-    "Show what a POST of this body would change, without sending anything. Fetches the "
-    "current state and reports the difference. An empty report means the body would "
-    "change nothing at all. Works even when the session is read-only.",
+    "Show what a POST of this body would change, without sending anything. An empty "
+    "report means the body would change nothing at all. If fetch has read the fabric "
+    "into the session, that is what this compares against and nothing goes out; if it "
+    "has not, this reads the subtrees the body itself names, which for a single MO is "
+    "far less than a whole fetch. The report says which of the two it was. So there is "
+    "no need to fetch first for this -- fetch is for diff and plan. Works even when the "
+    "session is read-only.",
     {"kind": _KIND, "target": _TARGET, "body": _BODY},
     ["kind", "target", "body"],
 )
@@ -476,10 +486,26 @@ def _post(arguments: dict[str, Any]) -> str:
 
 
 def _dry_run(arguments: dict[str, Any]) -> str:
+    """Compare against the fetched fabric if there is one, and read for itself if not.
+
+    The report says which, for the reason 'a4i post --dry-run' prints it: what a
+    comparison is worth depends on where its other side came from, and a reader
+    who cannot tell the two apart is reading a report about an unknown fabric.
+    """
+
+    from a4i import dry_run, ipc
     from a4i.output import dry_run_report
 
-    changes = _client().dry_run(arguments["target"], arguments["body"], kind=arguments["kind"])
-    return dry_run_report(changes)
+    target, body, kind = arguments["target"], arguments["body"], arguments["kind"]
+    try:
+        fabric = ipc.fabric()
+    except NoFabricError:
+        changes = _client().dry_run(target, body, kind=kind)
+        note = "Read the subtrees this body names; nothing had been fetched."
+    else:
+        changes = dry_run.check(target, body, kind=kind, fabric=fabric)
+        note = "Compared against the fabric fetch read."
+    return f"{dry_run_report(changes)}\n\n{note}"
 
 
 def _merge(arguments: dict[str, Any]) -> str:
@@ -539,7 +565,7 @@ def _fetch(arguments: dict[str, Any]) -> str:
     held = ipc.fetch(autostart=False)
     return (
         f"read {held['count']:,} MOs into the session cache; "
-        "diff and plan will use it until the next post"
+        "diff, plan and dry runs will use it until the next post"
     )
 
 

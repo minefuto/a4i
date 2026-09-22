@@ -1,9 +1,14 @@
 """Work out what a POST body would change, given the fabric as it stands.
 
-The APIC has no server-side dry run, so ``post --dry-run`` fetches the subtrees
-the body stands at and compares them here. Nothing in this module performs I/O:
-it takes both sides already read into :class:`a4i.merge.Intended` -- the body,
-and the fabric under the DNs it names -- and returns the changes.
+The APIC has no server-side dry run, so ``post --dry-run`` compares the body
+against the fabric here. Nothing in this module performs I/O: :func:`check`
+takes the body and the fabric it would land on, both already in hand, and
+returns the changes.
+
+Where that fabric comes from is the caller's: ``a4i fetch`` leaves one in the
+daemon and :meth:`a4i.Client.dry_run` reads the subtrees :func:`roots` names.
+Either is one body read down from uni, so this cannot tell them apart -- and
+nothing here has to.
 
 Both sides are read by :func:`a4i.merge.read`, which is what :mod:`a4i.diff`
 reads its two sides with as well. So an MO the body names and an MO the APIC
@@ -20,8 +25,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from a4i import merge
 from a4i.merge import Intended
 from a4i.mo import META, WRAPPER, Change, parent_dn, split_mo
+from a4i.query import Kind
+from a4i.validate import read_body
 
 _CREATED_CONFLICT = 'status="created" but the MO already exists; the POST will fail'
 _MODIFIED_CONFLICT = 'status="modified" but the MO does not exist; the POST will fail'
@@ -102,12 +110,37 @@ def roots(index: dict[str, Any]) -> list[str]:
     return [dn for dn in index if parent_dn(dn) not in index]
 
 
+def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Change]:
+    """Return the changes posting ``body`` at ``target`` would cause on ``fabric``.
+
+    ``kind`` says what ``target`` is, as on :meth:`a4i.Client.post`. ``fabric``
+    is what the POST would land on -- everything under uni as ``a4i fetch``
+    read it, or the subtrees :func:`roots` names, which is what
+    :meth:`a4i.Client.dry_run` hands over. It is keyword-only for the reason
+    :func:`a4i.diff.compare` gives: a comparison is worth only as much as the
+    reader knows of where its other side came from.
+
+    Nothing is sent. An empty list means the POST would change nothing at all.
+
+    The fabric side is read with ``loose``, since a body posted below uni names
+    a DN whose ancestors carry no configuration of their own to have come back.
+    Both sides go through :func:`a4i.merge.read`, the one :meth:`a4i.Client.fetch`
+    and :func:`a4i.diff.compare` read theirs with, so the body is refused
+    exactly as :func:`a4i.merge.merge` would refuse it, and a fabric this
+    cannot read is one none of the three can.
+    """
+
+    _, parsed = read_body(body)
+    intended = merge.read(rooted(target, kind, parsed))
+    return compare(intended, merge.read(fabric, loose=True))
+
+
 def compare(intended: Intended, current: Intended) -> list[Change]:
     """Return the changes posting ``intended`` would cause, given ``current``.
 
-    ``intended`` is the body read down from uni, ``current`` the fabric under
-    the DNs :func:`roots` named of it. An MO the fabric does not carry is one
-    the POST creates; an MO it carries is compared on the attributes the body
+    ``intended`` is the body read down from uni, ``current`` the fabric it
+    would land on -- :func:`check` reads both. An MO the fabric does not carry
+    is one the POST creates; an MO it carries is compared on the attributes the body
     sets and no others, because a POST leaves the rest alone.
 
     The report comes out in the order the body was read, which for a merged body

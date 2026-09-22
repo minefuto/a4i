@@ -369,11 +369,17 @@ TENANT = {
 
 
 def _run_dry_run(monkeypatch, argv: list[str], response=None) -> tuple[int, list[dict]]:
-    """Run a command line and return its exit code and the requests it made."""
+    """Run a dry run with nothing fetched, so it reads the fabric for itself.
+
+    The daemon holding nothing is said rather than left to the machine the tests
+    run on: a real daemon with a real fetch in it would otherwise send the dry
+    run down the other path, and these are the tests of this one.
+    """
 
     sent: list[dict] = []
 
     _record(monkeypatch, sent, TENANT if response is None else response)
+    _hold_nothing(monkeypatch)
     return cli.main(argv), sent
 
 
@@ -405,6 +411,46 @@ def test_dry_run_gets_the_current_subtree_and_never_posts(monkeypatch, capsys) -
     assert "0 created, 1 modified, 0 deleted" in out
     # Something would change, so this is not a clean exit.
     assert code == 2
+
+
+def test_dry_run_uses_the_fetched_fabric_and_asks_the_apic_for_nothing(monkeypatch, capsys) -> None:
+    # What fetch read covers the whole of uni, so it answers for any body a POST
+    # could carry: no GET of the body's own subtree on top of the one already
+    # paid for.
+    sent: list[dict] = []
+    _record(monkeypatch, sent, TENANT)
+    _hold(monkeypatch, TENANT)
+    code = cli.main(
+        ["post", "mo", "uni/tn-demo", '{"fvTenant":{"attributes":{"descr":"prod"}}}', "--dry-run"]
+    )
+    assert sent == []
+    assert '~ descr: "" -> "prod"' in capsys.readouterr().out
+    assert code == 2
+
+
+def test_dry_run_says_which_fabric_it_compared_against(monkeypatch, capsys) -> None:
+    # Either path is correct; which one ran is not something the report can
+    # leave a reader to guess at.
+    argv = [
+        "post",
+        "mo",
+        "uni/tn-demo",
+        '{"fvTenant":{"attributes":{"descr":"prod"}}}',
+        "--dry-run",
+    ]
+
+    _run_dry_run(monkeypatch, argv)
+    assert "read the subtrees this body names" in capsys.readouterr().err
+
+    sent: list[dict] = []
+    _record(monkeypatch, sent, TENANT)
+    _hold(monkeypatch, TENANT)
+    cli.main(argv)
+    assert "compared against the fabric 'a4i fetch' read" in capsys.readouterr().err
+
+    # Not with --raw: the report is then something a script reads.
+    _run_dry_run(monkeypatch, [*argv, "--raw"])
+    assert capsys.readouterr().err == ""
 
 
 def test_dry_run_reports_no_changes_with_a_clean_exit(monkeypatch, capsys) -> None:
