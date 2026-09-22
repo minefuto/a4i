@@ -1,20 +1,13 @@
 """The awaited twins are the same code, and this is where that is checked.
 
-a4i writes its awaited entry points out separately rather than sharing them:
-:class:`~a4i.client.AsyncClient` is :class:`~a4i.client.Client` with the sending
-awaited, and the same holds for the session and the direct transport beneath it.
-Each of those modules says so in its own docstring. This is what makes the claim
-worth something.
-
-Because it holds, a behaviour verified against the synchronous class is verified
-against the awaited one: they are not two implementations that happen to agree,
-they are one implementation written twice. That is what lets the awaited tests
-cover only what this cannot see -- the exempted constructors, the asynchronous
-context manager, and the awaited transport and session underneath.
+a4i writes its awaited entry points out separately rather than sharing them, and
+each of those modules says in its docstring that the two differ only in the
+awaiting. This is what makes the claim worth something: because it holds, a
+behaviour verified against the synchronous class is verified against the awaited
+one, and the awaited tests need only cover what this cannot see.
 
 The comparison runs on the syntax tree rather than on the text, so a line broken
-differently or a redundant pair of brackets is not a difference. What is left is
-what the code does.
+differently is not a difference.
 """
 
 from __future__ import annotations
@@ -37,12 +30,11 @@ PAIRS = [
 ]
 IDS = [async_name for _, _, async_name in PAIRS]
 
-# Methods this comparison leaves alone, and why. An exemption is a place where
-# this test says nothing, so each one carries its reason.
+# Methods this comparison leaves alone. An exemption is a place where this test
+# says nothing, so each one carries its reason.
 EXEMPT: dict[tuple[str, str], set[str]] = {
     # Builds httpx2's synchronous client on one side and its awaited one on the
-    # other. It is the one line that cannot be the same line, which is why every
-    # other line can be.
+    # other: the one line that cannot be the same line.
     ("Client", "AsyncClient"): {"__init__"},
     ("Session", "AsyncSession"): {"__init__"},
     ("DirectTransport", "AsyncDirectTransport"): set(),
@@ -51,10 +43,9 @@ EXEMPT: dict[tuple[str, str], set[str]] = {
 # The awaited spelling of a method the language gives no keyword for.
 ALIASES = {"__enter__": "__aenter__", "__exit__": "__aexit__"}
 
-# Names that differ only because the awaited version is spelled differently.
-# httpx2 calls its awaited close "aclose"; a4i prefixes the awaited twin of a
-# class with "Async". Neither is a difference in what the code does, so both are
-# spelled back before anything is compared.
+# Names that differ only in spelling: httpx2 calls its awaited close "aclose", and
+# a4i prefixes an awaited class with "Async". Both are spelled back before
+# anything is compared.
 SPELLINGS = {"aclose": "close", **{async_name: sync for _, sync, async_name in PAIRS}}
 SPELLINGS["AsyncTransport"] = "Transport"
 
@@ -113,9 +104,8 @@ def _body(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 def test_the_awaited_class_carries_the_same_methods(module, sync_name, async_name) -> None:
     """Neither class may grow a method the other has not got.
 
-    This is the half a comparison of bodies cannot do: a method written on one
-    side alone has nothing to be compared against, so without this it would pass
-    unnoticed -- which is how the two would start to drift.
+    The half a comparison of bodies cannot do: a method written on one side alone
+    has nothing to be compared against, so it would pass unnoticed.
     """
 
     expected = {ALIASES.get(name, name) for name in _methods(module, sync_name)}
@@ -131,8 +121,7 @@ def test_every_awaited_method_is_the_synchronous_one_awaited(module, sync_name, 
 
     Take the awaiting out of the awaited method and what is left must be the
     synchronous one, statement for statement. Anything else is a second
-    implementation, and a behaviour verified against one of them would no longer
-    say anything about the other.
+    implementation.
     """
 
     synchronous = _methods(module, sync_name)
@@ -155,8 +144,8 @@ def test_every_awaited_method_is_the_synchronous_one_awaited(module, sync_name, 
 def test_nothing_is_exempt_without_a_pair_to_be_exempt_from() -> None:
     """An exemption naming a method that has gone is one nobody will notice.
 
-    It would sit there widening the silence: the next method to take that name
-    would be waved through on a reason written for something else.
+    The next method to take that name would be waved through on a reason written
+    for something else.
     """
 
     for module, sync_name, async_name in PAIRS:

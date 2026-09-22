@@ -1,9 +1,8 @@
 """What an exception becomes on the wire, and what it comes back as.
 
-The daemon flattens what it caught and the client builds it back, so a caller
-catches the same class on either side of the socket. Both directions are read
-off one dictionary in a4i.errors, and these are the tests of that: that the
-round trip is faithful, and that no error can be added to one side alone.
+Both directions are read off one dictionary in a4i.errors, and these are the
+tests of that: the round trip is faithful, and no error can be added to one side
+alone.
 """
 
 from __future__ import annotations
@@ -87,12 +86,10 @@ def test_an_error_payload_with_nothing_in_it_still_raises_something() -> None:
 def test_every_error_either_travels_or_is_the_clients_own() -> None:
     """The test this whole seam exists for.
 
-    Adding an error class and wiring only one direction is the failure that used
-    to go unnoticed, because the writing and the reading lived in different
-    modules. Checking the round trip does not catch it -- a class nobody listed
-    is a class no round trip visits. So this walks the hierarchy instead: every
-    A4iError is either in _WIRE, and therefore crosses the socket in both
-    directions, or is one of the client's own, which never crosses at all.
+    Checking the round trip does not catch an error wired in one direction only --
+    a class nobody listed is a class no round trip visits. So this walks the
+    hierarchy instead: every A4iError is either in _WIRE, and therefore crosses
+    the socket both ways, or is one of the client's own and never crosses.
     """
 
     for cls in _subclasses(A4iError):

@@ -1,39 +1,28 @@
 #!/usr/bin/env python3
 """Regenerate every bundled dictionary in ``src/a4i/metadata`` from the MIM Reference.
 
-The Cisco APIC Management Information Model Reference serves one JSON file per
-class, and everything a4i knows about ACI statically is distilled from those
-files here. Four artifacts come out:
+Four artifacts come out:
 
 ``classes.txt``
-    Concrete class names, one per line, for shell completion and ``a4i list class``.
+    Concrete class names, one per line.
 
 ``rn_formats.txt``
-    ``class<TAB>rnFormat`` for every configurable class, for turning a body's
-    child MO into a DN (:mod:`a4i.mo`).
+    ``class<TAB>rnFormat`` for every configurable class.
 
 ``model.jsonl`` / ``model.idx``
-    One distilled record per class, and the byte offsets to seek to them, for
-    ``describe``.
+    One distilled record per class, and the byte offsets to seek to them.
 
 ``search.txt``
-    ``class<TAB>label<TAB>summary``, for ``search``.
+    ``class<TAB>rank<TAB>label<TAB>summary``.
 
 Run it as::
 
     python tools/gen_metadata.py                  # fetch, then build
     python tools/gen_metadata.py --skip-fetch     # rebuild from the cache alone
 
-The fetch walks about 15,000 files, so it caches every response -- compressed,
-as the server sent it -- and a rebuild after a change to the distillation below
-costs nothing.
-
-There is no class index on the server -- no directory listing, and every index
-path 404s -- so the class list is discovered rather than read. The crawl starts
-at ``topRoot`` and at whatever ``classes.txt`` already holds, and follows every
-class reference each file carries (containment, inheritance and relations) until
-it stops finding new ones. Seeding with the existing list means a regeneration
-can only ever add classes, never silently drop the ones a4i already ships.
+There is no class index on the server, so the class list is discovered: the crawl
+starts at ``topRoot`` and at whatever ``classes.txt`` already holds, and follows
+every class reference each file carries until it stops finding new ones.
 """
 
 from __future__ import annotations
@@ -57,30 +46,17 @@ REPO = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO / "src" / "a4i" / "metadata"
 CACHE_DIR = REPO / ".metadata-cache"
 
-# Where the crawl starts when no dictionary exists yet. topRoot is the root of
-# the whole management information tree, so following containment from it
-# reaches every class that can exist on a fabric.
+# The root of the whole management information tree, so following containment
+# from it reaches every class that can exist on a fabric.
 ROOT_CLASS = "topRoot"
 
-# Two properties of the source blow the corpus up from a few megabytes to a few
-# hundred, and neither carries information worth that.
-#
-# A class that can hang anywhere -- tagAnnotation is a child of nearly every MO
-# in the model -- lists every DN it could ever have, tens of thousands of them,
-# and 5 MB of DN templates answers no question a shorter list would not. A DN
-# template is only worth showing when it names a few definite places.
+# What the source enumerates without bound, and how much of each is kept: a class
+# that can hang anywhere lists every DN it could have, a fault code enumerates
+# thousands of values, and tagAnnotation has 2,866 parents. Together they are the
+# difference between a corpus of a few megabytes and one of a few hundred.
 MAX_DN_FORMATS = 3
-# Fault codes and statistics thresholds enumerate thousands of valid values. The
-# first two dozen show the shape; a count stands in for the rest.
 MAX_VALID_VALUES = 24
-# The same disease on the other side of containment: faultCounts, healthInst and
-# tagAnnotation hang under nearly every class in the model, so listing their
-# parents is 58 KB that says "anywhere". A few examples and a count says it in a
-# line.
 MAX_PARENTS = 8
-
-# A summary line for search: the first sentence of the class comment, held short
-# enough that the whole file stays scannable.
 MAX_SUMMARY = 160
 
 _PKG = re.compile(r"^([a-z0-9]+)([A-Z].*)$")
@@ -111,20 +87,9 @@ def normalize(ref: str) -> str:
 def fetch_one(class_name: str, cache: Path, attempts: int = 4) -> bytes | None:
     """Return ``class_name``'s JSON, from the cache when it is already there.
 
-    The server compresses these files about fifteen to one -- fvBD is 189 KB of
-    JSON and 12 KB on the wire -- so the crawl asks for gzip and keeps what it
-    got, compressed, in the cache. That is the difference between a cache of a
-    few hundred megabytes and one of ten gigabytes, and between a crawl bound by
-    bandwidth and one bound by round trips.
-
-    A 404 is cached as an empty file: the model refers to classes whose
-    documentation is not published, and re-asking for them on every run would
-    cost a request each time to learn the same nothing.
-
-    A crawl is tens of thousands of requests over some tens of minutes, which is
-    long enough that a transient failure is expected rather than exceptional. One
-    is retried rather than allowed to end the run, since the run is what holds
-    the frontier.
+    The cache keeps what the server sent, compressed, and a 404 as an empty file.
+    A transient failure is retried rather than allowed to end the run, the run
+    being what holds the frontier.
     """
 
     path = cache / f"{class_name}.json.gz"
@@ -135,11 +100,9 @@ def fetch_one(class_name: str, cache: Path, attempts: int = 4) -> bytes | None:
     if url is None:
         return None
     for attempt in range(attempts):
-        # Compression is an optimisation, so it is the first thing given up on.
-        # At least one file on the server -- eqptcapacityEstPGLabelUsage5min --
-        # answers 502 to every gzip request and 200 to every plain one, so an
-        # attempt that keeps asking for gzip never gets there however many times
-        # it tries.
+        # Compression is given up on first: at least one file on the server --
+        # eqptcapacityEstPGLabelUsage5min -- answers 502 to every gzip request and
+        # 200 to every plain one.
         headers = {} if attempt else {"Accept-Encoding": "gzip"}
         request = urllib.request.Request(url, headers=headers)
         try:
@@ -169,9 +132,8 @@ def fetch_one(class_name: str, cache: Path, attempts: int = 4) -> bytes | None:
 def references(meta: dict[str, Any]) -> set[str]:
     """Return every class this one names, in any capacity.
 
-    Containment alone would reach the whole tree, but inheritance and relations
-    are followed too: an abstract superclass is contained by nothing, and a
-    relation names classes the crawl would otherwise arrive at only by chance.
+    Inheritance and relations are followed as well as containment: an abstract
+    superclass is contained by nothing.
     """
 
     found: set[str] = set()
@@ -225,8 +187,8 @@ def crawl(seeds: Iterable[str], cache: Path, jobs: int) -> dict[str, dict[str, A
 def summary(comment: Any) -> str:
     """Return a one-line summary of a class or property comment.
 
-    The source writes a comment as a list of paragraphs. Only the first sentence
-    of the first one is kept for the search index; ``describe`` shows the whole.
+    The source writes a comment as a list of paragraphs; only the first sentence
+    of the first one is kept for the search index.
     """
 
     text = " ".join(comment) if isinstance(comment, list) else str(comment or "")
@@ -247,11 +209,9 @@ def description(comment: Any) -> str:
 def distill_property(prop: dict[str, Any]) -> dict[str, Any]:
     """Return what an LLM needs of one property, and nothing else.
 
-    A property it cannot set is reduced to what it means and what type it is:
-    that is enough to read a GET response, which is the only place a read-only
-    property is ever met. A settable one carries everything needed to write a
-    valid value without a round trip -- the enum, the default, the regex and the
-    bounds -- because getting that wrong is a POST the APIC rejects.
+    A property it cannot set is reduced to its meaning and its type, which is
+    what reading a GET response takes. A settable one carries everything needed
+    to write a valid value without a round trip.
     """
 
     entry: dict[str, Any] = {
@@ -293,11 +253,10 @@ def distill_property(prop: dict[str, Any]) -> dict[str, Any]:
 def distill(class_name: str, meta: dict[str, Any], configurable: set[str]) -> dict[str, Any]:
     """Return the record ``describe`` serves for one class.
 
-    A configurable class carries what it takes to build a POST body for it: how
-    its RN is formed, which properties name it, what may hang under it. A class
-    that can only be read carries what it takes to make sense of a GET response
-    and no more -- its children are runtime objects nobody writes, and listing
-    them would be the larger half of the corpus spent on a question nobody asks.
+    A configurable class carries what it takes to build a POST body for it. A
+    class that can only be read carries what it takes to make sense of a GET
+    response and no more: listing its runtime children would be the larger half
+    of the corpus.
     """
 
     properties = {
@@ -318,11 +277,9 @@ def distill(class_name: str, meta: dict[str, Any], configurable: set[str]) -> di
         record["moreParents"] = len(parents) - MAX_PARENTS
 
     if not configurable_class:
-        # Every property of a class nobody can configure is read-only, so saying
-        # so per property is 14,000 classes' worth of the same word. What is left
-        # is the name and the type, which is what reading a GET response takes.
-        # Spelling out each one's meaning as well would quadruple the whole
-        # dictionary for the classes least often asked about.
+        # Name and type alone: every property here is read-only, and spelling out
+        # each one's meaning would quadruple the dictionary for the classes least
+        # often asked about.
         record["props"] = {name: prop.get("baseType") or "" for name, prop in properties.items()}
         return record
 
@@ -333,9 +290,8 @@ def distill(class_name: str, meta: dict[str, Any], configurable: set[str]) -> di
     dn_formats = meta.get("dnFormats") or []
     if dn_formats and len(dn_formats) <= MAX_DN_FORMATS:
         record["dn"] = list(dn_formats)
-    # Only the children that can be configured: an MO the fabric maintains for
-    # itself is never something a body puts there, and the unfiltered list is
-    # ten times longer.
+    # Only the children that can be configured: the unfiltered list is ten times
+    # longer and no body can put an MO of it anywhere.
     record["children"] = sorted(
         name
         for name in (normalize(ref) for ref in meta.get("contains") or {})
@@ -353,10 +309,8 @@ _RELATION = re.compile(r"^[a-z0-9]+R[st][A-Z]")
 def rank(class_name: str, meta: dict[str, Any]) -> int:
     """Return how likely this class is to be the one somebody searching means.
 
-    Dozens of classes share a label. "Bridge Domain" is ``fvBD``, but it is also
-    every relation pointing at one -- ``fhsRtBDToFhs``, ``dhcpRtBDToRelayP`` --
-    and the abstract policy ``fvBD`` inherits from. Ordering the matches by what
-    they are is what puts the object itself above the wiring around it.
+    Dozens of classes share a label: "Bridge Domain" is ``fvBD``, but also every
+    relation pointing at one and the abstract policy it inherits from.
     """
 
     if meta.get("isAbstract"):
@@ -378,10 +332,8 @@ def build(found: dict[str, dict[str, Any]], out: Path) -> None:
     """Write every dictionary from the crawled metadata.
 
     Raises :class:`SystemExit` rather than shipping a dictionary smaller than the
-    one already there. A single 502 in a crawl of eighteen thousand requests is
-    an ordinary event, and its cost -- a class silently gone from the shipped
-    dictionary, and from shell completion with it -- is not something to discover
-    from a bug report. Rerunning uses the cache, so the retry is cheap.
+    one already there: a single 502 in a crawl of eighteen thousand requests is
+    an ordinary event, and rerunning uses the cache.
     """
 
     out.mkdir(parents=True, exist_ok=True)

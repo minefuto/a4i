@@ -1,21 +1,11 @@
 """The exceptions every entry point raises, and how one crosses the socket.
 
-They live in a module of their own rather than beside the code that raises them,
-because both ends of the socket need them: the daemon flattens what it caught
-with :func:`to_payload`, and the client builds it back with
-:func:`from_payload`. Importing them from :mod:`a4i.session` instead would drag
-httpx2 into every ``a4i get`` -- a cost the daemon already pays and the command
-should not.
+A module of their own because both ends of the socket need them, and importing
+them from :mod:`a4i.session` would drag httpx2 into every ``a4i get``.
 
-The two functions sit next to each other on purpose. What travels is a tag, and
-a tag is worth something only insofar as both directions agree on it; keeping
-the writing and the reading in one place is what makes a new one impossible to
-add by halves.
-
-Not every exception here travels. :class:`DaemonError` and the two below it are
+Not every exception here travels: :class:`DaemonError` and the two below it are
 raised by the client before any daemon has answered, so they carry no tag and
-never appear in ``_WIRE``. That is the whole division: an error either travels,
-or it is the client's own.
+never appear in ``_WIRE``.
 """
 
 from __future__ import annotations
@@ -41,18 +31,12 @@ class NotLoggedInError(A4iError):
 
 
 class NoFabricError(A4iError):
-    """Raised when a comparison is asked for and no fabric has been fetched.
-
-    The daemon holds the fetched fabric, so this is what every reader of it
-    hears -- the MCP server and the command line alike -- and the message names
-    what drops it, because the state changes under a caller who did nothing but
-    post.
-    """
+    """Raised when a comparison is asked for and no fabric has been fetched."""
 
 
 # What that error says, here rather than beside either raiser: the daemon raises
 # it for a fabric it does not hold, and a4i.ipc for a daemon that is not there to
-# hold one, and the two are the same answer to the same question.
+# hold one.
 NO_FABRIC_MESSAGE = (
     "no fabric has been fetched: run 'a4i fetch' first\n"
     "(the cache is dropped by a post, a login, a logout, and a session expiry)"
@@ -63,8 +47,7 @@ class ReadOnlyError(A4iError):
     """Raised when a POST is attempted on a session logged in read-only.
 
     The daemon holds the flag, so this is the answer to every writer sharing that
-    session -- the MCP server and the command line alike -- and not a rule either
-    of them applies for itself.
+    session rather than a rule either entry point applies for itself.
     """
 
 
@@ -75,22 +58,17 @@ class SessionExpiredError(A4iError):
 class DaemonError(A4iError):
     """Raised when a request to the daemon fails for a reason no daemon reported.
 
-    A failure the daemon itself caught arrives as one of the typed exceptions
-    above, rebuilt by :func:`from_payload`. This one is for what goes wrong on
-    the way instead: a connection lost mid-request, an empty reply, a daemon that
-    would not start -- and, in the two below, the two the client settles for
-    itself before it has spoken to anything.
+    A connection lost mid-request, an empty reply, a daemon that would not start.
+    What the daemon itself caught arrives rebuilt by :func:`from_payload`.
     """
 
 
 class UnusableSocketError(DaemonError):
     """Raised for a socket path this client refuses to use.
 
-    Nothing was sent: the path is turned down because the directory holding it is
-    not a private one of ours, or because the path itself cannot host a socket at
-    all. Commands that read a failed request as "no daemon is running" must still
-    report this one, which is why it is a class of its own rather than one more
-    way for a request to come back empty.
+    Nothing was sent: the directory holding it is not a private one of ours, or
+    the path cannot host a socket at all. A class of its own because a command
+    that reads a failed request as "no daemon is running" must still report this.
     """
 
 
@@ -129,9 +107,8 @@ def from_payload(payload: dict[str, Any]) -> A4iError:
     """Build back the exception an error payload describes.
 
     A tag this client does not know comes back as a plain :class:`DaemonError`
-    carrying the message the daemon wrote. That is not a failure to handle: a
-    daemon left running across an upgrade may classify something this command has
-    never heard of, and what it said is still worth reporting.
+    carrying the message the daemon wrote: a daemon left running across an
+    upgrade may classify something this command has never heard of.
     """
 
     message = str(payload.get("message") or "unknown daemon error")

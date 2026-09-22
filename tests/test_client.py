@@ -74,8 +74,8 @@ def test_get_maps_every_option_to_its_aci_parameter(client, state) -> None:
         "page": "0",
         "page-size": "10",
     }
-    # The keyword argument names are the CLI option names with underscores, and
-    # the URL order is the same one the CLI produces.
+    # The keyword names are the CLI option names with underscores, and the URL
+    # order is the CLI's.
     assert list(state["last_params"]) == [
         "query-target",
         "target-subtree-class",
@@ -181,9 +181,8 @@ def test_list_children_returns_the_dns_bare_and_sorted(client) -> None:
 def test_list_children_leaves_nothing_out(client) -> None:
     """A browse shows the runtime containers a comparison walks past.
 
-    This is the one place list_children and the diff walk differ, and it is on
-    purpose: the walk narrows to config-only because it decides what gets
-    compared, and an MO nobody configured has nothing to compare against.
+    The one place list_children and the diff walk differ on purpose: the walk
+    narrows to config-only because it decides what gets compared.
     """
 
     assert "uni/epp" in client.list_children("uni")
@@ -260,9 +259,8 @@ def test_dry_run_reports_a_new_child(client) -> None:
 def test_dry_run_folds_two_roots_naming_one_mo_into_one_comparison(client, state) -> None:
     """Both sides are read into an index keyed by DN, so one MO is one entry.
 
-    Two roots at the same DN are one MO the POST would write once, with the
-    later value winning as it does anywhere else. Fetching it twice and
-    reporting it twice would be the body's shape leaking into the report.
+    Two roots at the same DN are one MO the POST would write once. Fetching it
+    twice and reporting it twice would be the body's shape leaking into the report.
     """
 
     changes = client.dry_run(
@@ -278,9 +276,9 @@ def test_dry_run_folds_two_roots_naming_one_mo_into_one_comparison(client, state
 
 
 def test_dry_run_splits_a_wrapped_body_into_one_request_per_top_level_mo(client, state) -> None:
-    # uni fetched whole with rsp-subtree=full is the request a large fabric
-    # times out on, and a merged body always names uni. The wrapper carries no
-    # configuration of its own, so each MO under it is fetched on its own.
+    # uni fetched whole with rsp-subtree=full is the request a large fabric times
+    # out on, and the wrapper carries no configuration of its own, so each MO under
+    # it is fetched on its own.
     client.dry_run(
         "uni",
         {
@@ -318,10 +316,9 @@ def test_dry_run_compares_a_wrapped_child_against_its_own_subtree(client) -> Non
 def test_dry_run_refuses_a_child_it_cannot_name_before_asking_the_apic(client, state) -> None:
     """No name, so no RN: the body names no one MO, and merge.read refuses it.
 
-    Refused rather than compared against a stand-in DN, as merge and diff refuse
-    it: the MO the body meant may well be on the fabric, and reporting a made-up
-    DN as created would be the report talking about an MO nobody named. Nothing
-    is asked of the APIC on the strength of it either.
+    The MO the body meant may well be on the fabric, so reporting a made-up DN as
+    created would be the report talking about an MO nobody named. Nothing is asked
+    of the APIC on the strength of it either.
     """
 
     with pytest.raises(ValueError) as exc:
@@ -340,8 +337,9 @@ def test_dry_run_refuses_a_child_it_cannot_name_before_asking_the_apic(client, s
 
 
 def test_dry_run_refuses_a_paged_answer_rather_than_reporting_it_as_a_change(monkeypatch) -> None:
-    # The APIC says the tenant holds three MOs and hands back two. Comparing
-    # the two would report everything past the page as an MO this POST creates.
+    # The APIC says the tenant holds three MOs and hands back two: comparing
+    # against that would report everything past the page as an MO this POST
+    # creates.
     def get(target, kind, params, node, *, autostart=True):
         return {
             "totalCount": "3",
@@ -367,8 +365,8 @@ def test_dry_run_needs_a_dn_it_can_work_out(client, state) -> None:
 
 
 def test_dry_run_refuses_a_body_not_written_as_aci_expects(client, state) -> None:
-    # Refused before any GET goes out on the strength of it, and refused as a
-    # malformed body rather than as a DN that cannot be worked out.
+    # Before any GET goes out on the strength of it, and as a malformed body rather
+    # than as a DN that cannot be worked out.
     with pytest.raises(ValueError) as exc:
         client.dry_run("uni/tn-demo", {"totalCount": "1", "imdata": []}, kind="mo")
     assert "GET response" in str(exc.value)
@@ -376,8 +374,7 @@ def test_dry_run_refuses_a_body_not_written_as_aci_expects(client, state) -> Non
 
 
 def test_a_raw_post_sends_a_malformed_body_untouched(client, state) -> None:
-    # The one input path that is not checked: a raw POST never parses the body,
-    # and what the APIC makes of this one is the APIC's answer to give.
+    # The one input path that is not checked: a raw POST never parses the body.
     client.post("uni/tn-demo", '{"fvTenant": null}', kind="mo")
     assert state["last_method"] == "POST"
 
@@ -391,10 +388,10 @@ def test_post_with_dry_run_compares_instead_of_sending(client, state) -> None:
 
 # -- plan (what a POST would change, as a body) -----------------------------
 
-# plan and diff perform no I/O now: they take the fabric a fetch read. What is
-# tested here is the pair as a caller runs them -- a real fetch of the mocked
-# APIC on one side, the comparison on the other. What each reports on a fabric
-# written by hand is tests/test_plan.py's and tests/test_diff.py's.
+# plan and diff perform no I/O: they take the fabric a fetch read. What is tested
+# here is the pair as a caller runs them, a real fetch of the mocked APIC on one
+# side. What each reports on a fabric written by hand is tests/test_plan.py's and
+# tests/test_diff.py's.
 
 
 def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
@@ -409,8 +406,8 @@ def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
     )
     assert [(c.kind, c.dn) for c in narrowed.changes] == [("modified", "uni/tn-common/BD-default")]
     tenant = narrowed.body["polUni"]["children"][0]["fvTenant"]
-    # The tenant is only what the BD hangs under: the fabric already agrees with
-    # it, so it carries rn and status="modified" and no attribute of its own.
+    # The tenant is only what the BD hangs under, so it carries rn and
+    # status="modified" and no attribute of its own.
     assert tenant["attributes"] == {"rn": "tn-common", "status": "modified"}
     assert tenant["children"][0]["fvBD"]["attributes"]["mtu"] == "9000"
     assert narrowed.containers == 1
@@ -428,8 +425,8 @@ def test_plan_asks_the_fabric_for_nothing(client, state) -> None:
 
 
 def test_plan_refuses_an_mo_that_cannot_be_folded_into_one_body(client) -> None:
-    # merge's refusal, and its wording: a plan is posted at uni like a merged
-    # body, so the same DNs fit in one and the same DNs do not.
+    # merge's refusal, and its wording: a plan is posted at uni as a merged body
+    # is.
     with pytest.raises(ValueError) as exc:
         plan_.create(
             {"fabricNode": {"attributes": {"dn": "topology/pod-1/node-101"}}},
@@ -482,8 +479,8 @@ def test_fetch_returns_a_body_shaped_as_merge_shapes_one(client) -> None:
 def test_fetch_then_diff_finds_no_difference(client) -> None:
     """The round trip: what fetch writes is what diff compares against.
 
-    This is the whole claim of the command. If merge, diff and this ever drift
-    apart on what a body means, the fabric will start differing from itself.
+    If merge, diff and this ever drift apart on what a body means, the fabric
+    starts differing from itself.
     """
 
     fabric = client.fetch()
@@ -493,12 +490,12 @@ def test_fetch_then_diff_finds_no_difference(client) -> None:
 # -- diff (the fabric against an intended configuration) --------------------
 
 
-# A configuration describing one MO of the mock fabric exactly. A diff takes one
-# body and refuses an empty one, so a test that is about something else still
-# has to say what the fabric is meant to be carrying.
+# A configuration describing one MO of the mock fabric exactly. A diff refuses an
+# empty body, so a test about something else still has to say what the fabric is
+# meant to be carrying.
 INFRA = {"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}}
-# One naming an MO inside tn-common, for the tests that exclude that tenant: the
-# configuration is not empty, but nothing of it survives the exclusion.
+# One naming an MO inside tn-common, for the tests that exclude that tenant: not
+# empty, but nothing of it survives the exclusion.
 IN_COMMON = {
     "fvTenant": {
         "attributes": {"dn": "uni/tn-common", "name": "common"},
@@ -515,8 +512,7 @@ def test_diff_reports_everything_the_configuration_leaves_out(client) -> None:
 
 
 def test_diff_is_empty_when_the_configuration_describes_the_fabric(client) -> None:
-    # One body, as post takes one body: a list of MOs is one body. Several are
-    # folded into one beforehand by a4i.merge.
+    # One body, as post takes one body: a list of MOs is one body.
     changes = diff.compare(
         [
             {"fvTenant": {"attributes": {"dn": "uni/tn-common", "name": "common"}}},
@@ -535,16 +531,14 @@ def test_diff_takes_the_body_as_json_text_as_post_does(client) -> None:
 
 
 def test_diff_refuses_a_configuration_that_describes_no_mo(client) -> None:
-    # Taken at face value it means every MO on the fabric is extra, which is
-    # never what an empty input meant.
+    # Taken at face value it means every MO on the fabric is extra.
     with pytest.raises(ValueError) as exc:
         diff.compare([], fabric=client.fetch())
     assert "empty" in str(exc.value)
 
 
 def test_diff_leaves_an_excluded_subtree_out_of_the_report(client) -> None:
-    # The configuration says nothing but what the exclusion then removes, which
-    # is a comparison narrowed to nothing rather than an input that said nothing.
+    # A comparison narrowed to nothing, rather than an input that said nothing.
     changes = diff.compare(IN_COMMON, fabric=client.fetch(), exclude="uni/tn-common")
     # Everything under tn-common goes with it; tn-infra is untouched.
     assert [(c.kind, c.dn) for c in changes] == [("extra", "uni/tn-infra")]
@@ -573,8 +567,8 @@ def test_a_client_needs_a_host_or_a_transport() -> None:
 
 
 def test_a_client_built_from_a_host_owns_a_session() -> None:
-    # __init__ is what tests/test_awaited.py exempts, so each side is on its
-    # own here: this is the branch that builds a session rather than taking one.
+    # __init__ is what tests/test_awaited.py exempts, so each side is checked on
+    # its own here.
     client = Client("apic1.example.com", verify=False)
     assert client._session is not None
     assert client._session.base_url == "https://apic1.example.com"
@@ -589,8 +583,7 @@ def test_a_client_built_from_a_host_hands_the_timeout_to_its_session() -> None:
 
 
 def test_a_client_asking_for_no_timeout_gets_the_default_one() -> None:
-    # None here is "whichever the session says", not "wait forever": the default
-    # is read from the session so that it is written down once.
+    # None here is "whichever the session says", not "wait forever".
     client = Client("apic1.example.com", verify=False)
     assert client._session is not None
     assert client._session.timeout == DEFAULT_TIMEOUT
@@ -648,7 +641,7 @@ def test_an_expired_token_asks_for_a_new_login(state) -> None:
 # restore it: a caller catches the same exception on either side of the socket.
 
 
-# What a daemon error turns back into is a4i.errors' -- see tests/test_errors.py.
+# What a daemon error turns back into is tests/test_errors.py's.
 
 
 def test_the_daemon_transport_sends_what_the_daemon_expects(monkeypatch) -> None:
@@ -667,8 +660,7 @@ def test_the_daemon_transport_sends_what_the_daemon_expects(monkeypatch) -> None
     client = Client(transport=DaemonTransport())
     client.get("fvTenant", kind="class", rsp_subtree="full", node="leaf101.example.com")
     client.post("uni/tn-demo", '{"fvTenant":{}}', kind="mo")
-    # The kind travels with the target rather than being encoded into it, so the
-    # daemon builds the path from what the caller meant.
+    # The kind travels with the target rather than being encoded into it.
     assert sent == [
         {
             "op": "get",
@@ -701,9 +693,8 @@ def test_the_apic_host_is_normalized(state) -> None:
 
 
 def test_fetch_refuses_a_paged_answer_rather_than_holding_half_a_fabric(monkeypatch) -> None:
-    # The APIC says uni has three children and hands back two. Comparing the
-    # two would report everything under the third as missing from a fabric that
-    # is carrying it, so the fetch fails instead.
+    # The APIC says uni has three children and hands back two: the fetch fails
+    # rather than report everything under the third missing.
     def get(target, kind, params, node, *, autostart=True):
         return {
             "totalCount": "3",
@@ -720,10 +711,8 @@ def test_fetch_refuses_a_paged_answer_rather_than_holding_half_a_fabric(monkeypa
 
 
 def test_fetch_does_not_walk_the_runtime_containers_under_uni(client, state) -> None:
-    # uni holds runtime children as well as configuration. Listing them with
-    # "config-only", as the subtrees are then fetched, keeps them out of the
-    # walk: an intended configuration never names one, so every one walked
-    # would be reported extra.
+    # uni holds runtime children as well as configuration, and an intended
+    # configuration never names one, so every one walked would be reported extra.
     fabric = client.fetch()
     assert "/api/mo/uni/epp.json" not in state["mo_requests"]
     assert [c.dn for c in diff.compare(INFRA, fabric=fabric)] == ["uni/tn-common"]

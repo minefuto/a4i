@@ -1,15 +1,10 @@
 """Build APIC request paths and query parameters.
 
 What a target names is never inferred: :func:`build_path` is told, as ``kind``,
-whether it is a class name or a distinguished name, and picks the ``/api/class/``
-or ``/api/mo/`` path from that. The caller always knows which it has -- the CLI
-from the subcommand the user typed, the library from the argument its caller
-passed -- so there is nothing here for a naming convention to encode.
-
-:func:`build_get_params` is the one place a query option is mapped to the ACI
-query parameter it sets, shared by the CLI and the library so that both send the
-identical request. The query string itself is not built here: the parameters
-travel as a dict to httpx2, which encodes them.
+whether it is a class name or a DN, and the caller always knows which it has.
+:func:`build_get_params` is the one place an option is mapped to the ACI query
+parameter it sets, shared by the CLI and the library. The query string itself is
+httpx2's to encode.
 """
 
 from __future__ import annotations
@@ -149,8 +144,8 @@ def _one_of(name: str, value: str | None, enum: type[StrEnum]) -> str | None:
 def _joined(value: str | Sequence[str] | None) -> str | None:
     """Accept a comma-separated string or a sequence, and return the string.
 
-    Class names are never validated against the bundled dictionary, so that a
-    class from an APIC newer than the dictionary is still passed through.
+    Class names are never held against the bundled dictionary, which may be older
+    than the fabric.
     """
 
     if value is None or isinstance(value, str):

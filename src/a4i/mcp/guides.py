@@ -1,15 +1,12 @@
 """What an LLM has to know about ACI before a get or a post of its own is any good.
 
-The bundled dictionary answers questions about one class. These answer the ones
-that come before that: how an ACI body nests, what a DN is made of, which query
-to reach for, and what this tool will not tell you. Nothing here is generated --
-it is the part of the model that no per-class record states, because it is true
-of all of them.
+The bundled dictionary answers questions about one class; these answer the ones
+that come before that, being true of every class and stated by no per-class
+record. Nothing here is generated.
 
 :data:`INSTRUCTIONS` is the summary the server hands over at ``initialize``. It
-repeats the two guides an LLM cannot work without, because a resource is offered
-to the client rather than read by the model, and a client that never fetches one
-would otherwise leave the model to guess.
+repeats the two guides an LLM cannot work without, a resource being offered to
+the client rather than read by the model.
 """
 
 from __future__ import annotations

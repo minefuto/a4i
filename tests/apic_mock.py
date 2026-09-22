@@ -29,26 +29,10 @@ APIC_HOST = "apic.test"
 def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Response]:
     """Return the handler standing in for an APIC and the fabric nodes behind it.
 
-    Requests are routed by host: ``apic.test`` behaves like an APIC, and any
-    other host like a switch serving its local MIT read-only.
-
-    ``state`` records interactions and toggles behaviour:
-      - ``fail_login``: make aaaLogin return a 401 error MO
-      - ``fail_logout``: make aaaLogout return a 403 error MO
-      - ``fail_path``: make this one request path return a 403 error MO
-      - ``logouts``: ``(cookie header, raw body)`` of every aaaLogout received
-      - ``token_n``: incremented per issued token (login/refresh)
-      - ``last_cookie``: APIC-cookie header seen on the last data request
-      - ``mo_requests``: per-path count of /api/mo/... requests
-      - ``last_path``: path of the last data request
-      - ``last_params``: query parameters of the last data request
-      - ``last_method`` / ``last_body``: method and raw body of the last data request
-      - ``unreachable``: hosts whose requests raise a connection error
-      - ``node_requests``: ``(host, path)`` of every request that reached a node
-      - ``node_params``: query parameters of the last node request
-      - ``timeouts``: the read timeout in force on each request, in order
-      - ``node_cookie``: cookie header seen on the last node request
-      - ``verify``: per base URL, the TLS verification the client was built with
+    Requests are routed by host: ``apic.test`` behaves like an APIC, and any other
+    host like a switch serving its local MIT read-only. ``state`` is both what the
+    handler records and what makes it fail: the ``fail_*`` keys and
+    ``unreachable`` steer it, and the rest is written as requests arrive.
     """
 
     state.setdefault("token_n", 0)
@@ -100,7 +84,7 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                 },
             )
         if path == "/api/mo/uni.json":
-            # Same DN as on the APIC, different children: only the tenants the
+            # Same DN as on the APIC, different children: only the tenants this
             # switch has resolved policy for.
             return httpx2.Response(
                 200,
@@ -118,8 +102,8 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
         )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
-        # httpx2 resolves the effective timeout per request, so this is what the
-        # caller asked for, or the client default when it asked for nothing.
+        # httpx2 resolves the effective timeout per request, so this is the caller's
+        # own or the client default.
         state["timeouts"] = state.setdefault("timeouts", []) + [
             request.extensions.get("timeout", {}).get("read")
         ]
@@ -178,9 +162,8 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                 {"fvTenant": {"attributes": {"dn": "uni/tn-infra"}}},
             ]
             if params.get("rsp-prop-include") != "config-only":
-                # uni carries runtime containers as well, and only "config-only"
-                # leaves them out. Nobody configured this one and no intended
-                # configuration will name it.
+                # uni carries runtime containers as well, which only "config-only"
+                # leaves out: no intended configuration will ever name this one.
                 children.append({"eppInst": {"attributes": {"dn": "uni/epp"}}})
             return httpx2.Response(
                 200,
@@ -188,8 +171,7 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
             )
         if path == "/api/mo/uni/tn-common.json":
             if params.get("query-target") == "children":
-                # A children query answers with the children alone, each a
-                # top-level MO of the response carrying its own dn.
+                # The children alone, each a top-level MO carrying its own dn.
                 children = [
                     {"fvAp": {"attributes": {"dn": "uni/tn-common/ap-web"}}},
                     {"fvBD": {"attributes": {"dn": "uni/tn-common/BD-default"}}},
@@ -197,9 +179,8 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                 return httpx2.Response(
                     200, json={"totalCount": str(len(children)), "imdata": children}
                 )
-            # A subtree GET answers with the one MO it was asked for, its
-            # children nested inside it, which is why totalCount is 1: see
-            # a4i.client._check_complete.
+            # The one MO it was asked for, its children nested inside it, which is
+            # why totalCount is 1: see a4i.client._check_complete.
             return httpx2.Response(
                 200,
                 json={
@@ -218,9 +199,8 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                 },
             )
         if path == "/api/mo/uni/tn-demo.json":
-            # The DN a dry run is aimed at in these tests. It answers at the DN
-            # it was asked for, as an APIC does: a comparison keys on the DN, so
-            # a response about some other MO is not an answer to this question.
+            # The DN a dry run is aimed at in these tests. It answers at the DN it
+            # was asked for, as an APIC does, a comparison keying on the DN.
             return httpx2.Response(
                 200,
                 json={
@@ -241,8 +221,8 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                 },
             )
         if path == "/api/mo/uni/tn-common/BD-default.json":
-            # A DN below uni's top level: what a targeted fetch asks for, and
-            # what no walk of uni ever asks for on its own.
+            # A DN below uni's top level: what a targeted fetch asks for, and no
+            # walk of uni ever does.
             return httpx2.Response(
                 200,
                 json={
@@ -326,8 +306,7 @@ def make_async_client(
     """The very same mocked fabric, behind an awaited client.
 
     httpx2.MockTransport serves a synchronous handler to an awaited client too,
-    so the fabric an async test talks to is the one a sync test talks to, down
-    to the recorded state. What the two see can then differ only where a4i does.
+    down to the recorded state, so what the two see differs only where a4i does.
     """
 
     return httpx2.AsyncClient(
@@ -371,8 +350,7 @@ def make_session_factory(state: dict[str, Any], clock: Clock):
     """A Daemon-compatible factory that serves every host from the mock.
 
     ``timeout`` is carried into the session, where the daemon reads it back to
-    report it, but not into the mocked clients: a factory of one's own settles
-    its own timeout, and this one serves a transport that never waits.
+    report it, but not into the mocked clients, which never wait.
     """
 
     def factory(

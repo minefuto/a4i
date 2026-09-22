@@ -3,8 +3,7 @@
 The JSON-RPC layer is written out in a4i rather than taken from an SDK, so it is
 tested the way a client exercises it: by handing :class:`~a4i.mcp.server.Server`
 whole messages and reading whole replies. Underneath, the tools run against the
-same mocked APIC every other test uses, so one test can follow a call from the
-model's request through the daemon to the fabric and back.
+same mocked APIC every other test uses.
 """
 
 from __future__ import annotations
@@ -66,8 +65,7 @@ def no_daemon(monkeypatch):
     """A socket path nothing is listening on, as before anyone has logged in.
 
     Under the system temp dir rather than pytest's, whose path is long enough to
-    overflow an AF_UNIX address and turn "nothing is listening" into "this socket
-    cannot be used" -- a different case with a different answer.
+    turn "nothing is listening" into "this socket cannot be used".
     """
 
     directory = Path(tempfile.gettempdir()) / f"a4i-n-{uuid.uuid4().hex[:8]}"
@@ -190,9 +188,7 @@ def test_an_unknown_resource_is_refused(no_daemon) -> None:
 def test_post_is_offered_when_nobody_has_logged_in(no_daemon) -> None:
     """A client lists tools before the user logs in, so read-only is not yet known.
 
-    Hiding post on the strength of a session that does not exist would hide it
-    from the ordinary case too: a client that lists once at startup would never
-    see it again.
+    A client that lists once at startup would otherwise never be offered post.
     """
 
     names = [tool["name"] for tool in _call(Server(), "tools/list")["result"]["tools"]]
@@ -209,8 +205,8 @@ def test_post_is_withheld_on_a_read_only_session(daemon) -> None:
     _login(read_only=True)
     names = [tool["name"] for tool in _call(Server(), "tools/list")["result"]["tools"]]
     assert "post" not in names
-    # Everything that only reads stays, dry_run included: it is the whole point
-    # of a read-only session that a model can still work out what a change means.
+    # Everything that only reads stays, dry_run included: a model can still work
+    # out what a change would mean.
     assert {"get", "dry_run", "plan", "diff", "list", "describe", "search"} <= set(names)
 
 
@@ -320,9 +316,8 @@ def test_without_a_session_the_tool_names_the_command_to_run(no_daemon) -> None:
 
 
 def test_list_mo_returns_child_dns(daemon) -> None:
-    # What the query asks for is Client.list_children's and is verified there;
-    # what this shows is that the tool goes through it and hands the DNs over
-    # one per line, which is the same answer the command prints.
+    # What the query asks for is Client.list_children's and is verified there; this
+    # shows the tool going through it, one DN per line as the command prints them.
     _login()
     text, is_error = _tool_text(Server(), "list", {"kind": "mo", "dn": "uni"})
     assert not is_error
@@ -382,8 +377,8 @@ def test_dry_run_sends_nothing_and_reports_the_change(daemon) -> None:
 
 
 def test_dry_run_uses_the_fetched_fabric_and_says_so(daemon) -> None:
-    # The same answer as in a shell, from the same fabric: a report read in a
-    # chat and one read in a terminal cannot differ on what a POST would do.
+    # A report read in a chat and one read in a terminal cannot differ on what a
+    # POST would do.
     _login()
     _tool_text(Server(), "fetch", {})
     daemon["last_method"] = None
@@ -434,8 +429,7 @@ def test_diff_wants_a_body_or_a_path_and_not_both(daemon, tmp_path) -> None:
 
 
 def test_diff_sends_a_directory_back_to_merge(daemon, tmp_path) -> None:
-    # A directory here would be diff reading several configurations again, which
-    # is the thing merge was split out to own.
+    # A directory here would be diff reading several configurations again.
     _login()
     text, is_error = _tool_text(Server(), "diff", {"path": str(tmp_path)})
     assert is_error
@@ -540,7 +534,7 @@ def test_merge_lays_inline_bodies_over_what_the_files_say(no_daemon, tmp_path) -
 
 def test_merge_names_an_inline_body_by_its_place_in_the_argument(no_daemon, tmp_path) -> None:
     # Not by its place after the files were counted in, which is a position the
-    # model never wrote and cannot act on.
+    # model never wrote.
     config = tmp_path / "fabric.json"
     config.write_text(json.dumps({"fvTenant": {"attributes": {"name": "infra"}}}))
     text, is_error = _tool_text(
@@ -571,8 +565,8 @@ def test_merge_refuses_to_replace_a_file_unless_told_to(no_daemon, tmp_path) -> 
     text, is_error = _tool_text(Server(), "merge", arguments)
     assert is_error
     assert "already exists" in text
-    # The rule is a4i.config's; naming this tool's own argument is what is left
-    # for the tool to do, and it is what tells the model how to go on.
+    # The rule is a4i.config's; naming this tool's own argument is what tells the
+    # model how to go on.
     assert "overwrite: true" in text
     assert out.read_text() == "keep me"
 
@@ -586,8 +580,8 @@ def test_merge_fills_in_a_missing_ancestor_only_when_told_to(no_daemon) -> None:
     text, is_error = _tool_text(Server(), "merge", {"configs": orphan})
     assert is_error
     assert 'nothing describes "uni/tn-demo"' in text
-    # The rule is a4i.merge's; naming this tool's own argument is what is left
-    # for the tool to do, and it is what tells the model how to go on.
+    # The rule is a4i.merge's; naming this tool's own argument is what tells the
+    # model how to go on.
     assert "loose: true" in text
 
     text, is_error = _tool_text(Server(), "merge", {"configs": orphan, "loose": True})
@@ -659,7 +653,7 @@ def test_describe_carries_what_a_body_needs(no_daemon) -> None:
     assert record["class"] == "fvBD"
     assert record["configurable"] is True
     # How its DN is built, what contains it, and a property with its permitted
-    # values: between them, enough to write a body without a round trip.
+    # values: enough to write a body without a round trip.
     assert record["rn"] == "BD-{name}"
     assert record["naming"] == ["name"]
     assert "fvTenant" in record["parents"]
@@ -671,8 +665,7 @@ def test_describe_lists_only_configurable_children(no_daemon) -> None:
     """The children a body could actually write, not everything the fabric hangs there.
 
     The source lists 317 classes under fvBD, almost all of them counters the
-    fabric maintains for itself. Carrying those would be ten times the dictionary
-    spent on a question no body asks.
+    fabric maintains for itself.
     """
 
     record = json.loads(_tool_text(Server(), "describe", {"class_name": "fvBD"})[0])
@@ -714,10 +707,9 @@ def test_search_finds_a_class_by_what_it_is_called(no_daemon) -> None:
 def test_search_puts_the_object_above_the_wiring(no_daemon, keyword, expected) -> None:
     """The thing itself, not the relations pointing at it.
 
-    Dozens of classes are labelled "Bridge Domain" -- every relation to one, and
-    the abstract policy behind it. A model that asks for three results and gets
-    fhsRtBDToFhs, dhcpRtBDToRelayP and infraRsInfraBD has been answered wrongly,
-    however defensible each match is on its own.
+    A model that asks for three results and gets fhsRtBDToFhs, dhcpRtBDToRelayP
+    and infraRsInfraBD has been answered wrongly, however defensible each match is
+    on its own.
     """
 
     text, _ = _tool_text(Server(), "search", {"keyword": keyword, "limit": 3})
@@ -759,8 +751,7 @@ def _cli_get_options() -> set[str]:
     return {
         action.dest
         for action in parser._actions
-        # --raw is how a terminal is told not to colour its output, which is not
-        # a question an MCP client has.
+        # --raw is about colouring a terminal, which an MCP client has none of.
         if action.dest not in {"help", "raw"}
     }
 
@@ -768,8 +759,7 @@ def _cli_get_options() -> set[str]:
 def test_get_takes_every_query_option_the_cli_does(no_daemon) -> None:
     """The tool's arguments are the CLI's options, which are ACI's parameter names.
 
-    Keeping the two sets equal is what lets a model write a query straight from
-    the APIC documentation. A divergence here means a4i has grown a dialect.
+    A divergence here means a4i has grown a dialect of its own.
     """
 
     declared = set(tools.GET["inputSchema"]["properties"]) - {"kind", "target"}

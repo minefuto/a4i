@@ -1,14 +1,12 @@
 """What awaiting adds to a session, and nothing else.
 
 tests/test_awaited.py checks that :class:`~a4i.session.AsyncSession` is
-:class:`~a4i.session.Session` with the sending awaited, statement for statement.
-The lazy-refresh timing, the logout rules, the node clients and the per-call
-timeout are therefore not tested again here: they are not equivalent to what
-test_session.py covers, they are the same statements.
+:class:`~a4i.session.Session` with the sending awaited, statement for statement,
+so what tests/test_session.py covers is not covered again here.
 
 What is left is what that check cannot see: the constructor it exempts, the
-awaited close, and that the awaited client underneath carries a request out and
-an answer back.
+awaited close, and the awaited client underneath carrying a request out and an
+answer back.
 """
 
 from __future__ import annotations
@@ -23,11 +21,10 @@ from apic_mock import Clock, make_async_session
 
 
 async def test_a_session_built_without_a_client_gets_an_awaited_one() -> None:
-    """The one line the two sessions cannot share, and the claim it makes.
+    """The one line the two sessions cannot share.
 
     _default_async_client exists to agree with _default_client on everything but
-    the awaiting -- "the request a caller awaits must be the request a caller
-    sends" -- and nothing else would notice if it stopped.
+    the awaiting, and nothing else would notice if it stopped.
     """
 
     session = AsyncSession("apic1.example.com", verify=False)
@@ -90,9 +87,8 @@ async def test_an_awaited_post_sends_the_body_as_given() -> None:
 async def test_close_leaves_no_client_open() -> None:
     """An awaited client left unclosed is a warning at collection time, and a leak.
 
-    It is also where "aclose" is shown to be what httpx2 really calls it:
-    test_awaited.py normalises that name away when it compares the two sessions,
-    and this is where the assumption is paid for.
+    Also where httpx2's "aclose" is paid for: test_awaited.py normalises that name
+    away when it compares the two sessions.
     """
 
     session = make_async_session({}, Clock())

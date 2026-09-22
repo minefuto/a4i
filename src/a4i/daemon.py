@@ -1,16 +1,10 @@
 """Per-user daemon that holds the APIC session token in memory.
 
-The daemon listens on a Unix domain socket and serves one request per
-connection. It owns a single :class:`~a4i.session.Session`; the token lives only
-in this process's memory and is never written to disk. The session is refreshed
-lazily on command activity and expires on its own once idle past its lifetime.
-
-It owns one other thing: the fabric a ``fetch`` read, which ``diff`` and
-``plan`` then compare against. That too is a thing no CLI process can keep --
-each one ends -- and holding it here is what lets three commands compare against
-a single reading of the fabric rather than three. It is dropped the moment it
-could no longer be true of the session that answers: on a POST, a login, a
-logout, and an expiry.
+One request per connection, over a Unix domain socket, against a single
+:class:`~a4i.session.Session` whose token is never written to disk. It holds one
+other thing: the fabric a ``fetch`` read, dropped the moment it could no longer
+be true of the session that answers. Both are things no CLI process can keep,
+each one ending.
 """
 
 from __future__ import annotations
@@ -29,8 +23,7 @@ from a4i.ipc import create_socket_dir
 from a4i.session import DEFAULT_TIMEOUT, ApicError, NotLoggedInError, Session
 
 # What a POST is told when the session was logged in read-only. It names the way
-# out, because there is exactly one and it is not obvious: a fresh login does not
-# clear the flag.
+# out, a fresh login not being one.
 READ_ONLY_MESSAGE = (
     "this session is read-only (logged in with --read-only); "
     "run 'a4i daemon stop' and log in again to write"
@@ -54,15 +47,11 @@ class Daemon:
         self._clock = clock
         self._session_factory = session_factory
         self._session: Session | None = None
-        # Sticky for the daemon's whole life, never cleared by a logout or by a
-        # later login that does not ask for it. A flag a fresh login could drop
-        # would be no guarantee at all: the point of it is that nothing reaching
-        # this daemon can write, and "nothing" has to include the next login.
+        # Sticky for the daemon's whole life: a flag a fresh login could drop
+        # would be no guarantee that nothing reaching this daemon can write.
         self._read_only = False
         # The fabric a fetch read, as the one body a comparison takes, and when
-        # it was read. Held here rather than in the caller because a CLI run is
-        # a process that ends: this is the only thing either side of the socket
-        # has that outlives one.
+        # it was read.
         self._fabric: dict[str, Any] | None = None
         self._fetched_at = 0.0
         self._fabric_count = 0
@@ -105,9 +94,8 @@ class Daemon:
                 try:
                     conn, _ = server.accept()
                 except TimeoutError:
-                    # Lifecycle (expiry + idle shutdown) is evaluated only on the
-                    # idle tick, never mid-request, so a command in flight is never
-                    # cut off by a shutdown decision.
+                    # Only on the idle tick, never mid-request, so a command in
+                    # flight is never cut off by a shutdown decision.
                     self._check_lifecycle()
                     continue
                 with conn:
@@ -133,8 +121,7 @@ class Daemon:
         if os.path.exists(self._path):
             os.unlink(self._path)
         # The enclosing directory is left in place on purpose: while it exists,
-        # nobody else can claim its name, so the next daemon starts on a
-        # directory that is already known to be ours.
+        # nobody else can claim its name.
 
     # -- request handling -------------------------------------------------
 
@@ -165,9 +152,7 @@ class Daemon:
         if self._session is not None:
             self._session.close()
         # Before the login rather than after it: a login that fails must not
-        # leave the previous fabric behind for a comparison to read as this
-        # one's, and the fabric of the APIC just logged out of is not this
-        # APIC's however alike the two may be.
+        # leave the previous fabric behind for a comparison to read as this one's.
         self._drop_fabric()
         self._read_only = self._read_only or bool(args.get("read_only"))
         self._session = self._session_factory(
@@ -180,12 +165,9 @@ class Daemon:
             "user": self._session.user,
             "host": self._session.base_url,
             "refresh_timeout": self._session.refresh_timeout,
-            # The session's own rather than what was asked for: a login that left
-            # it out still learns what its requests will be given.
+            # Both reported back rather than assumed from what was asked, so that
+            # a login that named neither still learns what it landed on.
             "timeout": self._session.timeout,
-            # Reported back rather than assumed from what was asked, so that a
-            # login that did not ask for read-only still learns it landed on a
-            # daemon that is.
             "read_only": self._read_only,
         }
 
@@ -210,7 +192,7 @@ class Daemon:
 
     def _op_logout(self, args: dict[str, Any]) -> Any:
         # Only the APIC's complaint, if there was one: the session is gone either
-        # way, so a flag saying so would be a constant nobody reads.
+        # way, so a flag saying so would be a constant.
         return {"apic_error": self._end_session()}
 
     def _op_status(self, args: dict[str, Any]) -> Any:
@@ -244,8 +226,7 @@ class Daemon:
         session = self._require_session()
         data = session.post(query.build_path(args["target"], args["kind"]), args["body"])
         # After the POST, so that a body the APIC refused leaves the fabric
-        # standing: one POST is one transaction there, so a refusal changed
-        # nothing and what was read is still what is on the fabric.
+        # standing: one POST is one transaction, so a refusal changed nothing.
         self._drop_fabric()
         return data
 
@@ -253,9 +234,7 @@ class Daemon:
         """Read the whole of uni and hold it, for the comparisons to come.
 
         The reading is the client's own -- the same code a library caller runs --
-        over a transport that talks to this daemon's session directly. Running it
-        here rather than in the caller is what makes the result something the
-        next process can have: a command ends, and this does not.
+        over a transport that talks to this daemon's session directly.
         """
 
         # Imported here rather than at module scope: it pulls in the whole
@@ -273,9 +252,8 @@ class Daemon:
         return {"count": self._fabric_count}
 
     def _op_fabric(self, args: dict[str, Any]) -> Any:
-        # Expiry is evaluated here as well as on the idle tick, which runs at
-        # most every ACCEPT_TIMEOUT seconds: a session that ended in between
-        # would otherwise hand out a fabric it no longer has any claim to.
+        # Expiry is evaluated here as well as on the idle tick: a session that
+        # ended between two ticks would otherwise still hand out its fabric.
         if self._session is None or self._session.is_expired():
             self._drop_fabric()
         if self._fabric is None:

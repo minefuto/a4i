@@ -1,17 +1,13 @@
 """The tools the MCP server offers, and what each one does.
 
-Every tool here is a thin wrapper over the very same :class:`~a4i.client.Client`
-the command line drives, so a model and a person send the identical request. What
-is added is the part a model needs and a person does not: a schema saying what
-the arguments are, a size limit so that one query cannot fill a context window,
-and errors phrased as instructions rather than as diagnostics.
+Every tool is a thin wrapper over the very same :class:`~a4i.client.Client` the
+command line drives, so a model and a person send the identical request. What is
+added is the part a model needs and a person does not: a schema, a size limit so
+that one query cannot fill a context window, and errors phrased as instructions.
 
-The argument names are the CLI's option names with underscores, which are the
-ACI query parameter names themselves. A model that has read the APIC
-documentation can therefore write a query without learning anything a4i-specific.
-
-``post`` is the only tool whose availability varies: a daemon logged in with
-``--read-only`` does not offer it. See :func:`tool_definitions`.
+The argument names are the ACI query parameter names themselves, so a model that
+has read the APIC documentation needs nothing a4i-specific. ``post`` is the only
+tool whose availability varies: see :func:`tool_definitions`.
 """
 
 from __future__ import annotations
@@ -29,18 +25,15 @@ from a4i.errors import (
     SessionExpiredError,
 )
 
-# How much of a response this server will hand back. A class query against a
-# real fabric can return tens of megabytes, which is not a failure of the query
-# -- it is what was asked for -- but it would fill a context window and leave the
-# model no room to do anything with it. Overridable by the person running the
-# server, never by the model: a limit the caller can raise is one that will be
-# raised the moment it binds.
+# How much of a response this server will hand back: a class query against a real
+# fabric can return tens of megabytes and leave the model no room to act on it.
+# Overridable by the person running the server, never by the model, a limit the
+# caller can raise being one that will be raised the moment it binds.
 MAX_BYTES_VAR = "A4I_MCP_MAX_BYTES"
 DEFAULT_MAX_BYTES = 64 * 1024
 
-# What to say when there is no session. The model cannot fix this itself -- the
-# password is typed by a person into a terminal -- so the message says who has to
-# act rather than what went wrong.
+# What to say when there is no session. The model cannot fix this itself, so the
+# message says who has to act rather than what went wrong.
 NO_SESSION = (
     "No APIC session. Ask the user to run 'a4i login <apic-host> -u <username>' "
     "in a terminal, then try again. There is no login tool here: the password is "
@@ -412,8 +405,7 @@ SEARCH = _tool(
 )
 
 # The order tools are offered in is the order they are meant to be reached for.
-# merge sits next to diff because it is the step before it, and it is offered to
-# a read-only session too: it writes a local file at most, never the fabric.
+# merge is offered to a read-only session too: it writes a local file at most.
 ALL_TOOLS = [SEARCH, DESCRIBE, LIST, GET, DRY_RUN, POST, MERGE, FETCH, PLAN, DIFF]
 
 WRITE_TOOLS = frozenset({"post"})
@@ -449,11 +441,7 @@ def _json(data: Any) -> str:
 
 
 def _too_large(data: Any, text: str) -> str:
-    """Return the refusal for a response too big to hand over.
-
-    It says how much there was and what would make it smaller, because a bare
-    "too large" leaves the only next move a blind retry.
-    """
+    """Return the refusal for a response too big to hand over, and how to narrow it."""
 
     total = data.get("totalCount") if isinstance(data, dict) else None
     counted = f"{total} objects" if total is not None else "the response"
@@ -488,9 +476,7 @@ def _post(arguments: dict[str, Any]) -> str:
 def _dry_run(arguments: dict[str, Any]) -> str:
     """Compare against the fetched fabric if there is one, and read for itself if not.
 
-    The report says which, for the reason 'a4i post --dry-run' prints it: what a
-    comparison is worth depends on where its other side came from, and a reader
-    who cannot tell the two apart is reading a report about an unknown fabric.
+    The report says which, for the reason 'a4i post --dry-run' prints it.
     """
 
     from a4i import dry_run, ipc
@@ -518,10 +504,9 @@ def _merge(arguments: dict[str, Any]) -> str:
         configs: list[Any] = config.load(paths) if paths else []
     except OSError as exc:
         raise ToolError(f"cannot read the configuration: {exc}") from None
-    # Inline bodies go last, so a body written here wins over what the files
-    # say, which is the point of writing one. They are checked here rather than
-    # left to merge, so that one is named by its position in this argument
-    # rather than by its position after the files were counted in.
+    # Inline bodies go last, so one written here wins over what the files say.
+    # Checked here rather than left to merge, so that a bad one is named by its
+    # position in this argument rather than after the files were counted in.
     inline = list(arguments.get("configs") or [])
     refuse([p for i, body in enumerate(inline) for p in problems(body, f"configs[{i}]")])
     configs.extend(inline)
@@ -572,9 +557,8 @@ def _fetch(arguments: dict[str, Any]) -> str:
 def _one_body(arguments: dict[str, Any], tool: str) -> Any:
     """Return the one body a tool was given, whether inline or as a path.
 
-    Named after what it enforces: these tools compare one configuration, the
-    way a post takes one body. Several files are what merge is for, and a
-    directory is said to be merge's rather than read here.
+    Named after what it enforces: these tools compare one configuration, the way
+    a post takes one body, and a directory is said to be merge's.
     """
 
     from pathlib import Path
@@ -710,10 +694,8 @@ class ToolError(Exception):
 def call(name: str, arguments: dict[str, Any]) -> str:
     """Run one tool and return its text result.
 
-    Raises :class:`ToolError` with what to do about it. Every failure a caller
-    can do something about arrives that way, including the APIC's own: a model
-    reads "not logged in" and asks the user to log in, where a stack trace would
-    tell it nothing.
+    Every failure arrives as a :class:`ToolError` saying what to do about it,
+    the APIC's own included.
     """
 
     handler = _HANDLERS.get(name)
@@ -724,11 +706,10 @@ def call(name: str, arguments: dict[str, Any]) -> str:
     except ToolError:
         raise
     except (NotLoggedInError, SessionExpiredError, NoDaemonError):
-        # No daemon is the ordinary state before anyone logs in, and it is the
-        # same problem as no session as far as the model is concerned. A socket
-        # this client refuses to use is not: that one is a misconfiguration on
-        # the machine, and saying "log in" about it would send the user in
-        # circles, so it falls through to the message it came with.
+        # No daemon is the ordinary state before anyone logs in: the same problem
+        # as no session, as far as the model is concerned. An unusable socket is
+        # not, being a misconfiguration on the machine, so it falls through to the
+        # message it came with.
         raise ToolError(NO_SESSION) from None
     except A4iError as exc:
         # Everything else a4i raises, in the words it was raised with: the
@@ -736,8 +717,8 @@ def call(name: str, arguments: dict[str, Any]) -> str:
         raise ToolError(str(exc)) from None
     except OSError as exc:
         # A dictionary that is not there, or a configuration path that cannot be
-        # read. Neither is a protocol failure, and a model told plainly can pick
-        # a different tool rather than retrying the same one.
+        # read. Neither is a protocol failure, and a model told plainly can pick a
+        # different tool.
         raise ToolError(str(exc)) from None
     except (ValueError, TypeError, KeyError) as exc:
         # A malformed argument, an unparseable body, or a combination ACI does

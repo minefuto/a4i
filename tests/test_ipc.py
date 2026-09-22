@@ -21,8 +21,7 @@ SOCK = "daemon.sock"
 def short_dir():
     """An existing 0700 directory short enough to hold an AF_UNIX socket path.
 
-    pytest's ``tmp_path`` is itself over the sun_path limit on macOS, which
-    would make the cases below fall back for the wrong reason.
+    pytest's ``tmp_path`` is itself over the sun_path limit on macOS.
     """
 
     path = Path(tempfile.gettempdir()) / f"a4i-t-{uuid.uuid4().hex[:8]}"

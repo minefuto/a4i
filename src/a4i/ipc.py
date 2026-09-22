@@ -1,20 +1,11 @@
 """Client side of the CLI <-> daemon IPC: the daemon, as a caller sees it.
 
-Commands connect to a per-user Unix domain socket and exchange newline-delimited
-JSON messages. There is one function here per operation the daemon serves, and
-each answers in the terms a caller thinks in: a typed reply, or the very
-exception the daemon caught, rebuilt by :func:`a4i.errors.from_payload`. Nobody
-outside handles a tag.
-
-Whether a missing daemon is started is settled here rather than asked of the
-caller, because for four of the six operations there is only one right answer.
-:func:`status`, :func:`logout` and :func:`stop` never start one -- asking whether
-a daemon is running must not bring one into being, and neither must ending a
-session that is not there. :func:`login` always starts one, since a login with
-nowhere to put the token is not a login. Only :func:`get` and :func:`post` take
-the question, because there the answer differs by caller: a command is something
-a person just typed, while the MCP server is launched by whatever started the
-editor and a daemon spawned on that account is one nobody asked for.
+One function per operation the daemon serves, each answering in the terms a
+caller thinks in: a typed reply, or the very exception the daemon caught, so
+nobody outside handles a tag. Whether a missing daemon is started is settled
+here rather than asked of the caller, except where the right answer differs by
+caller: a command is something a person just typed, where the MCP server is
+launched by whatever started the editor.
 """
 
 from __future__ import annotations
@@ -62,7 +53,7 @@ class LoginReply(TypedDict):
 
 
 class EndReply(TypedDict):
-    """What ending a session answers: whether the APIC could be told, and nothing else.
+    """What ending a session answers: whether the APIC could be told.
 
     The token is gone from the daemon either way, so this is a warning over a
     logout that succeeded rather than a failure to report.
@@ -127,12 +118,10 @@ def socket_path() -> Path:
 def check_socket_dir(directory: str | Path) -> None:
     """Raise :class:`DaemonError` unless *directory* is private and ours.
 
-    The socket may sit under a world-writable ``/tmp``, where the socket name is
-    predictable from the uid. Another user cannot delete our socket there (the
-    sticky bit forbids it) but can create the path first, and a client that then
-    connected would hand its APIC password to whoever is listening. Owning the
-    enclosing directory is what rules that out, so both sides refuse a directory
-    that is not a 0700 directory belonging to this user.
+    The socket may sit under a world-writable ``/tmp``, where its name is
+    predictable from the uid: another user cannot delete it (the sticky bit
+    forbids it) but can create the path first, and a client that then connected
+    would hand its APIC password to whoever is listening. Both sides check.
 
     A missing directory is not an error: it only means no daemon has started yet.
     """
@@ -280,10 +269,10 @@ def login(
     A daemon is started if none is running: a login with nowhere to put the
     token would be no login at all.
 
-    ``timeout`` bounds every request the daemon will then send, in seconds. It is
-    left out of the message entirely when None, so that the daemon's own default
-    applies and this module needs no copy of it -- importing the one it would
-    copy costs httpx2 on every command that goes through here.
+    ``timeout`` bounds every request the daemon will then send, in seconds, and
+    is left out of the message entirely when None, so that this module needs no
+    copy of the default -- importing the one it would copy costs httpx2 on every
+    command that goes through here.
     """
 
     args: dict[str, Any] = {
@@ -309,11 +298,7 @@ def logout() -> EndReply:
 
 
 def status() -> Status:
-    """Say what the daemon is holding.
-
-    Starts nothing, for the obvious reason: asking whether a daemon is running
-    must not be what brings one into being.
-    """
+    """Say what the daemon is holding. Starts nothing, as :func:`logout`."""
 
     return _request("status", {}, autostart=False)
 
@@ -360,10 +345,8 @@ def fetch(*, autostart: bool = True) -> dict[str, Any]:
 def fabric() -> Any:
     """Return the fabric a fetch left in the daemon, as one body.
 
-    Starts nothing: a daemon brought into being to answer this would hold no
-    fabric, so a daemon that is not running is answered with what one that is
-    would have said. "No a4i daemon is running" is true and leads nowhere; the
-    next move is the same either way, and it is a fetch.
+    Starts nothing, and a daemon that is not running is answered as one holding
+    no fabric would answer: the next move is a fetch either way.
 
     Raises :class:`~a4i.errors.NoFabricError` when nothing has been fetched.
     """

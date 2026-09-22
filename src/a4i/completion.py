@@ -1,15 +1,10 @@
 """Shell completion, derived from the ``argparse`` parser itself.
 
-Everything on offer comes from the parser: which commands and subcommands exist,
-which options exist, which of them take a value, their ``choices``, and where the
-positional arguments are. The parser is therefore the single source of truth, and
-adding an option to the CLI cannot leave the completion behind.
-
-Nothing here reaches the APIC or the daemon, and nothing loads a dictionary: a
-tab press is answered from the parser alone, so it costs one process start and no
-I/O. Class names and DNs are listed by ``a4i list`` instead, where the wait is
-the user's to ask for. The one candidate source that is not plain ``choices`` is
-the comma-separated list, which ``choices`` cannot express.
+Everything on offer comes from the parser, so adding an option to the CLI cannot
+leave the completion behind. Nothing here reaches the APIC or the daemon, and
+nothing loads a dictionary: a tab press costs one process start and no I/O, and
+class names and DNs are listed by ``a4i list`` instead, where the wait is the
+user's to ask for.
 """
 
 from __future__ import annotations
@@ -69,8 +64,7 @@ def attach(action: argparse.Action, completer: Completer) -> None:
     """Give an argparse action a completion callback.
 
     argparse has no notion of completion, so the callback rides along on the
-    action as an attribute -- the convention argcomplete established -- which
-    keeps the parser the one place the CLI is described.
+    action as an attribute, the convention argcomplete established.
     """
 
     cast("_Completable", action).completer = completer
@@ -265,10 +259,8 @@ def complete(parser: argparse.ArgumentParser) -> int:
 # -- the widget itself ----------------------------------------------------
 
 _SCRIPTS = {
-    # Every widget is plainly synchronous. Nothing a tab press asks for reaches
-    # the network any more, so there is nothing slow enough to need an indicator
-    # -- which is just as well, since only zsh could have drawn one without
-    # leaving debris on the command line.
+    # Every widget is plainly synchronous: nothing a tab press asks for reaches
+    # the network, so there is nothing slow enough to need an indicator.
     "zsh": f"""\
 #compdef a4i
 _a4i_completion() {{

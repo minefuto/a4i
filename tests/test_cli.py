@@ -20,8 +20,8 @@ from a4i.session import DEFAULT_TIMEOUT
 
 # -- an unusable socket must not read as "no daemon" ------------------------
 #
-# logout, daemon status and daemon stop all treat a failed request as "there is
-# no daemon", which would otherwise hide a socket this client refuses to use.
+# logout, daemon status and daemon stop all treat a failed request as "there is no
+# daemon", which would hide a socket this client refuses to use.
 
 
 def _raise_session_op(monkeypatch, exc: BaseException) -> None:
@@ -177,8 +177,8 @@ def test_login_asks_for_the_timeout_it_was_given(monkeypatch, capsys) -> None:
 
 
 def test_login_without_a_timeout_asks_for_the_session_default(monkeypatch, capsys) -> None:
-    # Resolved here rather than left to the daemon so that the number a login
-    # asks for is always the number it was given.
+    # Resolved here rather than left to the daemon, so that the number a login asks
+    # for is the number it was given.
     sent = _record_login(monkeypatch)
     assert cli.main(["login", "apic.test", "-u", "admin"]) == 0
     assert sent[0]["timeout"] == DEFAULT_TIMEOUT
@@ -293,9 +293,7 @@ def test_get_maps_every_option_to_its_aci_parameter(monkeypatch) -> None:
         "order-by": "fvTenant.name|desc",
     }
     # httpx2 preserves the insertion order, so this is the order the parameters
-    # appear in the URL. It follows the APIC documentation's grouping: scoping
-    # filters, response subtree filters, then sorting (paging follows, untested
-    # here because this command line gives no --page).
+    # appear in the URL, which follows the APIC documentation's grouping.
     assert list(sent["params"]) == [
         "query-target",
         "target-subtree-class",
@@ -372,8 +370,7 @@ def _run_dry_run(monkeypatch, argv: list[str], response=None) -> tuple[int, list
     """Run a dry run with nothing fetched, so it reads the fabric for itself.
 
     The daemon holding nothing is said rather than left to the machine the tests
-    run on: a real daemon with a real fetch in it would otherwise send the dry
-    run down the other path, and these are the tests of this one.
+    run on, where a real fetch would send the dry run down the other path.
     """
 
     sent: list[dict] = []
@@ -414,9 +411,8 @@ def test_dry_run_gets_the_current_subtree_and_never_posts(monkeypatch, capsys) -
 
 
 def test_dry_run_uses_the_fetched_fabric_and_asks_the_apic_for_nothing(monkeypatch, capsys) -> None:
-    # What fetch read covers the whole of uni, so it answers for any body a POST
-    # could carry: no GET of the body's own subtree on top of the one already
-    # paid for.
+    # What fetch read covers the whole of uni, so no GET of the body's own subtree
+    # is needed on top of the one already paid for.
     sent: list[dict] = []
     _record(monkeypatch, sent, TENANT)
     _hold(monkeypatch, TENANT)
@@ -429,8 +425,7 @@ def test_dry_run_uses_the_fetched_fabric_and_asks_the_apic_for_nothing(monkeypat
 
 
 def test_dry_run_says_which_fabric_it_compared_against(monkeypatch, capsys) -> None:
-    # Either path is correct; which one ran is not something the report can
-    # leave a reader to guess at.
+    # Either path is correct, so which one ran cannot be left to a guess.
     argv = [
         "post",
         "mo",
@@ -542,7 +537,7 @@ def test_plan_carries_an_unchanged_ancestor_and_says_how_many(monkeypatch, capsy
     )
     captured = capsys.readouterr()
     # The tenant does not change, so the report has no line for it; the body
-    # carries it all the same, because the BD hangs under it.
+    # carries it because the BD hangs under it.
     assert "fvTenant" not in captured.err
     assert "1 created, 0 modified, 0 deleted" in captured.err
     assert "1 MO the report has no line for" in captured.err
@@ -658,8 +653,7 @@ FABRIC = {
             {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-bd1", "name": "bd1", "mtu": "1500"}}}
         ]
     },
-    # Answered to a class query rather than a DN, which is how a class target is
-    # turned into the DNs the subtrees are then read by.
+    # A class query rather than a DN, which is how the subtree DNs are found.
     "fvBD": {"imdata": [{"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-bd1"}}}]},
     "uni/tn-demo": {
         "imdata": [
@@ -722,8 +716,7 @@ def test_fetch_reads_uni_and_says_what_it_held(monkeypatch, capsys) -> None:
     # uni is listed, then each child fetched whole.
     assert [request["target"] for request in sent] == ["uni", "uni/tn-demo"]
     out = capsys.readouterr().out
-    # The body is not printed: it is held for diff and plan, and saying so is
-    # the whole of what a person needs from this command.
+    # The body is not printed: it is held for diff and plan.
     assert "fvTenant" not in out
     assert "fetched 2 MOs into the daemon cache" in out
     assert "until the next post" in out
@@ -740,9 +733,8 @@ def test_fetch_takes_no_arguments(capsys) -> None:
 def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
     """Run a diff command line against a fabric already fetched.
 
-    The fetch is run first, through the same mocked daemon, so what the diff
-    compares against is what the real walk of uni would have left behind. The
-    requests recorded are therefore the fetch's; a diff makes none of its own.
+    The fetch is run first, through the same mocked daemon, so the requests
+    recorded are its: a diff makes none of its own.
     """
 
     sent: list[dict] = []
@@ -826,9 +818,8 @@ def test_diff_reports_a_changed_attribute(monkeypatch, capsys) -> None:
 
 
 def test_diff_says_nothing_about_a_status_the_configuration_carries(monkeypatch, capsys) -> None:
-    # A merged body keeps "status" so that a post can still delete. It directs
-    # the APIC rather than describing it, so the fabric has nothing to hold it
-    # against and the comparison passes over it.
+    # A merged body keeps "status" so that a post can still delete, but it directs
+    # the APIC rather than describing it, so the comparison passes over it.
     deleting = {
         "fvTenant": {
             "attributes": {"dn": "uni/tn-demo", "name": "demo", "descr": "", "status": "deleted"},
@@ -886,8 +877,8 @@ def test_diff_rejects_a_body_it_cannot_parse(monkeypatch, capsys) -> None:
 
 
 def test_diff_refuses_a_configuration_that_describes_no_mo(monkeypatch, capsys) -> None:
-    # Taken at face value an empty configuration means the whole fabric is
-    # extra, and what it means in practice is a path that pointed at nothing.
+    # Taken at face value it means the whole fabric is extra; in practice it is a
+    # path that pointed at nothing.
     code, _ = _run_diff(monkeypatch, ["diff", "[]"])
     captured = capsys.readouterr()
     assert "empty" in captured.err
@@ -967,9 +958,9 @@ CHILDREN = {
 }
 
 
-# What the query asks for, and that the DNs come back sorted, bare and without
-# duplicates, is Client.list_children's and is verified there. What is left here
-# is that this command hands its arguments over and prints what comes back.
+# What the query asks for, and the shape the DNs come back in, is
+# Client.list_children's and is verified there. What is left here is that this
+# command hands its arguments over and prints what comes back.
 
 
 def test_list_mo_prints_one_dn_per_line(monkeypatch, capsys) -> None:
@@ -1019,13 +1010,12 @@ def test_list_mo_reports_a_daemon_error(monkeypatch, capsys) -> None:
 
 # -- search -----------------------------------------------------------------
 #
-# Neither search nor describe reaches the fabric, so every one of these runs
-# against the dictionary that ships with a4i and none of them needs a transport.
+# Neither search nor describe reaches the fabric, so these run against the bundled
+# dictionary and need no transport.
 
 
 def test_search_reports_no_match_as_a_failure(capsys) -> None:
-    # Unlike 'list class', which answers a prefix and may answer with nothing,
-    # a search is asked on the belief that something is there.
+    # Unlike 'list class', a search is asked on the belief that something is there.
     assert cli.main(["search", "zzzznope"]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -1060,9 +1050,8 @@ def test_search_json_carries_the_three_columns(capsys) -> None:
 
 
 def test_describe_json_carries_the_bound_the_layout_leaves_out(capsys) -> None:
-    # fvCtx.vrfIndex is bounded 1 to 0 in the MIM, which describes no value at
-    # all. The layout drops it (tests/test_output.py); --json is the way to see
-    # for yourself that it is really in there.
+    # fvCtx.vrfIndex is bounded 1 to 0 in the MIM, which describes no value at all.
+    # The layout drops it (tests/test_output.py); --json still carries it.
     assert cli.main(["describe", "fvCtx", "--json"]) == 0
     record = json.loads(capsys.readouterr().out)
     assert record["props"]["vrfIndex"]["validators"] == [{"min": 1, "max": 0}]
@@ -1078,8 +1067,8 @@ def test_describe_rejects_an_unknown_class_with_what_to_try(capsys) -> None:
 
 
 def test_describe_json_is_what_the_mcp_tool_serves(capsys) -> None:
-    # The layout above is for a person and the JSON is for a model, but they are
-    # the one record: a piped 'describe --json' and the MCP tool must not differ.
+    # One record either way: a piped 'describe --json' and the MCP tool must not
+    # differ.
     from a4i.mcp import tools
 
     assert cli.main(["describe", "fvBD", "--json"]) == 0
@@ -1140,7 +1129,7 @@ def test_diff_leaves_out_an_mo_by_an_attribute_condition(monkeypatch, capsys) ->
 
 
 def test_diff_warns_about_a_condition_that_matched_nothing(monkeypatch, capsys) -> None:
-    # A misspelt attribute leaves nothing out, and would otherwise say nothing.
+    # A misspelt attribute leaves nothing out, and otherwise says nothing.
     argv = ["diff", json.dumps(INTENDED), "--exclude", "uni/tn-demo/BD-*[mut=1500]"]
     code, _ = _run_diff(monkeypatch, argv)
     captured = capsys.readouterr()

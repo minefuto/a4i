@@ -1,20 +1,14 @@
 """The MCP server itself: JSON-RPC 2.0 over newline-delimited stdio.
 
 Written out rather than taken from the MCP SDK, for the reason argparse is here
-instead of Typer: this process is started afresh every time an MCP client
-launches, and the SDK's import costs more than everything it would be doing. The
-surface actually used is five methods and one notification, none of which needs
-a framework.
+instead of Typer: this process starts afresh every time an MCP client launches,
+and the SDK's import costs more than everything it would be doing. Six methods
+and one notification, none of which needs a framework.
 
-The protocol is one JSON object per line, in both directions. A request carries
-an ``id`` and gets exactly one reply; a notification carries none and gets none.
-
-The one thing here that is not plain request-and-reply is the tool list. Whether
-``post`` is offered depends on whether the daemon was logged in read-only, and
-the daemon is usually not logged in at all when a client starts up and asks. So
-the list is built from the daemon's state each time it is asked for, and when
-that state turns out to have changed, a ``notifications/tools/list_changed`` goes
-out and the client asks again.
+The one thing that is not plain request-and-reply is the tool list: whether
+``post`` is offered follows the daemon's session, so the list is built from its
+state each time it is asked for, and a ``notifications/tools/list_changed`` goes
+out when that state turns out to have changed.
 """
 
 from __future__ import annotations
@@ -50,9 +44,8 @@ class Server:
     """One MCP session.
 
     :meth:`handle` takes one parsed message and returns the messages to send
-    back -- usually one reply, sometimes a notification alongside it, and nothing
-    at all for a notification from the client. Keeping the transport out of it is
-    what lets the protocol be tested by handing it messages.
+    back, the transport staying outside so that the protocol can be tested by
+    handing it messages.
     """
 
     def __init__(self) -> None:
@@ -67,11 +60,8 @@ class Server:
         """Return whether the daemon is holding a read-only session.
 
         A daemon that is not running, or not logged in, is not read-only as far
-        as this is concerned. That matters: the client asks for the tool list
-        before anyone has logged in, and hiding ``post`` on the strength of a
-        session that does not exist yet would hide it from the ordinary case as
-        well -- a client that lists tools once at startup would never see it
-        again. Only a session known to be read-only takes it away.
+        as this is concerned: a client that lists tools once at startup, before
+        anyone has logged in, would otherwise never be offered ``post`` at all.
         """
 
         try:
@@ -127,9 +117,8 @@ class Server:
         return {
             "protocolVersion": self._protocol_version,
             "capabilities": {
-                # listChanged, because whether post is offered follows the
-                # daemon's session, which outlives no client and starts after
-                # most of them.
+                # listChanged, because whether post is offered follows a daemon
+                # session that usually starts after the client does.
                 "tools": {"listChanged": True},
                 "resources": {},
             },
@@ -155,8 +144,7 @@ class Server:
             text = tools.call(name, arguments)
         except tools.ToolError as exc:
             # A tool that failed is a result, not a protocol error: the model is
-            # meant to read what went wrong and try something else, which it
-            # cannot do with a JSON-RPC error.
+            # meant to read what went wrong and try something else.
             return _content(str(exc), is_error=True)
         return _content(text)
 

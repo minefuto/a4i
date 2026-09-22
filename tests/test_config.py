@@ -122,9 +122,8 @@ def test_a_file_that_is_already_there_is_refused(tmp_path) -> None:
 def test_the_refusal_names_no_way_out(tmp_path) -> None:
     """The way out belongs to the caller's interface, so this must not guess it.
 
-    'a4i merge' says --force and the MCP merge tool says overwrite: true. A
-    remedy written here would be wrong for one of them, and each entry point
-    adds its own.
+    'a4i merge' says --force and the MCP merge tool says overwrite: true, so a
+    remedy written here would be wrong for one of them.
     """
 
     out = tmp_path / "tn.json"

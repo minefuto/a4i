@@ -1,16 +1,12 @@
 """How the bundled model is laid out, at the width it is being read at.
 
-These run against a4i.output directly, over a console opened on a string. That
-is what lets a width be named: the layout decides what to cut and what to drop
-from how wide the terminal is, and a test that went through the command line
-would be reading a pipe, which has no width to overflow.
+These run against a4i.output directly, over a console opened on a string, which
+is what lets a width be named: a test going through the command line would be
+reading a pipe, which has no width to overflow. They run against the dictionary
+that ships with a4i, whose numbers -- thirty properties, thirty-four children,
+forty parents -- are what the layout exists to cope with.
 
-They run against the dictionary that ships with a4i rather than against records
-written here, because the numbers this lays out -- thirty properties, thirty-four
-children, forty parents -- are what the layout exists to cope with.
-
-What the commands do with all this -- which renderer they reach for, what they
-say on stderr, what they return -- is tests/test_cli.py's.
+What the commands do with all this is tests/test_cli.py's.
 """
 
 from __future__ import annotations
@@ -53,10 +49,9 @@ def _describe(class_name: str, width: int | None = None, raw: bool = False, **kw
     return _rendered(console)
 
 
-# A width to lay out at, with the styling off. It is what --raw on a terminal
-# gives, and it is the state a layout can be read back from exactly: the escape
-# codes a styled line carries are not columns, and counting them as columns is
-# how you come to believe a line fits when it does not.
+# A width to lay out at, with the styling off: what --raw on a terminal gives, and
+# the one state a layout can be read back from exactly, the escape codes a styled
+# line carries not being columns.
 SIZED = {"raw": True}
 
 
@@ -65,8 +60,8 @@ SIZED = {"raw": True}
 
 def test_the_class_name_opens_every_line() -> None:
     lines = _search("bridge domain", 5).splitlines()
-    # The label is what matched, and fvBD is the bridge domain rather than one
-    # of the two hundred relations pointing at it.
+    # The label is what matched, and fvBD is the bridge domain rather than one of
+    # the relations pointing at it.
     assert lines[0].split()[0] == "fvBD"
     assert all(line.split()[0].isalnum() for line in lines)
 
@@ -78,23 +73,21 @@ def test_a_line_is_cut_to_the_terminal_width() -> None:
 
 
 def test_the_summary_is_dropped_when_it_cannot_be_fitted() -> None:
-    # Below twenty columns what is left of a summary is a fragment, and a column
-    # of fragments is worse than a table of names and labels.
+    # Below twenty columns what is left of a summary is a fragment.
     assert _search("bridge domain", 1, width=32, **SIZED).splitlines()[0] == "fvBD  Bridge Domain"
 
 
 def test_a_piped_summary_is_left_whole() -> None:
-    # Nothing is watching, so nothing is cut: what a person would have seen
-    # truncated still reaches grep entire.
+    # Nothing is watching, so nothing is cut: what a person would have seen cut
+    # still reaches grep entire.
     assert "…" not in _search("bridge domain", 1)
 
 
 def test_a_terminal_styles_the_class_name_and_raw_takes_it_away() -> None:
     """The two questions the console is asked, and why they are not one.
 
-    --raw asks for the styling to go. It does not ask for the lines to stop
-    fitting the terminal they are still being read in: both of these are cut to
-    sixty, and only one of them is styled.
+    --raw asks for the styling to go, not for the lines to stop fitting the
+    terminal: both of these are cut to sixty, and only one is styled.
     """
 
     styled = _search("bridge domain", 1, width=60).splitlines()[0]
@@ -126,22 +119,21 @@ def test_the_naming_property_is_marked() -> None:
 def test_the_permitted_values_and_the_default_are_given() -> None:
     out = _describe("fvBD")
     assert "flood|proxy = proxy" in out
-    # No permitted values, so the length a string may be is what a body gets
-    # wrong; the type alone would not have said it.
+    # No permitted values, so the length a string may be is what a body gets wrong.
     assert "string:Basic (1-64)" in out
 
 
 def test_a_narrow_terminal_keeps_the_values_and_drops_the_prose() -> None:
-    # Permitted values are what a body gets wrong; a description only helps you
-    # guess which property you wanted. So the description is what gives way.
+    # The description is what gives way: permitted values are what a body gets
+    # wrong.
     out = _describe("fvBD", width=76, **SIZED)
     assert "  arpFlood                  no|yes = no\n" in out
     assert "A property to specify" not in out
 
 
 def test_a_bound_nothing_can_satisfy_is_not_printed() -> None:
-    # fvCtx.vrfIndex is bounded 1 to 0 in the MIM, which describes no value at
-    # all. The JSON still carries it -- see tests/test_cli.py.
+    # fvCtx.vrfIndex is bounded 1 to 0 in the MIM, which describes no value at all.
+    # The JSON still carries it -- see tests/test_cli.py.
     assert "vrfIndex             scalar:Uint32 = 0" in _describe("fvCtx")
 
 
@@ -165,13 +157,13 @@ def test_the_children_are_counted_and_listed_on_request() -> None:
 
 
 def test_a_class_that_cannot_be_configured_says_so() -> None:
-    # Most of the dictionary is classes like this, so the absent rn line has to
-    # read as "this cannot be created" rather than as something left out.
+    # The absent rn line has to read as "this cannot be created" rather than as
+    # something left out.
     out = _describe("aaaAppToken")
     assert "(read-only class)" in out
     assert "\nrn  " not in out
-    # Every property is read-only here, so hiding them would leave a heading
-    # with nothing under it.
+    # Every property is read-only here, so hiding them would leave a heading with
+    # nothing under it.
     assert "all read-only" in out
     assert "appName" in out
 
@@ -199,8 +191,7 @@ def test_json_is_written_past_richs_wrapping() -> None:
     """A wrapped line is a JSON document broken in half.
 
     rich wraps to the console's width, which for anything but a terminal is a
-    default 80. The plain path writes to the console's file instead, so a long
-    value survives whatever the width happens to be.
+    default 80, so the plain path writes to the console's file instead.
     """
 
     console = _console()
@@ -215,8 +206,7 @@ def test_json_is_written_past_richs_wrapping() -> None:
 
 def test_a_message_is_written_as_itself_and_not_as_markup(capsys) -> None:
     # A DN is written "annotationKey-[bootx.node.1.cimc]", and rich would read
-    # those brackets as a style and drop them -- from the very error telling
-    # somebody which DN to go and fix.
+    # those brackets as a style and drop them from the very error naming it.
     dn = "uni/controller/annotationKey-[bootx.node.1.cimc]"
     output.print_error(f'nothing describes "{dn}"')
     output.print_note(f"[dim]{dn}")

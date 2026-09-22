@@ -1,21 +1,10 @@
 """Turning an MO body into a DN, and the shape of a difference in one.
 
-Both comparisons in this package start here: what a POST would change
-(:mod:`a4i.dry_run`) and how a fabric differs from an intended configuration
-(:mod:`a4i.diff`). Each reads both of its sides into a DN index with
-:func:`a4i.merge.read`, and each reports what it found as a :class:`Change`.
-Turning a body's child MO into a DN is what that reading is built on, and it
-lives here; what the comparisons make of it does not.
-
-The hard part is that an ACI body names its children by a naming property
-(``name``, ``ip``, ``tDn``, ...) rather than by DN. Turning that into a DN needs
-the class's RN format, and those are bundled: :mod:`a4i.metadata` carries one per
-configurable class, so a DN follows from the body alone and never from what the
-fabric happens to be carrying.
-
-A class the dictionary does not know is stood in for by :func:`pseudo_rn`, which
-names the MO after the attributes the body does give. It keys as well as a real
-RN would -- what it cannot do is be typed back into a query.
+An ACI body names its children by a naming property (``name``, ``ip``, ``tDn``,
+...) rather than by DN, so a DN is built from the class's RN format, which
+:mod:`a4i.metadata` bundles -- never from what the fabric happens to carry.
+Both comparisons (:mod:`a4i.diff`, :mod:`a4i.dry_run`) are built on that reading
+and report what they found as a :class:`Change`.
 """
 
 from __future__ import annotations
@@ -32,11 +21,9 @@ from a4i.metadata import rn_format
 # value worth diffing.
 META = frozenset({"dn", "rn", "status", "childAction"})
 
-# The policy universe every configurable MO hangs under, and the class of the
-# MO itself. Both are facts about the tree rather than about one command, which
-# is why they sit here: a4i.merge reads an input down from ROOT and posts its
-# output there, and a4i.validate has to follow the same walk to say where in an
-# input it found something wrong.
+# The policy universe every configurable MO hangs under, and the class of the MO
+# itself. Facts about the tree rather than about one command, which is why they
+# sit here rather than in a4i.merge.
 ROOT = "uni"
 WRAPPER = "polUni"
 
@@ -70,13 +57,9 @@ class Change:
 def child_dn(parent: str, class_name: str, body: dict[str, Any]) -> tuple[str, bool]:
     """Return the DN a body's child MO refers to under ``parent``, and whether it names one.
 
-    An explicit ``dn`` or ``rn`` in the body wins. Failing that the class's RN
-    format says how to build one: ``BD-{name}`` filled in from the attributes.
-    Where the format calls for an attribute the body does not give, the RN is a
-    :func:`pseudo_rn` and the second value is False -- the body names no one MO,
-    and diff says so rather than comparing. A class the dictionary has never
-    heard of gets a stand-in too, but True with it: an unknown class is the
-    dictionary falling short, not the input.
+    False only where an RN format is known and the body does not give what it
+    fills from: a class the dictionary has never heard of gets a stand-in RN and
+    True with it, being the dictionary falling short rather than the input.
     """
 
     attributes = body.get("attributes") or {}
@@ -98,9 +81,7 @@ def child_dn(parent: str, class_name: str, body: dict[str, Any]) -> tuple[str, b
 def fill_rn(fmt: str, attributes: dict[str, Any]) -> str | None:
     """Return ``fmt`` with its ``{attribute}`` slots filled in, or None if one is not.
 
-    One expression covers every shape an RN takes: a fixed string (``rsctx``), a
-    value (``BD-{name}``), a bracketed one (``subnet-[{ip}]``) and a compound
-    (``from-[{from}]-to-[{to}]``).
+    An empty value counts as missing, not as a value.
     """
 
     missing = False
@@ -120,13 +101,8 @@ def fill_rn(fmt: str, attributes: dict[str, Any]) -> str | None:
 def matches_rn(fmt: str, rn: str) -> bool:
     """True when ``rn`` is an RN ``fmt`` writes: the reading of :func:`fill_rn`.
 
-    Building an RN fills the slots in from an MO's attributes; reading one back
-    asks only whether the text could have come out of that format, because what
-    a slot held is not wanted -- :mod:`a4i.merge` asks this of a DN it has and a
-    class it is weighing up.
-
-    A slot stands for a naming value, so it matches one character at least and
-    a "/" among them: ``subnet-[{ip}]`` writes ``subnet-[10.0.0.1/24]``. Every
+    A slot stands for a naming value, so it matches one character at least and a
+    "/" among them: ``subnet-[{ip}]`` writes ``subnet-[10.0.0.1/24]``. Every
     other character of a format is itself.
     """
 
@@ -138,8 +114,8 @@ def _rn_pattern(fmt: str) -> re.Pattern[str]:
     """The compiled reading of one RN format.
 
     Cached because :mod:`a4i.merge` weighs one RN against every format the
-    dictionary holds, and compiling all 2,806 of them again per gap is the whole
-    cost of filling one in.
+    dictionary holds, and compiling all of them again per gap is the whole cost
+    of filling one in.
     """
 
     parts = _SLOT.split(fmt)
@@ -152,15 +128,11 @@ def _rn_pattern(fmt: str) -> re.Pattern[str]:
 def pseudo_rn(class_name: str, attributes: dict[str, Any]) -> str:
     """Return a stand-in RN for an MO whose real one cannot be worked out.
 
-    ``fvCtx[name=vrf1]``: the class, and what the input gave to tell this MO from
-    its siblings. ACI builds an RN as a prefix and a value, never as ``key=value``,
-    so a stand-in cannot be mistaken for one the APIC would return, nor collide
-    with the real RN of a sibling.
-
-    ``name`` names most classes, and using it alone is what lets one MO written
-    across two inputs merge. Failing that every attribute goes in, so two inputs
-    merge only when they say the very same thing: an MO reported twice is a
-    nuisance, one silently merged away is a fabric that reads as matching.
+    ``fvCtx[name=vrf1]``. ACI writes no RN as ``key=value``, so a stand-in cannot
+    be mistaken for one the APIC would return. Falling back to every attribute
+    rather than to fewer keeps two inputs from merging unless they say the very
+    same thing: an MO reported twice is a nuisance, one silently merged away is a
+    fabric that reads as matching.
     """
 
     name = attributes.get("name")
@@ -177,16 +149,8 @@ def pseudo_rn(class_name: str, attributes: dict[str, Any]) -> str:
 def top_level_dns(imdata: Any) -> list[str]:
     """Return the DNs of the MOs at the top level of a GET response, sorted.
 
-    This reads a DN the APIC has already written, which is the other half of
-    :func:`child_dn` -- and the reason the two are not named alike. That one
-    *builds* a DN for an MO an input asked for, from the class's RN format,
-    standing one in where the format cannot be filled. Nothing is built here: a
-    response is not an input, so an MO it does not name is left out rather than
-    given a stand-in.
-
-    Sorted and de-duplicated, so that what gets printed and what gets walked
-    follow from the set of MOs returned rather than from the order they arrived
-    in.
+    Nothing is built here, unlike in :func:`child_dn`: a response is not an
+    input, so an MO it does not name is left out rather than given a stand-in.
     """
 
     dns: set[str] = set()
@@ -212,11 +176,7 @@ def split_mo(mo: Any) -> tuple[str, dict[str, Any]] | None:
 
 
 def tail_rn(dn: str) -> str:
-    """Return the last RN of ``dn``.
-
-    A naming value can hold a "/" of its own -- ``subnet-[10.0.0.1/24]`` -- so
-    the separator is only a separator outside brackets.
-    """
+    """Return the last RN of ``dn``, the "/" inside brackets being naming values."""
 
     depth = 0
     for position in range(len(dn) - 1, -1, -1):
@@ -240,11 +200,9 @@ def parent_dn(dn: str) -> str | None:
 
 
 def split_rns(dn: str) -> list[str]:
-    """Split ``dn`` into its RNs, at the "/" that separate one from the next.
+    """Split ``dn`` into its RNs, as :func:`tail_rn` splits off the last one.
 
-    :func:`tail_rn` read forwards and read to the end, and a separator means the
-    same here as it does there: a "/" inside brackets belongs to a naming value,
-    so ``uni/tn-a/BD-b/subnet-[10.0.0.1/24]`` is four RNs and not five.
+    ``uni/tn-a/BD-b/subnet-[10.0.0.1/24]`` is four RNs and not five.
     """
 
     rns: list[str] = []
@@ -265,8 +223,7 @@ def split_rns(dn: str) -> list[str]:
 def is_under(dn: str, dns: Container[str]) -> bool:
     """True when ``dn`` is one of ``dns``, or hangs under one of them.
 
-    The ancestors are walked with :func:`parent_dn` rather than matched against
-    the text of the DN, because a naming value can hold a "/" of its own:
+    Walked with :func:`parent_dn` rather than matched against the text of the DN:
     ``uni/tn-a/BD-b/subnet-[10.0.0.1`` is a prefix of a real DN and an ancestor
     of nothing.
     """
@@ -282,11 +239,9 @@ def is_under(dn: str, dns: Container[str]) -> bool:
 def split_condition(name: str) -> tuple[str, tuple[str, str] | None]:
     """Split ``dn[key=value]`` into the DN and its attribute condition, if any.
 
-    A DN of its own ends with a "]" often enough -- ``subnet-[10.0.0.1/24]``,
-    ``rspathAtt-[topology/pod-1/paths-101/pathep-[eth1/1]]`` -- so a trailing
-    bracket group is a condition only when it holds a "=", which no ACI naming
-    value does. Nothing else is read: the group nearest the end is the
-    condition, and what precedes it is the DN, brackets of its own included.
+    A DN of its own ends with a "]" often enough -- ``subnet-[10.0.0.1/24]`` --
+    so a trailing bracket group is a condition only when it holds a "=", which no
+    ACI naming value does.
     """
 
     if not name.endswith("]"):
@@ -302,11 +257,7 @@ def split_condition(name: str) -> tuple[str, tuple[str, str] | None]:
 
 @dataclass
 class _Conditioned:
-    """A name that also holds an attribute condition, and cannot be settled yet.
-
-    Which MOs it covers is a question about their attributes, so it waits for
-    :meth:`Exclusions.resolve` to bring it the MOs of each side.
-    """
+    """A name that also holds an attribute condition, settled by :meth:`Exclusions.resolve`."""
 
     name: str
     rns: tuple[Callable[[str], Any], ...]
@@ -369,41 +320,18 @@ class _Names:
 
 
 class Exclusions:
-    """The MOs a comparison leaves out, each named by a DN or by a pattern.
+    """The MOs a comparison leaves out, each named by a DN, a pattern or a "!" exception.
 
-    A name holding no "*" is a DN and is matched as one, which is what it always
-    was. One holding a "*" is a pattern, and a "*" stands for any part of a
-    single RN: ``uni/tn-test*`` covers ``uni/tn-test`` and ``uni/tn-testbed``.
-    Nothing else in a pattern is special -- brackets, dots and commas match
-    themselves -- so ``uni/tn-x/BD-b/subnet-[10.0.0.1/24]`` goes on naming that
-    one subnet and no other.
+    A "*" stands for any part of a single RN and never runs across a "/", which
+    is the point of not reaching for :mod:`fnmatch` or :mod:`re`: an exclusion
+    that covers a subtree by accident is a comparison that reports no difference,
+    and fnmatch would read ``[10.0.0.1/24]`` as a set of characters besides.
 
-    RNs are matched one by one rather than the DN as a whole, and that is the
-    point of not reaching for :mod:`fnmatch` or :mod:`re`: a "*" that ran across
-    a "/" would cover a subtree by accident, and an exclusion that covers too
-    much is a comparison that reports no difference. It also leaves a bracket a
-    bracket, where fnmatch would read ``[10.0.0.1/24]`` as a set of characters.
-
-    Covering a subtree costs a pattern nothing extra: :meth:`covers` walks the
-    ancestors the way :func:`is_under` does, so an MO under a covered one is
-    covered too, whether or not a pattern would match its own DN.
-
-    A name written with a leading "!" is an exception rather than an exclusion:
-    ``["uni/tn-*", "!uni/tn-mgmt"]`` leaves out every tenant but that one. The
-    deepest ancestor to match decides, and an exception outranks an exclusion of
-    its own depth, so what an exception brought back can be cut into again
-    further down (``["uni/*", "!uni/tn-mgmt", "uni/tn-mgmt/BD-*"]``). Nothing
-    turns on the order the names are given in.
-
-    A name may end with one attribute condition -- ``uni/tn-*/BD-*[descr=auto-*]``
-    -- which narrows it to the MOs of that depth whose attribute matches, the
-    value read as a "*" pattern like an RN. A condition cannot be answered from
-    a DN, so :meth:`resolve` settles it against each side's MOs before
-    :meth:`covers` is asked anything, and what it matched is held as the DNs it
-    matched. Both sides are resolved and the matches are pooled: an MO the
-    configuration and the fabric disagree about is left out on the strength of
-    either value, since dropping it from one side alone would report it missing
-    or extra -- an exclusion inventing the difference it was written to quiet.
+    A name may end with one attribute condition, which no DN can answer, so
+    :meth:`resolve` settles those against each side's MOs before :meth:`covers`
+    is asked anything. Both sides are resolved and the matches pooled: dropping
+    an MO from one side alone would report it missing or extra -- an exclusion
+    inventing the difference it was written to quiet.
     """
 
     def __init__(self, dns: Iterable[str] = ()) -> None:
@@ -415,10 +343,8 @@ class Exclusions:
     def resolve(self, index: dict[str, Any]) -> None:
         """Settle every conditioned name against one side's MOs, in place.
 
-        Called once per side, and before :meth:`covers` is asked anything: what
-        a conditioned name matched is added to the DNs named outright, so every
-        later question is the DN question it always was -- the ancestor walk
-        included, which is what carries an exclusion down a subtree.
+        What one matched is added to the DNs named outright, so every later
+        question is the DN question it always was -- the ancestor walk included.
         """
 
         if not (self._out.conditioned or self._kept.conditioned):
@@ -434,9 +360,8 @@ class Exclusions:
     def unused(self) -> list[str]:
         """Return the conditioned names that matched no MO on either side.
 
-        A DN naming nothing says something about the fabric and is left alone;
-        a condition matching nothing is as likely a misspelt attribute, which
-        would otherwise quietly leave nothing out at all.
+        A DN naming nothing says something about the fabric; a condition matching
+        nothing is as likely a misspelt attribute name.
         """
 
         return sorted(
@@ -454,15 +379,10 @@ class Exclusions:
     def covers(self, dn: str) -> bool:
         """True when ``dn`` is left out, whether named outright or by a pattern.
 
-        With nothing but DNs to go on this is :func:`is_under` and no more,
-        which is what every comparison written before patterns existed pays.
-        Otherwise the DN is taken apart once and every name is read off the one
-        walk down it: an ancestor is a DN to look up and a list of RNs to match,
-        and splitting it twice cost more than the matching did.
-
-        That walk runs to the bottom rather than stopping at the first exclusion
-        it meets, because a deeper name overrules a shallower one both ways and
-        only the last word counts.
+        With nothing but DNs to go on this is :func:`is_under` and no more.
+        Otherwise the DN is split once and every name read off that one walk,
+        which runs to the bottom rather than stopping at the first exclusion it
+        meets: a deeper name overrules a shallower one both ways.
         """
 
         if not (self._out.patterns or self._kept):
@@ -489,8 +409,8 @@ def _rn_match(rn: str) -> Callable[[str], Any]:
     if "*" not in rn:
         return rn.__eq__
     # Everything either side of a "*" is escaped, so "*" is the one character a
-    # pattern spells with. DOTALL for the same reason: what "*" stands for is
-    # any text at all, and nothing about a naming value is a line.
+    # pattern spells with. DOTALL for the same reason: nothing about a naming
+    # value is a line.
     return re.compile(".*".join(re.escape(part) for part in rn.split("*")), re.DOTALL).fullmatch
 
 

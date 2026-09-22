@@ -32,10 +32,9 @@ def children(body: dict) -> list[tuple[str, dict]]:
 def walk(body: dict) -> list[tuple[str, str, dict]]:
     """Return (class name, DN, attributes) of every merged MO, parents first.
 
-    The DN is rebuilt from the nesting and the "rn" each MO carries, which is
-    the whole of what the output says about where an MO sits. An MO carrying no
-    "rn" is given a "?" for it, so a test can tell one apart from an MO whose
-    RN merge decided not to write.
+    The DN is rebuilt from the nesting and the "rn" each MO carries, which is the
+    whole of what the output says about where an MO sits. An MO carrying no "rn"
+    is given a "?" for it.
     """
 
     def below(mos, parent: str) -> list[tuple[str, str, dict]]:
@@ -67,8 +66,7 @@ def test_the_output_is_a_poluni_that_says_where_it_goes() -> None:
 
 def test_every_mo_is_written_inside_the_mo_it_hangs_off() -> None:
     # The one shape a POST takes: the APIC reads a child against what its parent
-    # may hold, so a BD written beside its tenant is refused however right its
-    # DN is.
+    # may hold.
     body = merge(mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd1"})]))
     assert body == {
         "polUni": {
@@ -93,9 +91,8 @@ def test_an_mo_with_nothing_under_it_carries_no_children_key() -> None:
 
 
 def test_only_the_wrapper_carries_a_dn() -> None:
-    # Where an MO sits is what the nesting says. A second, absolute way of
-    # saying it would have to be rewritten in every descendant the day a tenant
-    # is renamed.
+    # Where an MO sits is what the nesting says; an absolute dn would have to be
+    # rewritten in every descendant the day a tenant is renamed.
     body = merge(mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd1"})]))
     assert body["polUni"]["attributes"]["dn"] == "uni"
     assert all("dn" not in attributes for _, _, attributes in walk(body))
@@ -111,15 +108,15 @@ def test_a_body_wrapped_in_poluni_is_read_through() -> None:
 
 
 def test_merging_what_merge_wrote_changes_nothing() -> None:
-    # The output is an input like any other, which is what lets a merged file be
-    # merged again with an override on top.
+    # The output is an input like any other, so a merged file can be merged again
+    # with an override on top.
     once = merge(mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd1"})]))
     assert merge(once) == once
 
 
 def test_the_output_reads_in_dn_order_whatever_order_the_inputs_came_in() -> None:
-    # Sorted rather than kept in input order, so the output is a function of the
-    # input set: adding a file changes only the lines that file contributes.
+    # Sorted rather than kept in input order: adding a file then changes only the
+    # lines that file contributes.
     body = merge(mo("fvTenant", {"name": "z"}), mo("fvTenant", {"name": "a"}))
     assert dns(body) == ["uni/tn-a", "uni/tn-z"]
 
@@ -141,8 +138,7 @@ def test_a_deep_mo_is_placed_under_the_whole_chain() -> None:
 
 
 def test_one_mo_written_across_two_inputs_becomes_one() -> None:
-    # Both land on the same DN, so a base and an override that each say part of
-    # the MO land on the one MO.
+    # Both land on the same DN.
     base = mo("fvTenant", {"name": "t"}, [mo("fvCtx", {"name": "v1", "pcEnfPref": "enforced"})])
     override = mo("fvTenant", {"name": "t"}, [mo("fvCtx", {"name": "v1", "descr": "x"})])
     ((_, tenant_dn, _), (_, ctx_dn, ctx)) = walk(merge(base, override))
@@ -159,8 +155,7 @@ def test_a_later_input_wins_attribute_by_attribute() -> None:
 
 
 def test_an_mo_is_the_same_mo_however_each_input_named_it() -> None:
-    # A dn, an rn and a naming property all resolve to the one key, so the three
-    # ways of writing the same MO merge rather than piling up.
+    # A dn, an rn and a naming property all resolve to the one key.
     by_dn = mo("fvTenant", {"dn": "uni/tn-t", "descr": "a"})
     by_rn = mo("fvTenant", {"rn": "tn-t", "nameAlias": "b"})
     by_name = mo("fvTenant", {"name": "t", "mtu": "c"})
@@ -169,8 +164,8 @@ def test_an_mo_is_the_same_mo_however_each_input_named_it() -> None:
 
 
 def test_the_rn_written_back_is_the_key_merge_settled_on() -> None:
-    # However an input said which MO it meant, what comes out is the last RN of
-    # the DN that keyed the merge -- never the "dn" the input happened to give.
+    # What comes out is the last RN of the DN that keyed the merge, never the
+    # "dn" the input happened to give.
     ((_, tenant),) = children(merge(mo("fvTenant", {"dn": "uni/tn-t", "name": "t"})))
     assert tenant == {"rn": "tn-t", "name": "t"}
 
@@ -190,8 +185,8 @@ def test_a_non_string_attribute_is_carried_as_the_string_aci_would_use() -> None
 
 
 def test_status_survives_the_merge() -> None:
-    # Dropping it, as the comparison does, would leave a merged configuration
-    # whose deletions had quietly stopped working.
+    # Dropping it, as the comparison does, would leave a configuration whose
+    # deletions had quietly stopped working.
     ((_, tenant),) = children(merge(mo("fvTenant", {"name": "t", "status": "deleted"})))
     assert tenant["status"] == "deleted"
 
@@ -204,8 +199,8 @@ def test_a_later_status_wins() -> None:
 
 
 def test_a_status_an_override_says_nothing_about_is_inherited() -> None:
-    # It merges like any other attribute, which cuts both ways: an override that
-    # only sets an attribute does not bring a deleted MO back.
+    # It merges like any other attribute, so an override that only sets an
+    # attribute does not bring a deleted MO back.
     base = mo("fvTenant", {"name": "t", "status": "deleted"})
     override = mo("fvTenant", {"name": "t", "descr": "x"})
     ((_, tenant),) = children(merge(base, override))
@@ -213,9 +208,8 @@ def test_a_status_an_override_says_nothing_about_is_inherited() -> None:
 
 
 def test_what_hangs_under_a_deleted_mo_is_still_written() -> None:
-    # merge does not read "status": dropping the BD because a base deleted its
-    # tenant would be dropping configuration on a guess about what the APIC
-    # will do with the body.
+    # merge does not read "status": dropping the BD would be dropping
+    # configuration on a guess about what the APIC does with the body.
     base = mo("fvTenant", {"name": "t", "status": "deleted"})
     bd = mo("fvBD", {"dn": "uni/tn-t/BD-b", "mtu": "9000"})
     ((_, _, tenant), (_, dn, _)) = walk(merge(base, bd))
@@ -227,8 +221,8 @@ def test_what_hangs_under_a_deleted_mo_is_still_written() -> None:
 
 
 def test_an_mo_that_names_no_single_object_is_refused() -> None:
-    # An fvBD is named by its "name", and without one there is no telling which
-    # MO the input meant, so no telling what to merge it with.
+    # An fvBD is named by its "name", so without one there is no telling what to
+    # merge it with.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvTenant", {"name": "t"}, [mo("fvBD", {"mtu": "9000"})]))
     assert "fvBD under uni/tn-t" in str(exc.value)
@@ -260,8 +254,8 @@ def test_an_input_describing_no_mo_is_refused_too(nothing) -> None:
 
 
 def test_an_input_not_written_as_aci_expects_is_refused() -> None:
-    # Nothing has read this one from a file, so the position is all there is to
-    # name it by: a library caller and the MCP tool's inline bodies land here.
+    # Nothing read this one from a file, so the position is all there is to name
+    # it by -- a library caller, or the MCP tool's inline bodies.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvTenant", {"name": "t"}), ["not an mo"])
     assert "configs[1]: [0]" in str(exc.value)
@@ -269,7 +263,7 @@ def test_an_input_not_written_as_aci_expects_is_refused() -> None:
 
 def test_a_malformed_element_is_refused_before_any_dn_is_diagnosed() -> None:
     # A tenant whose children were half skipped would be diagnosed for MOs that
-    # nothing describes, which is a diagnosis of the wrong thing.
+    # nothing describes: a diagnosis of the wrong thing.
     with pytest.raises(ValueError) as exc:
         merge([{"fvBD": None}, mo("fvBD", {"dn": "uni/tn-t/BD-b"})])
     assert "attributes" in str(exc.value)
@@ -277,14 +271,13 @@ def test_a_malformed_element_is_refused_before_any_dn_is_diagnosed() -> None:
 
 
 def test_an_input_saying_nothing_is_no_bar_to_the_ones_that_do() -> None:
-    # A placeholder file among real ones is not an error: what is judged is what
-    # the inputs describe between them.
+    # A placeholder file among real ones is not an error.
     assert dns(merge({}, mo("fvTenant", {"name": "t"}), [])) == ["uni/tn-t"]
 
 
 def test_an_mo_whose_parent_nothing_describes_is_refused() -> None:
-    # There is nowhere to nest it, and the tenant is not made up: an ancestor
-    # invented here would be an MO the POST created that no file asked for.
+    # There is nowhere to nest it, and an invented ancestor would be an MO the
+    # POST created that no file asked for.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"dn": "uni/tn-t/BD-b", "mtu": "9000"}))
     assert 'nothing describes "uni/tn-t"' in str(exc.value)
@@ -292,9 +285,8 @@ def test_an_mo_whose_parent_nothing_describes_is_refused() -> None:
 
 
 def test_every_dn_the_configuration_is_missing_is_named_at_once() -> None:
-    # What is reported is the line the configuration lacks, not each MO left
-    # hanging: writing that one line settles all of them. Every step of the
-    # chain is named, so one run is enough to fix it.
+    # The line the configuration lacks, not each MO left hanging, and every step
+    # of the chain, so one run is enough to fix it.
     with pytest.raises(ValueError) as exc:
         merge(
             mo("fvBD", {"dn": "uni/tn-t/BD-b"}),
@@ -308,8 +300,7 @@ def test_every_dn_the_configuration_is_missing_is_named_at_once() -> None:
 
 
 def test_an_mo_outside_uni_is_refused() -> None:
-    # A merged body is posted at uni, so an MO that does not sit under it has
-    # no place in one however well described it is.
+    # A merged body is posted at uni, so an MO outside it has no place in one.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvTenant", {"name": "t"}), mo("fabricNode", {"dn": "topology/pod-1/node-101"}))
     assert '"topology/pod-1/node-101"' in str(exc.value)
@@ -317,8 +308,8 @@ def test_an_mo_outside_uni_is_refused() -> None:
 
 
 def test_being_outside_uni_is_reported_before_a_missing_ancestor() -> None:
-    # The DN outside uni is the input's own doing and the one to fix first;
-    # everything under it is missing an ancestor only as a consequence.
+    # The DN outside uni is the one to fix first; everything under it is missing
+    # an ancestor only as a consequence.
     with pytest.raises(ValueError) as exc:
         merge(
             mo("fabricNode", {"dn": "topology/pod-1/node-101"}), mo("fvBD", {"dn": "uni/tn-t/BD-b"})
@@ -331,8 +322,7 @@ def test_being_outside_uni_is_reported_before_a_missing_ancestor() -> None:
 
 
 def test_a_missing_ancestor_is_filled_in_when_asked() -> None:
-    # fvBD may hang under fvTenant alone, and "tn-t" is how an fvTenant is
-    # written, so the dictionary settles the gap outright.
+    # fvBD may hang under fvTenant alone, and "tn-t" is how one is written.
     body = merge(mo("fvBD", {"dn": "uni/tn-t/BD-b", "mtu": "9000"}), loose=True)
     assert walk(body) == [
         ("fvTenant", "uni/tn-t", {"rn": "tn-t"}),
@@ -341,8 +331,8 @@ def test_a_missing_ancestor_is_filled_in_when_asked() -> None:
 
 
 def test_a_gap_of_several_levels_is_read_from_the_bottom_up() -> None:
-    # The fvAEPg gives the fvAp above it, and that fvAp is then what gives the
-    # fvTenant above that: neither could have been read off the epg alone.
+    # The fvAEPg gives the fvAp, and that fvAp then gives the fvTenant: the
+    # second gap could not have been read off the epg alone.
     body = merge(mo("fvAEPg", {"dn": "uni/tn-t/ap-a/epg-e"}), loose=True)
     assert dns(body) == ["uni/tn-t", "uni/tn-t/ap-a", "uni/tn-t/ap-a/epg-e"]
     assert [class_name for class_name, _, _ in walk(body)] == ["fvTenant", "fvAp", "fvAEPg"]
@@ -350,8 +340,7 @@ def test_a_gap_of_several_levels_is_read_from_the_bottom_up() -> None:
 
 def test_a_filled_in_mo_carries_its_rn_and_nothing_else() -> None:
     # No "status", so the POST creates it only if the fabric lacks it, and no
-    # naming property: the APIC reads "name" off the RN. Both are what keeps a
-    # filled-in ancestor from being configuration nothing asked for.
+    # naming property, the APIC reading "name" off the RN.
     body = merge(mo("fvSubnet", {"dn": "uni/tn-t/BD-b/subnet-[10.0.0.1/24]"}), loose=True)
     tenant, bd, subnet = walk(body)
     assert tenant == ("fvTenant", "uni/tn-t", {"rn": "tn-t"})
@@ -360,17 +349,16 @@ def test_a_filled_in_mo_carries_its_rn_and_nothing_else() -> None:
 
 
 def test_nothing_is_filled_in_unless_it_is_asked_for() -> None:
-    # The default is what it always was. A filled-in ancestor is an MO the POST
-    # may create that no input asked for, so it is opted into and not out of.
+    # A filled-in ancestor is an MO the POST may create that no input asked for,
+    # so it is opted into and not out of.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"dn": "uni/tn-t/BD-b"}))
     assert 'nothing describes "uni/tn-t"' in str(exc.value)
 
 
 def test_a_gap_the_dictionary_does_not_settle_is_refused_even_when_asked() -> None:
-    # No configurable class is written "xxx" and may hold an fvBD. Guessing one
-    # would be guessing at what the POST creates, so the input is sent back --
-    # and told apart from the refusal above, which offers a way out.
+    # No configurable class is written "xxx" and may hold an fvBD, and this
+    # refusal offers no way out, unlike the one above.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"dn": "uni/xxx/BD-b"}), loose=True)
     message = str(exc.value)
@@ -379,9 +367,8 @@ def test_a_gap_the_dictionary_does_not_settle_is_refused_even_when_asked() -> No
 
 
 def test_a_gap_is_filled_in_over_a_class_whose_parents_are_summarised() -> None:
-    # tagAnnotation hangs under nearly every MO in the model, so the dictionary
-    # keeps eight of its 2,866 parents and a count. Reading the gap off what may
-    # hang under ctrlrInst rather than off that summary is what settles this.
+    # The dictionary keeps 8 of tagAnnotation's 2,866 parents, so only reading the
+    # gap off what may hang under ctrlrInst settles this.
     body = merge(
         mo("tagAnnotation", {"dn": "uni/controller/annotationKey-[bootx.node.1.cimc]"}),
         loose=True,
@@ -397,10 +384,9 @@ def test_a_gap_is_filled_in_over_a_class_whose_parents_are_summarised() -> None:
 
 
 def test_what_the_dictionary_cannot_weigh_narrows_nothing() -> None:
-    # A class it has never heard of, and healthInst, which it knows and marks
-    # unconfigurable: neither can appear among the children a gap is read off,
-    # so weighing them would rule out every candidate over what the dictionary
-    # leaves out. The fvSubnet beside them settles the gap just the same.
+    # A class the dictionary has never heard of, and healthInst, which it marks
+    # unconfigurable: neither can appear among the children a gap is read off, so
+    # the fvSubnet beside them has to settle it.
     body = merge(
         mo("fooBar", {"dn": "uni/tn-t/BD-b/foo-x"}),
         mo("healthInst", {"dn": "uni/tn-t/BD-b/health"}),
@@ -411,25 +397,22 @@ def test_what_the_dictionary_cannot_weigh_narrows_nothing() -> None:
 
 
 def test_a_gap_is_filled_in_from_its_rn_where_one_class_alone_is_written_that_way() -> None:
-    # Nothing under the gap tells the dictionary anything, but ctrlrInst is the
-    # one configurable class written "controller". That is the dictionary
-    # settling it outright rather than a guess at what the POST creates.
+    # Nothing under the gap narrows anything, but ctrlrInst is the one
+    # configurable class written "controller".
     body = merge(mo("fooBar", {"dn": "uni/controller/foo-x"}), loose=True)
     assert walk(body)[0] == ("ctrlrInst", "uni/controller", {"rn": "controller"})
 
 
 def test_a_gap_more_than_one_class_is_written_as_is_refused() -> None:
     # fvTenant, plannerMatchTenant and plannerTenantTmpl are all written "tn-t",
-    # and an unknown class under the gap rules none of them out. Picking one
-    # would be guessing.
+    # and an unknown class under the gap rules none of them out.
     with pytest.raises(ValueError) as exc:
         merge(mo("fooBar", {"dn": "uni/tn-t/foo-x"}), loose=True)
     assert "does not settle what class sits there" in str(exc.value)
 
 
 def test_being_outside_uni_is_refused_however_loose() -> None:
-    # Nothing that could be filled in would bring it under uni, so this refusal
-    # is not one loose relaxes.
+    # Nothing filled in would bring it under uni.
     with pytest.raises(ValueError) as exc:
         merge(mo("fabricNode", {"dn": "topology/pod-1/node-101"}), loose=True)
     assert "a4i post mo" in str(exc.value)
@@ -437,7 +420,7 @@ def test_being_outside_uni_is_refused_however_loose() -> None:
 
 def test_what_was_filled_in_needs_no_filling_in_again() -> None:
     # The output describes every DN on the way down, so merging it back reaches
-    # the same body without loose -- which is what makes it worth keeping in git.
+    # the same body without loose.
     once = merge(mo("fvBD", {"dn": "uni/tn-t/BD-b", "mtu": "9000"}), loose=True)
     assert merge(once) == once
 
@@ -446,17 +429,15 @@ def test_what_was_filled_in_needs_no_filling_in_again() -> None:
 
 
 def test_an_mo_its_container_cannot_hold_is_refused() -> None:
-    # A root MO with no "dn" of its own resolves under uni, and an fvBD does not
-    # hang there. The DN it was given is a place the APIC would refuse, so the
-    # body is refused before it can be posted.
+    # A root MO with no "dn" of its own resolves under uni, where an fvBD cannot
+    # hang, so the body is refused before it can be posted.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"rn": "BD-aaa"}))
     assert '"uni/BD-aaa"' in str(exc.value)
 
 
 def test_where_an_mo_belongs_is_named() -> None:
-    # The dictionary has fvBD hanging under fvTenant and nowhere else, and
-    # saying so is the whole of what has to be fixed.
+    # The dictionary has fvBD hanging under fvTenant and nowhere else.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"dn": "uni/BD-aaa"}))
     assert "it hangs under fvTenant, not polUni" in str(exc.value)
@@ -464,7 +445,7 @@ def test_where_an_mo_belongs_is_named() -> None:
 
 def test_being_held_is_weighed_wherever_the_mo_sits() -> None:
     # Not the roots alone: an fvBD nested in an fvAp is as unpostable as one
-    # nested under uni, and its DN is no more right for being deep.
+    # nested under uni.
     with pytest.raises(ValueError) as exc:
         merge(
             mo(
@@ -478,18 +459,16 @@ def test_being_held_is_weighed_wherever_the_mo_sits() -> None:
 
 
 def test_a_container_that_cannot_hold_is_refused_however_loose() -> None:
-    # loose fills in an ancestor nothing describes. An MO written where it
-    # cannot hang is written there whatever its ancestors are, so no filling in
-    # would answer this and loose does not relax it.
+    # An MO written where it cannot hang is written there whatever its ancestors
+    # are, so no filling in would answer this.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"dn": "uni/BD-aaa"}), loose=True)
     assert "it hangs under fvTenant, not polUni" in str(exc.value)
 
 
 def test_a_missing_ancestor_is_reported_before_what_a_container_cannot_hold() -> None:
-    # An MO with no container in the index has nothing to be weighed against,
-    # so the gap is what is reported -- and once loose has filled it in, the
-    # containment is weighed against what now stands there.
+    # An MO with no container in the index has nothing to be weighed against, so
+    # the gap is reported until loose fills it in.
     with pytest.raises(ValueError) as exc:
         merge(mo("fvBD", {"dn": "uni/BD-a"}), mo("fvBD", {"dn": "uni/tn-t/BD-b"}))
     assert 'nothing describes "uni/tn-t"' in str(exc.value)
@@ -497,10 +476,9 @@ def test_a_missing_ancestor_is_reported_before_what_a_container_cannot_hold() ->
 
 
 def test_what_the_dictionary_does_not_settle_is_held_by_anything() -> None:
-    # A class it has never heard of, and healthInst, which it knows and marks
-    # unconfigurable. What a record lists as its children are the configurable
-    # classes alone, so neither could appear there however right its place is:
-    # refusing them would be refusing over what the dictionary leaves out.
+    # A class the dictionary has never heard of, and healthInst, which it marks
+    # unconfigurable: a record lists its configurable children alone, so neither
+    # could appear there however right its place is.
     body = merge(
         mo("fvTenant", {"name": "t"}, [mo("fooBar", {"rn": "foo-x"})]),
         mo("healthInst", {"dn": "uni/tn-t/health"}),
@@ -509,15 +487,14 @@ def test_what_the_dictionary_does_not_settle_is_held_by_anything() -> None:
 
 
 def test_a_container_the_dictionary_does_not_know_holds_anything() -> None:
-    # The fabric may be running a release newer than the bundle, and an fvBD
-    # under a class it has never heard of is not something it can weigh.
+    # An fvBD under a class the dictionary has never heard of is not something it
+    # can weigh.
     body = merge(mo("fooBar", {"rn": "foo-x"}, [mo("fvBD", {"name": "b"})]))
     assert dns(body) == ["uni/foo-x", "uni/foo-x/BD-b"]
 
 
 def test_a_class_written_under_itself_is_held() -> None:
-    # vnsDevFolder is one of the few classes the model has containing its own
-    # kind, and a folder inside a folder is how they are written.
+    # vnsDevFolder is one of the few classes the model has containing its own kind.
     body = merge(
         mo("fvTenant", {"dn": "uni/tn-t"}),
         mo("vnsLDevVip", {"dn": "uni/tn-t/lDevVip-d"}),
@@ -532,8 +509,7 @@ def test_a_class_written_under_itself_is_held() -> None:
 
 def test_a_stand_in_rn_is_not_written_back() -> None:
     # a4i.mo.pseudo_rn keys an unknown class by what the body gives, which is no
-    # RN the APIC would take. The nesting says where the MO sits, so the body
-    # can leave the RN to the APIC to build from the naming property.
+    # RN the APIC would take, so the nesting has to say where the MO sits.
     config = mo("fvTenant", {"name": "t"}, [mo("fooBar", {"name": "x", "descr": "y"})])
     _, (_, dn, unknown) = walk(merge(config))
     assert dn == "uni/tn-t/?"
@@ -570,10 +546,9 @@ def test_merge_prints_the_body_to_stdout(capsys, tmp_path) -> None:
     assert dns(_merged(capsys)) == ["uni/tn-demo"]
 
 
-# What the paths mean -- a directory read in order, a named file, stdin, a file
-# that is not JSON -- is a4i.config's, and is verified there. What is left here
-# is what only the command can show: that it hands its arguments over, and what
-# it does with what comes back.
+# What the paths mean is a4i.config's and is verified there. What is left here is
+# what only the command can show: that it hands its arguments over, and what it
+# does with what comes back.
 
 
 def test_merge_reports_what_it_could_not_read(capsys, tmp_path) -> None:
@@ -596,9 +571,9 @@ def test_merge_fills_in_a_missing_ancestor_when_told_to(capsys, tmp_path) -> Non
 
 
 def test_merge_names_the_way_out_when_an_ancestor_is_undescribed(capsys, tmp_path) -> None:
-    # a4i.merge raises Undescribed and says what is missing; naming --loose is
-    # this command's own to add, and it is a ValueError, so a handler that let
-    # it fall through to the general one would refuse without the way out.
+    # a4i.merge says what is missing; naming --loose is this command's own to add,
+    # and UndescribedError is a ValueError, so a handler that let it fall through
+    # to the general one would refuse without the way out.
     orphan = {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-b"}}}
     assert cli.main(["merge", _write(tmp_path, "bd.json", orphan)]) == 1
     err = capsys.readouterr().err
@@ -614,10 +589,9 @@ def test_merge_writes_to_a_file_when_asked(capsys, tmp_path) -> None:
 
 
 def test_merge_names_the_way_out_when_it_refuses_to_overwrite(capsys, tmp_path) -> None:
-    # a4i.config raises FileExistsError and names the path; naming --force is
-    # this command's own to add, and it is an OSError, so a handler that let it
-    # fall through to the general one would still say "already exists" and
-    # leave the reader with nowhere to go.
+    # a4i.config names the path; naming --force is this command's own to add, and
+    # FileExistsError is an OSError, so a handler that let it fall through would
+    # say "already exists" and leave the reader nowhere to go.
     intended = _write(tmp_path, "tn.json", BASE)
     assert cli.main(["merge", intended, "-o", intended]) == 1
     err = capsys.readouterr().err
@@ -633,8 +607,8 @@ def test_merge_overwrites_when_forced(tmp_path) -> None:
 
 
 def test_merge_reads_everything_before_it_writes_anything(tmp_path) -> None:
-    # The output landing on an input is only survivable because the write comes
-    # last: the merged body still carries what the overwritten file said.
+    # Survivable only because the write comes last: the merged body still carries
+    # what the overwritten file said.
     first = _write(tmp_path, "10-base.json", BASE)
     _write(tmp_path, "20-rest.json", OVERRIDE)
     assert cli.main(["merge", str(tmp_path), "-o", first, "--force"]) == 0
@@ -673,11 +647,9 @@ FABRIC = {
 def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> None:
     """The one seam the two sides' own tests cannot see between them.
 
-    merge nests every MO under the MO it hangs off and names it by its rn, and
-    diff resolves what it is given from uni downwards. Either side could be
-    internally consistent and still disagree here -- an rn read as though it
-    were absolute, say -- and every unit test would go on passing. So one case
-    runs the real pipe.
+    Either side could be internally consistent and still disagree here -- an rn
+    read as though it were absolute, say -- with every unit test passing. So one
+    case runs the real pipe.
     """
 
     _write(tmp_path, "10-base.json", {"fvTenant": {"attributes": {"name": "demo", "descr": "no"}}})
@@ -698,14 +670,12 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
         return FABRIC.get(target, {"imdata": []})
 
     monkeypatch.setattr(ipc, "get", get)
-    # The fabric side comes from a fetch, which is what holds it in the daemon
-    # between the two commands. Run the real one over the mocked GETs rather
-    # than writing the body out by hand: half this seam is fetch's reading.
+    # The real fetch over the mocked GETs rather than a body written out by hand:
+    # half this seam is fetch's reading.
     fabric = Client(transport=DaemonTransport()).fetch()
     monkeypatch.setattr(ipc, "fabric", lambda: fabric)
     monkeypatch.setattr("sys.stdin", io.StringIO(merged.read_text()))
-    # 0 is the fabric matching what the two files describe between them: the
-    # override's descr won, and the BD it added is on the fabric.
+    # 0 is the fabric matching what the two files describe between them.
     assert cli.main(["diff"]) == 0
     assert capsys.readouterr().out.strip() == "no differences"
 
@@ -713,10 +683,8 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
 def test_what_merge_writes_is_what_a_post_would_place() -> None:
     """The other seam: the body has to land where the configuration meant it to.
 
-    This is what a flat polUni could not do. Its children each carried a right
-    absolute DN and the APIC still refused the body, an fvBD being no child of
-    polUni. Reading the merged body back the way a POST does says where each MO
-    would land.
+    What a flat polUni could not do: its children each carried a right absolute DN
+    and the APIC still refused the body, an fvBD being no child of polUni.
     """
 
     from a4i import dry_run

@@ -1,9 +1,8 @@
 """argparse command-line interface for the ACI REST API.
 
-Typer is deliberately not used here. Shell completion spawns a whole new process
-on every tab press, and importing Typer cost more than the completion lookup it
-enabled. argparse costs a fraction of that, and doubles as the single source of
-truth that :mod:`a4i.completion` walks to decide what to offer.
+Typer is deliberately not used: shell completion spawns a whole new process on
+every tab press, and importing Typer cost more than the lookup it enabled.
+argparse also doubles as the parser :mod:`a4i.completion` walks.
 """
 
 from __future__ import annotations
@@ -31,10 +30,9 @@ from a4i.query import QueryTarget, RspPropInclude, RspSubtree, RspSubtreeInclude
 if TYPE_CHECKING:
     from a4i.client import Client
 
-# The option names are the ACI query parameter names verbatim, so that a
-# parameter read in the APIC documentation can be typed as-is. The enums that
-# spell out their values live in a4i.query, next to the code that maps an option
-# to the parameter it sets, so the library validates against the same list.
+# The option names are the ACI query parameter names verbatim. The enums spelling
+# out their values live in a4i.query, so the library validates against the same
+# list.
 
 
 def _csv_choices(enum: type[StrEnum]) -> Callable[[str], str]:
@@ -77,8 +75,7 @@ def _positive_float(value: str) -> float:
     """Return ``value`` as a number of seconds a request can be given.
 
     Zero and below are refused here rather than left to the session, which would
-    only reject them after a daemon had been started to hear it -- and with a
-    ValueError, which is not one of the failures a command knows how to report.
+    only reject them after a daemon had been started to hear it.
     """
 
     try:
@@ -111,11 +108,7 @@ class _VersionAction(argparse.Action):
 
 
 def _fail(exc: A4iError) -> int:
-    """Report a failed request and return the exit code for it.
-
-    Every request answers in the same exceptions, whichever side of the socket
-    it was served from, so there is one shape of failure to read here.
-    """
+    """Report a failed request and return the exit code for it."""
 
     from a4i.output import print_error
 
@@ -128,8 +121,7 @@ def _warn_apic(info: ipc.EndReply) -> None:
     """Report an APIC that could not be told the session had ended.
 
     The token is gone from the daemon either way, so this is a warning over a
-    logout that succeeded, not a failure: only the APIC's own copy is left to
-    expire on its own.
+    logout that succeeded: only the APIC's own copy is left to expire.
     """
 
     message = info.get("apic_error")
@@ -142,8 +134,7 @@ def _warn_apic(info: ipc.EndReply) -> None:
 def _client() -> Client:
     """Build the client a get, a post or a diff runs on, talking through the daemon.
 
-    It is the very same client a library caller builds; only the transport under
-    it differs, so a command and a script send the identical request.
+    The very same client a library caller builds, the transport alone differing.
     """
 
     # Imported here rather than at module scope: shell completion reaches this
@@ -160,9 +151,8 @@ def _client() -> Client:
 def _cmd_login(args: argparse.Namespace) -> int:
     """Authenticate to an APIC and cache the token in the daemon's memory."""
 
-    # Imported here rather than at module scope: the default is the session's own
-    # and is worth reading from there, but reaching it costs httpx2, and this
-    # module is walked by shell completion on every tab press.
+    # Imported here rather than at module scope: reaching the session's own
+    # default costs httpx2, which a tab press must not pay for.
     from a4i.session import DEFAULT_TIMEOUT
 
     password = os.environ.get("APIC_PASSWORD") or getpass.getpass("APIC password: ")
@@ -183,9 +173,8 @@ def _cmd_login(args: argparse.Namespace) -> int:
     suffix = " (read-only)" if read_only else ""
     print(f"logged in to {info['host']} as {info['user']}{suffix}")
     if read_only and not args.read_only:
-        # The daemon was already read-only and a login does not clear it, so this
-        # login got less than it asked for. Saying nothing would leave the first
-        # refused post to explain it.
+        # This login got less than it asked for, and saying nothing would leave
+        # the first refused post to explain it.
         from a4i.output import print_warning
 
         print_warning(
@@ -216,8 +205,8 @@ def _cmd_get(args: argparse.Namespace) -> int:
 
     from a4i.output import print_error, render
 
-    # Every option is named after the parameter it sets, on both sides, so this
-    # is a rename from dashes to underscores and nothing more.
+    # Every option is named after the parameter it sets, so this is a rename from
+    # dashes to underscores and nothing more.
     try:
         data = _client().get(
             args.target,
@@ -270,18 +259,11 @@ def _cmd_post(args: argparse.Namespace) -> int:
 def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
     """Show what the POST would change, without sending it.
 
-    The APIC has no server-side dry run, so the comparison happens here, against
-    whichever fabric is cheaper to have. A fetch left one in the daemon: it
-    covers the whole of uni, so it answers for any body a POST could carry, and
-    nothing goes out. Nothing fetched means reading the subtrees this body
-    stands at -- one GET each, which for a single MO is a great deal less than
-    the fetch that would spare them.
-
-    Unlike diff and plan, this does not stop when nothing has been fetched: they
-    compare against the whole of uni and have nothing to fall back to, and this
-    has the body's own DNs to read. Which of the two it was is printed either
-    way, a comparison being worth only as much as the reader knows of where its
-    other side came from. This path never reaches the post op.
+    A fetch left in the daemon covers the whole of uni, so it answers for any
+    body a POST could carry and nothing goes out; nothing fetched means reading
+    the subtrees this body stands at. Unlike diff and plan this does not stop for
+    want of a fetch, having the body's own DNs to read, and which of the two it
+    was is printed either way. This path never reaches the post op.
     """
 
     from a4i import dry_run
@@ -296,8 +278,7 @@ def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
         changes = dry_run.check(args.target, body, kind=args.kind, fabric=fabric)
         note = "compared against the fabric 'a4i fetch' read"
     render_dry_run(changes, raw=args.raw)
-    # Not with --raw: the report is then something a script reads, and a note
-    # about where the other side came from is not part of what it asked for.
+    # Not with --raw: the report is then something a script reads.
     if not args.raw:
         print_note(note)
     # 0 means posting this body would do nothing at all; 2 means it would change
@@ -351,9 +332,9 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     from a4i.output import print_error, print_warning, render_diff
 
     def unused(names: list[str]) -> None:
-        # An --exclude whose condition matched nothing left nothing out, and a
-        # misspelt attribute is the likeliest reason. Said and gone on with:
-        # the comparison itself is sound, and the report is what was asked for.
+        # A condition that matched nothing left nothing out, a misspelt attribute
+        # being the likeliest reason. Said and gone on with: the comparison itself
+        # is sound.
         for name in names:
             print_warning(f"--exclude {name}: no MO matched, so nothing was left out by it")
 
@@ -368,8 +349,8 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         )
     except ValueError as exc:
         # An MO in the input whose DN cannot be worked out, or an --exclude that
-        # is empty or holds "**". Comparing the rest would report a fabric that
-        # matches on the strength of MOs never looked at, so nothing is printed.
+        # is empty or holds "**". Nothing is printed: comparing the rest would
+        # report a fabric that matches on the strength of MOs never looked at.
         print_error(str(exc))
         return 1
     except A4iError as exc:
@@ -409,9 +390,9 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     try:
         narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
-        # A body that is not written as ACI expects, one holding an MO that
-        # cannot be placed under uni, or a dry run that warned the POST would
-        # fail. Nothing is printed either way: half a plan is a POST nobody read.
+        # A body that is not written as ACI expects, one holding an MO that cannot
+        # be placed under uni, or a dry run that warned the POST would fail.
+        # Nothing is printed: half a plan is a POST nobody read.
         print_error(str(exc))
         return 1
     except A4iError as exc:
@@ -464,8 +445,7 @@ def _cmd_merge(args: argparse.Namespace) -> int:
         body = merge(*configs, loose=args.loose)
     except UndescribedError as exc:
         # Before the ValueError below, which it is one of. The rule is merge's;
-        # the way out is this parser's option, so it is named here -- as --force
-        # is further down.
+        # the way out is this parser's option, so it is named here.
         print_error(f"{exc} (pass --loose to fill {'it' if exc.count == 1 else 'them'} in)")
         return 1
     except (OSError, ValueError) as exc:
@@ -495,8 +475,8 @@ def _cmd_list_class(args: argparse.Namespace) -> int:
     logged out and without a daemon.
     """
 
-    # Imported here rather than at module scope: this module is reached on every
-    # tab press, which no longer has any use for the dictionary.
+    # Imported here rather than at module scope: a tab press reaches this module
+    # and has no use for the dictionary.
     from a4i.metadata import class_names_startingwith
 
     for name in class_names_startingwith(args.prefix):
@@ -532,9 +512,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
     from a4i.metadata import search
     from a4i.output import print_error, print_note, render, render_search
 
-    # The limit is applied last, after the whole dictionary has been walked, so
-    # asking for everything is what makes the total knowable -- and the total is
-    # the entire point of saying that 40 of 212 were shown.
+    # The limit is applied last, after the whole dictionary has been walked: the
+    # total is what makes "40 of 212 shown" sayable.
     results = search(args.keyword, limit=sys.maxsize)
     if not results:
         print_error(f"no classes match {args.keyword!r}")
@@ -569,9 +548,8 @@ def _cmd_describe(args: argparse.Namespace) -> int:
 
     record = describe(args.class_name)
     if record is None:
-        # Case is the trap here -- ACI class names are case-sensitive and fvbd is
-        # not fvBD -- and a dictionary older than the fabric is the other one, so
-        # the message names both rather than reporting a bare miss.
+        # The two traps: class names are case-sensitive (fvbd is not fvBD), and
+        # the dictionary may be older than the fabric. The message names both.
         near = search(args.class_name, limit=5)
         hint = "\nDid you mean: " + ", ".join(name for name, _, _ in near) if near else ""
         print_error(
@@ -599,33 +577,26 @@ def _cmd_daemon_status(args: argparse.Namespace) -> int:
         return 0
     read_only = " (read-only)" if info["read_only"] else ""
     # Read as the key it is rather than with .get, so that what the daemon
-    # answered narrows to one shape and the fields below follow from it.
+    # answered narrows to one shape.
     if not info["logged_in"]:
         print(f"daemon running, logged out{read_only}")
         _print_fabric(info.get("fabric"))
         return 0
-    # "request timeout" spelled out rather than left as "timeout": the line
-    # already carries an "expires in" that comes from the token's lifetime, and
-    # two bare numbers of seconds would read as one thing said twice.
+    # "request timeout" spelled out, the line already carrying an "expires in"
+    # from the token's lifetime.
     print(
         f"logged in to {info['host']} as {info['user']}{read_only}, "
         f"expires in {int(info['expires_in'])}s, "
         f"request timeout {info['timeout']:g}s"
     )
     # .get, where the fields above are read as the keys they are: a daemon left
-    # running across an upgrade answers without this one, and a daemon from
-    # before there was a cache is a daemon holding no fabric.
+    # running across an upgrade answers without this one.
     _print_fabric(info.get("fabric"))
     return 0
 
 
 def _print_fabric(held: ipc.FabricHeld | None) -> None:
-    """Say what fetch left behind, since nothing else will.
-
-    How old it is, rather than when it was read: a comparison is as good as the
-    fabric under it, and a reader deciding whether to fetch again is asking how
-    stale this one is.
-    """
+    """Say what fetch left behind: how old it is, rather than when it was read."""
 
     if held is None:
         print("fabric cache  none (run 'a4i fetch')")
@@ -682,11 +653,7 @@ def _cmd_generate_shell_completion(args: argparse.Namespace) -> int:
 
 
 def _add_query_options(parser: argparse.ArgumentParser) -> None:
-    """Add the query options to a ``get`` subcommand.
-
-    ``get class`` and ``get mo`` differ only in what their target names, so the
-    options they share are declared once here and attached to both.
-    """
+    """Add the query options to a ``get`` subcommand, both taking the same set."""
 
     # Scoping filters: what the query walks over.
     parser.add_argument(
@@ -797,10 +764,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     logout.set_defaults(func=_cmd_logout)
 
-    # What the target names is said outright rather than read off its shape, so
-    # each of get and post carries the same pair of subcommands. The subparsers'
-    # dest is the very argument the client takes, so the word the user typed is
-    # what travels down; no handler has to map it.
+    # What the target names is said outright rather than read off its shape. The
+    # subparsers' dest is the very argument the client takes, so the word the user
+    # typed is what travels down.
     get = commands.add_parser("get", help="GET a class or an MO", description=_cmd_get.__doc__)
     # A bare "a4i get" has no target of its own; main() shows this parser's help.
     get.set_defaults(help_parser=get)
@@ -863,10 +829,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     list_mo.set_defaults(func=_cmd_list_mo)
 
-    # search and describe sit next to list because all three read the bundled
-    # dictionary and none of them touches the fabric. Neither takes a class/mo
-    # kind: the dictionary holds classes, and a level of subcommand with one
-    # choice is a word typed for nothing.
+    # search and describe sit next to list: all three read the bundled dictionary
+    # and none touches the fabric. Neither takes a class/mo kind, the dictionary
+    # holding classes alone.
     searching = commands.add_parser(
         "search", help="find a class by what it is called", description=_cmd_search.__doc__
     )
@@ -888,9 +853,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="describe one class from the bundled model",
         description=_cmd_describe.__doc__,
     )
-    # No completer: completion answers from the parser alone and loads no
-    # dictionary, which is what keeps a tab press to one process start and no
-    # I/O. 'a4i search' and 'a4i list class' are how a class name is found.
+    # No completer: completion loads no dictionary, which is what keeps a tab
+    # press to one process start. 'a4i search' and 'a4i list class' find a class.
     describing.add_argument(
         "class_name", metavar="CLASS", help="exact ACI class name, case-sensitive, e.g. fvBD"
     )
@@ -938,9 +902,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="read the fabric into the daemon, for diff and plan to compare against",
         description=_cmd_fetch.__doc__,
     )
-    # No arguments at all: it reads the whole of uni, because that is what a
-    # comparison against a configuration describing the whole of uni needs, and
-    # it writes nowhere, because what it read is held for the next command.
+    # No arguments at all: it reads the whole of uni, which is what a comparison
+    # against a configuration describing the whole of uni needs.
     fetch.set_defaults(func=_cmd_fetch)
 
     plan = commands.add_parser(
@@ -981,11 +944,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="list every MO instead of summarising a wholly missing or extra subtree",
     )
-    # Repeatable rather than comma-separated, as the class list options are: an
-    # ACI naming value can hold a comma, so a DN cannot be split on one. No
-    # completer, for the reason the paths argument has none -- and DNs live on
-    # the fabric, which a tab press never reaches.
-    # Quote the value: "*" is the shell's before it is ours.
+    # Repeatable rather than comma-separated: an ACI naming value can hold a
+    # comma, so a DN cannot be split on one. No completer -- DNs live on the
+    # fabric, which a tab press never reaches. The help says to quote the value,
+    # "*" being the shell's before it is ours.
     diff.add_argument(
         "--exclude",
         action="append",

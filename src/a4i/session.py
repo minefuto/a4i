@@ -1,15 +1,10 @@
 """APIC HTTP session.
 
-Holds the authentication token in memory only (never persisted) and implements
-the command-driven lazy refresh policy: the token is refreshed on demand once
-half of its lifetime has elapsed, and is considered expired once the full
-lifetime has elapsed without any activity.
-
-:class:`Session` sends its requests and :class:`AsyncSession` awaits them. What
-an authentication *is* -- which token is held, whether it is due for a refresh
-or over, and what an APIC response means -- is the same either way and lives in
-:class:`_SessionBase`, so the two cannot come to answer the same question
-differently.
+Holds the authentication token in memory only and refreshes it on demand once
+half its lifetime has elapsed. :class:`Session` sends its requests and
+:class:`AsyncSession` awaits them; what an authentication *is*, apart from the
+sending, lives in :class:`_SessionBase` so the two cannot come to answer the
+same question differently.
 """
 
 from __future__ import annotations
@@ -44,25 +39,20 @@ __all__ = [
 DEFAULT_REFRESH_TIMEOUT = 600.0
 _HTTP_ERROR_STATUS = 400
 
-# How long a single request may take before it is given up on. Named apart from
-# DEFAULT_REFRESH_TIMEOUT, which is the token's lifetime and not a limit on
-# anything this side sends. A session takes its own value at construction, so an
-# APIC that answers slowly is a setting rather than a wall.
+# How long a single request may take. Named apart from DEFAULT_REFRESH_TIMEOUT,
+# which is the token's lifetime and not a limit on anything this side sends.
 DEFAULT_TIMEOUT = 30.0
 
 # Logging out is the last thing a command or a daemon does, so an APIC that has
 # stopped answering must not hold the exit up for the client's full timeout.
 LOGOUT_TIMEOUT = 5.0
 
-# Fabric switches accept the APIC token, so a session may end up talking to many
-# of them. Each client owns a connection pool, so only the few most recently used
-# hosts are kept alive.
+# Each node client owns a connection pool, so only the most recently used hosts
+# are kept alive.
 NODE_CLIENT_MAX = 8
 
-# The two httpx2 clients a session can be built on. What this module asks of one
-# -- a cookie jar, a request, a close -- is spelled the same on either, but the
-# two are typed apart, so the shared code below is written against whichever the
-# subclass settled on.
+# The two httpx2 clients a session can be built on. Typed apart, so the shared
+# code below is written against whichever the subclass settled on.
 ClientT = TypeVar("ClientT", httpx2.Client, httpx2.AsyncClient)
 
 
@@ -78,11 +68,9 @@ def normalize_base_url(host: str) -> str:
 def _ssl_context(verify: bool | str) -> ssl.SSLContext | bool:
     """Turn a CA bundle path into an SSL context, passing a bool through.
 
-    ``verify`` is what ``--ca`` and the ``verify`` argument accept: True for the
-    system trust store, False to skip verification, or the path to a CA of one's
-    own. httpx2 still takes that path itself, but only by deprecation, and this
-    is the conversion it would do. A directory is an OpenSSL CA path -- hashed
-    symlinks rather than one file -- so it is loaded as one.
+    httpx2 still takes the path itself, but only by deprecation, and this is the
+    conversion it would do. A directory is an OpenSSL CA path, hashed symlinks
+    rather than one file, so it is loaded as one.
     """
 
     if not isinstance(verify, str):
@@ -97,7 +85,7 @@ def _checked_timeout(timeout: float) -> float:
 
     Nothing here accepts None, which httpx2 reads as "wait forever": a request
     that never comes back leaves a command, and the daemon serving it, with no
-    way out. A long wait is asked for as a large number of seconds.
+    way out.
     """
 
     if timeout <= 0:
@@ -119,11 +107,7 @@ def _default_client(base_url: str, verify: bool | str, *, timeout: float) -> htt
 def _default_async_client(
     base_url: str, verify: bool | str, *, timeout: float
 ) -> httpx2.AsyncClient:
-    """Build the awaited httpx2 client used for one host.
-
-    The same settings as :func:`_default_client`, because the request a caller
-    awaits must be the request a caller sends.
-    """
+    """Build the awaited httpx2 client used for one host, as :func:`_default_client` does."""
 
     return httpx2.AsyncClient(base_url=base_url, verify=_ssl_context(verify), timeout=timeout)
 
@@ -146,9 +130,7 @@ def _extract_error(data: Any) -> tuple[str | None, str | None] | None:
 class _SessionBase(Generic[ClientT]):
     """What an authentication is, apart from how its requests travel.
 
-    Everything here is decided without sending anything: which token is held,
-    whether it is due for a refresh or over, what body a login and a logout
-    carry, and what an APIC response means. :class:`Session` and
+    Everything here is decided without sending anything; :class:`Session` and
     :class:`AsyncSession` add only the sending.
     """
 
@@ -199,7 +181,7 @@ class _SessionBase(Generic[ClientT]):
     def _refresh_due(self) -> bool:
         """Say whether a refresh is due, ruling out the two cases where it is not a question.
 
-        Dropping what a session found over was holding is the caller's, which
+        Dropping what an expired session was holding is left to the caller, which
         catches the exception to do it: closing an awaited client is itself
         awaited, and this decision is not.
         """
@@ -238,9 +220,8 @@ class _SessionBase(Generic[ClientT]):
         """Return the client for ``host``, and the ones the LRU has just evicted.
 
         The token is stamped on every call rather than at refresh time, so a
-        refreshed token reaches every node without a fan-out over the clients
-        this session happens to be holding. Closing what was evicted is the
-        caller's, for the reason :meth:`_refresh_due` gives.
+        refreshed token reaches every node without a fan-out. Closing what was
+        evicted is the caller's, for the reason :meth:`_refresh_due` gives.
         """
 
         base_url = normalize_base_url(host)
@@ -286,15 +267,11 @@ class _SessionBase(Generic[ClientT]):
 class Session(_SessionBase[httpx2.Client]):
     """One authentication against an APIC, usable against fabric nodes too.
 
-    The APIC owns the token: login, refresh and expiry are always evaluated
-    against ``base_url``. Fabric switches accept that same token, so requests may
-    be directed at a node instead, over a separate client that carries the very
-    same ``APIC-cookie``. ``timeout`` bounds every one of those requests, the
-    node's as much as the APIC's.
-
-    ``client`` and ``client_factory`` are the way in for a client this
-    constructor cannot express. Either one settles its own timeout, so ``timeout``
-    does not reach it: what was handed over is used as it was handed over.
+    Login, refresh and expiry are always evaluated against ``base_url``; a
+    request may be directed at a fabric node instead, over a separate client
+    carrying the same ``APIC-cookie``. ``client`` and ``client_factory`` are the
+    way in for a client this constructor cannot express, and either one settles
+    its own timeout, so ``timeout`` does not reach it.
     """
 
     def __init__(
@@ -329,9 +306,7 @@ class Session(_SessionBase[httpx2.Client]):
     def logout(self) -> None:
         """End the session on the APIC, then drop the token here.
 
-        The token is dropped either way: an APIC that cannot be reached, or that
-        refuses the request, still leaves this process logged out, and the
-        failure is raised afterwards for the caller to report as it sees fit. An
+        The token is dropped either way, the failure being raised afterwards. An
         expired token has nothing left to end, so nothing is sent for one.
         """
 
@@ -381,9 +356,8 @@ class Session(_SessionBase[httpx2.Client]):
     ) -> Any:
         """GET from the APIC, or from a fabric node when ``host`` is given.
 
-        ``timeout`` bounds this one call, refresh included, for a caller that
-        cannot afford to wait even the session's own -- a lookup with a person
-        waiting on it, say. Without it the session's timeout applies.
+        ``timeout`` bounds this one call, refresh included; without it the
+        session's own applies.
         """
 
         self.ensure_fresh(timeout=timeout)
@@ -444,8 +418,7 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
     """:class:`Session`, awaited.
 
     The same authentication against the same APIC, sending the same requests in
-    the same order and raising the same exceptions at the same points. Only the
-    sending is awaited, so a caller keeps its event loop while the APIC thinks.
+    the same order and raising the same exceptions at the same points.
     """
 
     def __init__(

@@ -1,19 +1,8 @@
 """Render APIC responses, the bundled model, and errors for the terminal.
 
-This is the one module that touches ``rich``, which is what keeps the colour, the
-terminal width and the ``--raw`` handling in a single place rather than in each
-command that prints something.
-
-What the terminal is arrives as a ``console`` rather than being looked up: the
-functions that lay something out are told where it is going, because where it is
-going decides what they produce. A caller that names none gets stdout, which is
-what every command wants; a test names one over a string and reads back exactly
-what a terminal of that width would have shown.
-
-Two questions are asked of it, and they are not the same question.
-:func:`_cut_width` asks how wide the thing being read is, which only a terminal
-answers. :func:`_plain` asks whether to style, which ``--raw`` also settles. So
-``--raw`` on a terminal drops the colour and keeps the fitting.
+The one module that touches ``rich``. What the terminal is arrives as a
+``console`` rather than being looked up, so a test can name one over a string
+and read back exactly what a terminal of that width would have shown.
 
 ``rich`` is imported lazily: shell completion goes through ``cli`` but never
 renders anything, and importing ``rich.console`` there costs more than the
@@ -34,9 +23,7 @@ if TYPE_CHECKING:
 
 # The mark that opens a line, per kind of change, and the colour each mark is
 # printed in. Attribute lines carry a mark of their own, so a line's colour
-# always follows from the mark it starts with. A dry run and a diff report
-# share the marks: what is on the fabric and not in the configuration reads the
-# same as what a POST would delete.
+# always follows from the mark it starts with.
 _MARKS = {
     "created": "+",
     "missing": "+",
@@ -57,12 +44,7 @@ _CHILD_NOTE = {"deleted": "deletes {}", "missing": "missing: {}", "extra": "extr
 
 @cache
 def _console(*, stderr: bool = False) -> Console:
-    """The console a caller gets when it names none.
-
-    Cached because one process prints to one place. The functions below take a
-    console of their own all the same: what the terminal is decides what they
-    produce, so it is theirs to be told rather than theirs to go and look up.
-    """
+    """The console a caller gets when it names none, cached per destination."""
 
     from rich.console import Console
 
@@ -78,10 +60,8 @@ def _plain(console: Console, raw: bool) -> bool:
 def _write(console: Console, lines: list[str]) -> None:
     """Write plain lines out, past rich rather than through it.
 
-    rich wraps what it prints to the console's width, which for anything but a
-    terminal is a default 80 -- and a wrapped line is a JSON document broken in
-    half and a DN split down the middle. Plain output is exactly what was built,
-    so it goes to the file the console was opened on.
+    rich wraps to the console's width, which for anything but a terminal is a
+    default 80 -- and a wrapped line is a JSON document broken in half.
     """
 
     for line in lines:
@@ -128,12 +108,7 @@ def render_diff(
 
 
 def dry_run_report(changes: list[Change]) -> str:
-    """Return what :func:`render_dry_run` prints, as one string.
-
-    The MCP server hands this to a model rather than to a terminal, and it is
-    the same text either way: a report read in a chat and one read in a shell
-    should not differ in what they say a POST would do.
-    """
+    """Return what :func:`render_dry_run` prints, as one string, for the MCP server."""
 
     return "\n".join(_report(changes, _DRY_RUN_KINDS, "no changes"))
 
@@ -206,32 +181,21 @@ def _quote(value: str | None) -> str:
 
 # -- the bundled model ----------------------------------------------------
 #
-# What 'a4i search' and 'a4i describe' print. Neither reaches the fabric: both
-# read the dictionary that ships with a4i. The MCP server serves the same records
-# to a model as JSON and this lays them out for a person, which is the one place
-# the two readers are deliberately given different things -- a model parses 8 KB
-# without complaint, and a person wants the thirty properties they may set.
+# What 'a4i search' and 'a4i describe' print, laid out for a person where the MCP
+# server serves the same records to a model as JSON.
 
 _ELLIPSIS = "…"
 
-# Prose is wrapped at this, whatever the terminal is: a description read across
-# 200 columns is read by moving your head.
+# Prose is wrapped at this, whatever the terminal is.
 _PROSE_WIDTH = 78
 
-# How wide the middle column of each table may grow. In both tables the last
-# column is prose, and a middle column that grows without bound leaves the prose
-# nothing. The numbers come from the dictionary: half of all labels are under 30
-# characters and the longest is 192, while a property's permitted values are
-# already capped at 24 by the generator.
+# How wide the middle column of each table may grow, so that the prose column
+# after it is left something.
 _LABEL_WIDTH = 30
 _TYPE_WIDTH = 34
 
-# The narrowest the last column may be before it is dropped instead of cut. Both
-# tables put prose last because prose is what a narrow terminal can afford to
-# lose -- a property's permitted values are what a body gets wrong, its
-# description only helps you guess which property you wanted. Below this, what is
-# left of a description is not a shorter description but a dangling fragment, and
-# a column of those is worse than a table without one.
+# The narrowest the prose column may be before it is dropped instead of cut:
+# below this, what is left of a description is a dangling fragment.
 _MIN_PROSE = 20
 
 
@@ -264,9 +228,6 @@ def render_describe(
 
 def _cut_width(console: Console) -> int | None:
     """The column to cut a line at, or None when nothing is watching.
-
-    Only a terminal has a width to overflow. Piped output is cut at nothing, so
-    that a summary a person would have seen truncated still reaches grep whole.
 
     Deliberately not the same question as :func:`_plain`: ``--raw`` asks for the
     styling to go, not for the lines to stop fitting the terminal they are still
@@ -338,9 +299,8 @@ def _describe_lines(
     if record.get("label"):
         head.append(f"  {record['label']}")
     if not record.get("configurable"):
-        # Most of the dictionary is classes like this, so the missing rn and dn
-        # lines below have to read as "this cannot be created" rather than as
-        # something the record left out.
+        # Said outright, so that the missing rn and dn lines below read as "this
+        # cannot be created" rather than as something the record left out.
         head.append("  (read-only class)", style="dim")
     lines = [head]
     lines.extend(Text(line) for line in _wrapped(record.get("desc") or "", width))
@@ -373,9 +333,8 @@ def _describe_fields(record: dict[str, Any]) -> list[str]:
         fields.append(f"dn  {dn}")
     parents = record.get("parents") or []
     if parents:
-        # The generator already stops at eight parents. Saying how many were
-        # dropped keeps a class contained by forty from reading as one contained
-        # by eight.
+        # The generator stops at eight, so a class contained by forty would
+        # otherwise read as one contained by eight.
         more = record.get("moreParents")
         tail = f" and {more} more" if more else ""
         fields.append(f"in  {', '.join(parents)}{tail}")
@@ -389,9 +348,9 @@ def _property_lines(record: dict[str, Any], *, all_props: bool, width: int | Non
     if not props:
         return [Text("properties (none)")]
     if not record.get("configurable"):
-        # A class nobody can configure carries each property as a bare type
-        # string, every one of them read-only. Hiding those by default would
-        # leave a heading with nothing under it, so they are always shown.
+        # Such a record carries each property as a bare type string, every one of
+        # them read-only, so hiding them by default would leave a heading with
+        # nothing under it.
         typed = {name: {"type": type_name} for name, type_name in props.items()}
         lines = [Text(f"properties ({len(props)}, all read-only)")]
         lines.extend(_property_rows(typed, width=width))
@@ -438,8 +397,7 @@ def _property_type(prop: dict[str, Any]) -> str:
     """Return what a property accepts: its values, or its type and its bounds.
 
     The permitted values say more than the type does -- 'no|yes' over
-    'scalar:Bool' -- so they win the column when there are any. Where there are
-    none, the length a string is allowed to be is what a body gets wrong.
+    'scalar:Bool' -- so they win the column when there are any.
     """
 
     values = prop.get("values") or []
@@ -460,9 +418,8 @@ def _length_limits(prop: dict[str, Any]) -> str:
     """Return the bounds a value must fall between, when the model gives any.
 
     A handful of properties in the MIM carry a minimum above their maximum --
-    fvCtx.vrfIndex is 1 to 0 -- which is a bound nothing can satisfy and so
-    describes nothing. Printing it would send someone looking for the value that
-    fits; the JSON still carries it for anyone who wants to see for themselves.
+    fvCtx.vrfIndex is 1 to 0 -- which nothing can satisfy, so printing it would
+    send someone looking for the value that fits.
     """
 
     for validator in prop.get("validators") or []:
@@ -488,11 +445,7 @@ def print_error(message: str) -> None:
 
 
 def print_note(message: str) -> None:
-    """Print a note to stderr, about what the output on stdout leaves out.
-
-    stderr, so that a note about the 172 results not shown cannot land in the
-    middle of the 40 that are about to be piped into something else.
-    """
+    """Print a note to stderr, about what the output on stdout leaves out."""
 
     _label("note: ", "dim", message)
 
@@ -506,10 +459,9 @@ def print_warning(message: str) -> None:
 def _label(label: str, style: str, message: str) -> None:
     """Write a labelled line to stderr, the message itself carrying no styling.
 
-    Assembled rather than written as rich markup, because the message is not
-    ours: a DN is written "annotationKey-[bootx.node.1.cimc]", and markup would
-    read the brackets as a style and drop them from the very error telling
-    somebody which DN to go and fix.
+    Assembled rather than written as rich markup: a DN such as
+    "annotationKey-[bootx.node.1.cimc]" would have its brackets read as a style
+    and dropped from the very error naming it.
     """
 
     from rich.text import Text

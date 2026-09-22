@@ -1,27 +1,10 @@
-"""Fold several configurations into the one configuration they describe together.
+"""Fold several configurations into the one body they describe together.
 
-A configuration is often written in pieces -- a base and the overrides for one
-fabric, a directory with a file per tenant -- and both ``a4i diff`` and ``a4i
-post`` want a single body. :func:`merge` is what turns the pieces into that body.
-
-Two pieces name the same MO insofar as they resolve to the same DN, which takes
-reading each tree down from its root rather than matching JSON against JSON. So
-the inputs are absorbed into an index keyed by DN (:class:`Intended`), later
-values winning attribute by attribute, and the index is written back out as one
-body -- as a tree again, because that is the only shape the APIC takes a POST
-in.
-
-:func:`read` is the first half of that on its own, and it is what the two
-comparisons want: :mod:`a4i.diff` and :mod:`a4i.dry_run` read both of their
-sides through it -- the configuration, and the ``imdata`` the APIC returned --
-so that a body and a response naming the same MO key alike, and so that what one
-of the three commands refuses the other two refuse as well.
-
-Nothing here performs I/O, and nothing here reaches the fabric: a DN follows
-from the body and the bundled RN formats alone. The output is therefore a
-function of the inputs, which is what makes it worth keeping in git next to
-them. :mod:`a4i.config` is where the files those inputs came from are opened,
-and where the merged body is written back.
+:func:`read` absorbs the inputs into an index keyed by DN and :func:`merge`
+writes that index back out. :mod:`a4i.diff` and :mod:`a4i.dry_run` read both of
+their sides through :func:`read`, so what one of the three refuses the other two
+refuse as well. Nothing here performs I/O: a DN follows from the body and the
+bundled RN formats alone.
 """
 
 from __future__ import annotations
@@ -45,25 +28,10 @@ from a4i.mo import (
 )
 from a4i.validate import problems, refuse
 
-# ROOT and WRAPPER are a4i.mo's. Every intended MO hangs under the policy
-# universe, so a root MO with no "dn" of its own is resolved as a child of ROOT,
-# and that is also where the merged body is meant to be posted -- which is why
-# the body says so: see _body. A POST to /uni is written wrapped in a WRAPPER,
-# so an input that serves both commands carries one, and it is read through to
-# its children rather than kept: uni is not configuration.
-
-# Attributes dropped on the way in. "dn" and "rn" are how an input says which MO
-# it means, and the answer to that is the key -- carrying them further would
-# leave the body with two ways to say where an MO sits, of which only one had
-# been merged. What goes back out is written from the key alone: see _body.
-# "childAction" is the APIC talking, and has no business in an intended
-# configuration.
-#
-# "status" is deliberately not in here, unlike in a4i.mo.META: it is an
-# instruction to the APIC rather than a property of the fabric, and a merged
-# body that lost it would be a configuration whose deletions had silently
-# stopped working. The comparison in a4i.diff leaves it out of its own reckoning
-# instead.
+# What the key says about an MO is not written again among its attributes, and
+# "childAction" is the APIC talking. "status" is deliberately not here, unlike in
+# a4i.mo.META: dropping it would be a configuration whose deletions had silently
+# stopped working.
 _DROPPED = frozenset({"dn", "rn", "childAction"})
 
 # How many unidentified MOs to name before summarising the rest.
@@ -75,36 +43,18 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
 
     Each argument is an ACI body -- one MO, or a list of them -- read as
     describing the whole of ``uni``, and they are merged in the order given with
-    later values winning attribute by attribute. So a file can be split into a
-    base and an override without repeating the whole MO, and ``status`` carries
-    from wherever it was last written.
+    later values winning attribute by attribute. The result is a ``polUni``
+    holding every merged MO, each nested under the MO it hangs off, named by its
+    ``rn``, and siblings in RN order.
 
-    The result is a ``polUni`` holding every merged MO, each nested under the MO
-    it hangs off and named by its ``rn``. It is what :meth:`a4i.Client.diff`
-    compares against, and what a POST to ``uni`` takes -- the wrapper says as
-    much by carrying ``dn: uni``.
+    ``loose`` fills in an ancestor a DN names and no input describes, where the
+    bundled dictionary settles what class sits there. It is off by default -- a
+    filled-in ancestor is an MO the POST may create that no input asked for.
 
-    Siblings come out in RN order rather than in the order the inputs were read,
-    which makes the output a function of the input set alone: adding one file
-    changes the lines that file contributed and nothing else.
-
-    Raises :class:`ValueError` if an input is not written as ACI expects (see
-    :mod:`a4i.validate`), if an MO does not carry the properties its RN is built
-    from -- there is no telling which MO to merge it with -- if the inputs
-    describe no MO at all, which is what an empty directory and a mistyped path
-    both look like, or if an MO cannot be placed in the tree: see
-    :func:`_refuse_the_unplaceable`.
-
-    ``loose`` asks for the ancestor a DN names and no input describes to be
-    filled in, where the bundled dictionary settles what class sits there: see
-    :func:`_fill_the_undescribed`. It relaxes that one refusal and no other, and
-    it is off by default -- a filled-in ancestor is an MO the POST may create
-    that no input asked for.
-
-    The shape is refused first and on its own. :mod:`a4i.config` has already
-    checked whatever it read from a file, naming the file; this is what stands
-    between the other callers -- a library, the MCP tool's inline bodies -- and
-    an input nothing has looked at.
+    Raises :class:`ValueError` if an input is not written as ACI expects, if an
+    MO does not carry the properties its RN is built from, if the inputs describe
+    no MO at all, or if an MO cannot be placed under ``uni``, and
+    :class:`UndescribedError` for the one refusal ``loose`` lifts.
     """
 
     intended = read(*configs, loose=loose)
@@ -123,23 +73,10 @@ def read(
 ) -> Intended:
     """Return the index ``configs`` describe between them, refused or not at all.
 
-    This is :func:`merge` without the writing back out, and it is what a
-    comparison wants: :mod:`a4i.diff` and :mod:`a4i.dry_run` read both of their
-    sides through here, so an input and a fabric that name the same MO key
-    alike, and so what one of them refuses the others refuse too.
-
-    Everything :func:`merge` refuses is refused here -- the shape, an MO the
-    input does not name, an MO outside ``uni``, an ancestor nothing describes,
-    an MO the MO it would be nested in cannot hold. What is not is an empty
-    index: a merge of nothing is a caller who meant to describe something, a
-    comparison against nothing is every MO on the fabric reported at once, and a
-    fetch of a class the fabric has none of is an answer. Three meanings, so
-    each caller says its own.
-
-    ``loose`` fills in an ancestor a DN names and nothing describes, as on
-    :func:`merge`. ``excluded`` is :mod:`a4i.diff`'s, and only quiets the
-    complaint about an MO that cannot be named under an excluded parent: see
-    :class:`Intended`.
+    Everything :func:`merge` refuses is refused here. An empty index is not:
+    what that means differs between a merge, a comparison and a fetch, so each
+    caller says its own. ``excluded`` only ever quiets the complaint about an MO
+    that cannot be named under an excluded parent.
     """
 
     refuse([p for i, config in enumerate(configs) for p in problems(config, f"configs[{i}]")])
@@ -153,13 +90,7 @@ def read(
 
 
 def empty() -> dict[str, Any]:
-    """Return the body that describes no MO at all: a polUni with no children.
-
-    :func:`merge` refuses to produce one, since a merge of nothing is a caller
-    who meant to describe something and gave paths that describe nothing. A
-    fetch asking the fabric for every MO of a class it holds none of is not
-    that: "none of those" is the answer, and this is the body that says so.
-    """
+    """Return the body that describes no MO at all, which :func:`merge` refuses to."""
 
     return {WRAPPER: {"attributes": {"dn": ROOT}, "children": []}}
 
@@ -167,18 +98,9 @@ def empty() -> dict[str, Any]:
 def _body(intended: Intended) -> dict[str, Any]:
     """Write the index back out as one body to post at ``uni``.
 
-    The index is flat and the body is a tree, because a tree is the only shape a
-    POST takes: the APIC reads a child MO against what its parent may contain,
-    so an fvBD written beside its tenant rather than inside it is refused
-    however right its DN is.
-
-    What each MO carries is its ``rn`` and nothing else of the key. The nesting
-    says where the MO sits, so an absolute ``dn`` would only be a second way to
-    say the same thing -- and one that has to be rewritten in every descendant
-    the day a tenant is renamed.
-
-    What cannot be placed has been refused by :func:`read` already, so every DN
-    here has the MO above it to hang on.
+    A tree, because that is the only shape a POST takes. What cannot be placed
+    has been refused by :func:`read` already, so every DN here has the MO above
+    it to hang on.
     """
 
     bodies: dict[str, dict[str, Any]] = {}
@@ -199,8 +121,7 @@ def _body(intended: Intended) -> dict[str, Any]:
         else:
             bodies[parent].setdefault("children", []).append({node.class_name: body})
     # The wrapper's "dn" is not merged from anything: it is this module's own
-    # statement that the body belongs at uni, so that a file found on its own
-    # says where it goes.
+    # statement that the body belongs at uni.
     return {WRAPPER: {"attributes": {"dn": ROOT}, "children": roots}}
 
 
@@ -226,10 +147,8 @@ class UndescribedError(ValueError):
     """Nothing describes a DN on the way down to an MO, and it was not filled in.
 
     Told apart from the other refusals so that a caller can name its own way out
-    of this one: ``a4i merge`` says to pass ``--loose``, and the MCP tool says to
-    pass ``loose: true``. What is refused, and why, is this module's; what the
-    option is called is theirs. ``count`` is how many DNs it is, so that what
-    they add says "it" or "them" as the message itself does.
+    of this one -- ``--loose``, ``loose: true``. ``count`` is how many DNs it is,
+    so that what they add says "it" or "them" as the message itself does.
     """
 
     def __init__(self, message: str, count: int) -> None:
@@ -240,24 +159,13 @@ class UndescribedError(ValueError):
 def _refuse_the_unplaceable(index: dict[str, Mo], *, loose: bool) -> None:
     """Refuse what no single body posted at ``uni`` could carry.
 
-    An MO fails that in three ways. It sits outside ``uni`` altogether, and
-    nesting it under the wrapper would be posting it somewhere it does not
-    belong. Or something on the way down to it is a DN nothing describes, and
-    there is no MO to nest it in. Or the MO it would be nested in is one that
-    cannot hold it -- an fvBD written under uni rather than under its tenant --
-    which the APIC refuses however right the DN is.
-
-    None of it is guessed at. An ancestor made up here would be an MO the POST
-    created that no input ever asked for -- a tenant appearing on the fabric
-    because a BD was written and its tenant was not. ``loose`` is asking for it
-    anyway, and only for the second of the three: an MO outside ``uni`` has no
-    ancestor that would bring it in, and one written where it cannot hang is
-    written there whatever its ancestors are, so both are refused whatever
-    ``loose`` says.
+    ``loose`` lifts the refusal of an undescribed ancestor and no other: an MO
+    outside ``uni`` has no ancestor that would bring it in, and one written where
+    it cannot hang is written there whatever its ancestors are.
 
     Containment is weighed last, so that what ``loose`` filled in is weighed
-    with everything else: a gap is not an MO, and there is nothing to weigh a
-    child against until one stands there.
+    with everything else: there is nothing to weigh a child against until an MO
+    stands above it.
     """
 
     outside, undescribed = _unplaceable(index)
@@ -279,11 +187,8 @@ def _unplaceable(index: dict[str, Mo]) -> tuple[list[tuple[str, str]], dict[str,
     """Return the MOs that sit outside ``uni``, and the DNs nothing describes."""
 
     outside: list[tuple[str, str]] = []
-    # Each DN nothing describes, against one DN under it: what is reported is
-    # the line the configuration is missing, not each MO left hanging, because
-    # writing that one line settles all of them. It is also where the filling
-    # starts from, for the same reason -- one MO under the gap is enough to say
-    # what the gap is.
+    # Each DN nothing describes, against one DN under it: one MO under a gap is
+    # enough both to report it and to work out what class stands there.
     undescribed: dict[str, str] = {}
     for dn in sorted(index):
         ancestors: list[str] = []
@@ -305,10 +210,9 @@ def _misplaced(
 ) -> list[tuple[str, str, str]]:
     """Return the class, DN and containing class of each MO its container cannot hold.
 
-    Every DN in the index has its whole line of ancestors in the index by the
-    time this runs -- that is what the two refusals before it settle -- so the
-    containing class is read off the index, and off the wrapper for an MO that
-    hangs directly under ``uni``.
+    Every DN has its whole line of ancestors in the index by the time this runs,
+    which is what the two refusals before it settle, so ``index[parent]`` is
+    there to read.
     """
 
     misplaced: list[tuple[str, str, str]] = []
@@ -323,13 +227,10 @@ def _misplaced(
 def _denies(container: str, class_name: str, records: dict[str, dict[str, Any]]) -> bool:
     """True where the dictionary says an MO of ``container`` cannot hold ``class_name``.
 
-    Only what it settles outright. A class it has never heard of -- the fabric
-    may be running a release newer than the bundle -- and one it marks
-    unconfigurable are both passed over, on either side of the containment: what
-    a record lists as its children are the configurable classes alone, so
-    reading an absence there as a refusal would be refusing over what the
-    dictionary leaves out rather than over what the input says. It is the
-    reading :func:`_class_at` takes of the same list.
+    Only what it settles outright. A class the dictionary has never heard of, and
+    one it marks unconfigurable, are passed over on either side: a record lists
+    the configurable children alone, so reading an absence there as a refusal
+    would refuse over what the dictionary leaves out.
     """
 
     if not _configurable(class_name, records) or not _configurable(container, records):
@@ -343,20 +244,10 @@ def _denies(container: str, class_name: str, records: dict[str, dict[str, Any]])
 def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> dict[str, str]:
     """Put an MO in the index at each DN nothing describes, and return what is left.
 
-    A DN says what its MO is called and not what class it is, and a body cannot
-    be written without the class. It is read off the RN of the gap and the MOs
-    that hang under it: the dictionary says which classes are written that way,
-    and what each of them may hold -- ``tn-t`` above an ``fvBD`` is an
-    ``fvTenant`` and nothing else.
-
-    Only a class the dictionary gives an RN format is weighed, which is to say
-    only a configurable one, so what gets filled in is always an MO a POST could
-    carry. Anything the dictionary does not settle outright is left alone and
-    handed back -- guessing here is guessing at what the POST creates.
-
-    Deepest first, so a gap two levels up is read off the MO that was just
-    filled in below it: an fvAEPg alone gives the fvAp, and the fvAp then gives
-    the fvTenant.
+    The class is read off the RN of the gap and the MOs that hang under it, and
+    a gap the dictionary does not settle outright is handed back rather than
+    guessed at. Deepest first, so a gap two levels up is read off the MO that
+    was just filled in below it.
     """
 
     below: dict[str, list[str]] = {}
@@ -381,25 +272,15 @@ def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> 
 def _class_at(rn: str, below: Iterable[str], records: dict[str, dict[str, Any]]) -> str | None:
     """Return the one class that can be named ``rn`` and hold all of ``below``.
 
-    Read from the containing class down rather than from the contained class up.
-    The dictionary summarises what a class may hang under -- tagAnnotation hangs
-    under 2,866 of them, and writing every one out for each such class is
-    40,000 lines that say "anywhere" -- so a record's parents are examples and
-    not the whole of it. What a class may hold is not summarised, and is where
-    the answer is: see :func:`_holds`.
-
-    None where the dictionary does not settle it: no configurable class is
-    written that way, or more than one is and nothing under the gap tells them
-    apart.
+    Narrowed by what a class may hold and never by what a record says it hangs
+    under: a record's parents are truncated examples, so reading them here would
+    leave a class like ``tagAnnotation``, with its 2,866 of them, unable to narrow
+    anything. None where the dictionary leaves more than one candidate standing.
     """
 
     candidates = [name for name, fmt in load_rn_formats().items() if matches_rn(fmt, rn)]
     for class_name in below:
-        # A class the dictionary has never heard of, and one it marks
-        # unconfigurable, both narrow nothing: neither can appear in the list of
-        # children the narrowing reads, so weighing them would rule out every
-        # candidate over what the dictionary leaves out rather than over what
-        # the input says.
+        # Narrows nothing, for the reason _denies passes the same two over.
         if not _configurable(class_name, records):
             continue
         candidates = [name for name in candidates if _holds(name, class_name, records)]
@@ -409,23 +290,18 @@ def _class_at(rn: str, below: Iterable[str], records: dict[str, dict[str, Any]])
 
 
 def _configurable(class_name: str, records: dict[str, dict[str, Any]]) -> bool:
-    """True when the dictionary knows ``class_name`` and a body may write it."""
-
     return bool(_record(class_name, records).get("configurable"))
 
 
 def _holds(class_name: str, child: str, records: dict[str, dict[str, Any]]) -> bool:
-    """True when an MO of ``class_name`` may have ``child`` hanging under it."""
-
     return child in (_record(class_name, records).get("children") or ())
 
 
 def _record(class_name: str, records: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Return ``class_name``'s dictionary record, read once each.
 
-    :func:`a4i.metadata.describe` is a seek and a parse of a record holding every
-    property of the class, and one class is asked about once per gap it is
-    weighed against.
+    :func:`a4i.metadata.describe` is a seek and a parse, and one class is asked
+    about once per gap it is weighed against.
     """
 
     known = records.get(class_name)
@@ -435,8 +311,6 @@ def _record(class_name: str, records: dict[str, dict[str, Any]]) -> dict[str, An
 
 
 def _outside_message(outside: list[tuple[str, str]]) -> str:
-    """Say which MOs do not sit under ``uni``, and what to do about them."""
-
     named = ", ".join(f'{class_name} at "{dn}"' for class_name, dn in outside[:_NAMED])
     if len(outside) > _NAMED:
         named += f", and {len(outside) - _NAMED} more"
@@ -449,8 +323,6 @@ def _outside_message(outside: list[tuple[str, str]]) -> str:
 
 
 def _undescribed_message(undescribed: dict[str, str], index: dict[str, Mo]) -> str:
-    """Say which DNs the configuration has to describe before it can be folded."""
-
     missing = sorted(undescribed)
     named = ", ".join(
         f'"{dn}" ({index[undescribed[dn]].class_name} at "{undescribed[dn]}" hangs under it)'
@@ -468,8 +340,6 @@ def _undescribed_message(undescribed: dict[str, str], index: dict[str, Mo]) -> s
 
 
 def _unfillable_message(left: dict[str, str], index: dict[str, Mo]) -> str:
-    """Say which DNs could not be filled in, and that they have to be written out."""
-
     missing = sorted(left)
     named = ", ".join(
         f'"{dn}" ({index[left[dn]].class_name} at "{left[dn]}" hangs under it)'
@@ -489,9 +359,8 @@ def _unfillable_message(left: dict[str, str], index: dict[str, Mo]) -> str:
 def _hangs_under(class_name: str, records: dict[str, dict[str, Any]]) -> str:
     """Say where the dictionary has ``class_name`` hanging, or "" where it does not.
 
-    The parents a record carries are examples and not the whole of it -- see
-    :func:`_class_at` -- so what is written out is a count of the rest and not a
-    promise that the list is all of them.
+    A count of the rest, not a promise that the list is all of them: a record's
+    parents are truncated.
     """
 
     record = _record(class_name, records)
@@ -506,8 +375,6 @@ def _hangs_under(class_name: str, records: dict[str, dict[str, Any]]) -> str:
 def _misplaced_message(
     misplaced: list[tuple[str, str, str]], records: dict[str, dict[str, Any]]
 ) -> str:
-    """Say which MOs sit under an MO that cannot hold them, and where they belong."""
-
     named = ", ".join(
         f'{class_name} at "{dn}" (it hangs under {where}, not {container})'
         if (where := _hangs_under(class_name, records))
@@ -535,21 +402,13 @@ class Mo:
     class_name: str
     dn: str
     attributes: dict[str, str] = field(default_factory=dict)
-    # Whether the last RN of the DN is one the APIC would recognise, rather than
-    # the stand-in :func:`a4i.mo.pseudo_rn` builds for a class the dictionary
-    # has never heard of. A stand-in keys the merge as well as a real RN does,
-    # but writing one back out would be writing an RN no POST could carry.
+    # False where the last RN is the stand-in a4i.mo.pseudo_rn builds. It keys
+    # the merge as well as a real RN does, but writing one back out would be
+    # writing an RN no POST could carry.
     real_rn: bool = True
 
 
 def _names_its_own_rn(class_name: str, body: dict[str, Any]) -> bool:
-    """True when the RN in this MO's key is one the APIC would recognise.
-
-    A body giving a "dn" or an "rn" spells the RN itself, and a class the
-    dictionary knows has a format to build one from. Failing both, the key came
-    from :func:`a4i.mo.pseudo_rn`.
-    """
-
     attributes = body.get("attributes") or {}
     dn = attributes.get("dn")
     if isinstance(dn, str) and dn.strip("/"):
@@ -564,11 +423,8 @@ class Intended:
     """The configurations merged into one tree, keyed by DN as the fabric's is.
 
     ``excluded`` is for :mod:`a4i.diff` alone, and only ever quiets the
-    complaint about an MO that cannot be identified: which MO an input meant is
-    a question about a subtree the comparison has been told to say nothing
-    about, so there is nothing left for the input to settle. :func:`merge`
-    excludes nothing -- it has no comparison to narrow, and dropping an MO from
-    a body would be dropping configuration.
+    complaint about an MO that cannot be identified. :func:`merge` excludes
+    nothing: dropping an MO from a body would be dropping configuration.
     """
 
     def __init__(self, excluded: Exclusions | None = None) -> None:
@@ -588,8 +444,8 @@ class Intended:
                 continue
             class_name, body = parsed
             if class_name == WRAPPER:
-                # What hangs under uni are the roots. The class settles it, so a
-                # wrapper written without a "dn" is read through just the same.
+                # The class settles it, so a wrapper written without a "dn" is
+                # read through just the same.
                 self._absorb_children(body, ROOT)
                 continue
             dn, identified = child_dn(ROOT, class_name, body)
@@ -610,11 +466,8 @@ class Intended:
         if node is None:
             self.index[dn] = Mo(class_name, dn, attributes, _names_its_own_rn(class_name, body))
         else:
-            # Later inputs win, attribute by attribute, so a file can be split
-            # into a base and an override without repeating the whole MO. An
-            # attribute the override is silent about keeps the base's value --
-            # "status" included, so a base that deletes an MO goes on deleting
-            # it unless an override says otherwise.
+            # Attribute by attribute, so an attribute a later input is silent
+            # about keeps the earlier value -- "status" included.
             node.attributes.update(attributes)
         self._absorb_children(body, dn)
 
@@ -634,9 +487,6 @@ class Intended:
 
         Its children are not walked either: their keys hang off this one, so
         naming them would only repeat this.
-
-        One under an excluded parent is passed over rather than recorded, for
-        the reason :class:`Intended` gives.
         """
 
         if identified:
@@ -651,8 +501,6 @@ class Intended:
 
 
 def unidentified_message(unidentified: Iterable[tuple[str, str, str]]) -> str:
-    """Say which MOs the input does not name, and what to do about it."""
-
     # The same class under the same parent twice is one thing to fix, not two.
     unique = list(dict.fromkeys(unidentified))
     named = ", ".join(

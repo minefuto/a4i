@@ -1,22 +1,13 @@
 """What awaiting adds, and nothing else.
 
 tests/test_awaited.py checks that :class:`~a4i.client.AsyncClient` is
-:class:`~a4i.client.Client` with the sending awaited -- statement for statement,
-signature for signature. So the parameter mapping, the dry-run comparison and the
-fabric comparison are not tested again here: they are not merely equivalent to
-the ones tests/test_client.py covers, they are the same statements.
+:class:`~a4i.client.Client` with the sending awaited, statement for statement, so
+what tests/test_client.py covers is not covered again here.
 
-What is left is what that check cannot see:
-
-* the constructor, which it exempts because it is the one place the two really
-  do differ -- httpx2's awaited client on this side, its synchronous one on the
-  other;
-* the asynchronous context manager, which is a protocol rather than a body, and
-  which is also where "aclose" is shown to be what httpx2 really calls it -- the
-  check normalises that name away on the strength of it;
-* the awaited stack underneath -- AsyncDirectTransport over an AsyncSession over
-  an awaited httpx2 client -- which has to carry a request out and an answer
-  back.
+What is left is what that check cannot see: the constructor it exempts, the
+asynchronous context manager (which is also where "aclose" is shown to be what
+httpx2 really calls it), and the awaited stack underneath carrying a request out
+and an answer back.
 """
 
 from __future__ import annotations
@@ -101,9 +92,8 @@ async def test_a_client_without_a_session_of_its_own_cannot_log_in() -> None:
 async def test_the_context_manager_closes_the_session(state) -> None:
     """``async with`` reaches __aenter__ and __aexit__, and the close lands.
 
-    The close landing is what shows httpx2 spells its awaited close "aclose":
-    test_awaited.py takes that name for granted when it compares the two
-    classes, and this is where the assumption is paid for.
+    Also where httpx2's "aclose" is paid for: test_awaited.py takes that name for
+    granted when it compares the two classes.
     """
 
     session = make_async_session(state, Clock())

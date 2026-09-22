@@ -54,8 +54,8 @@ def test_a_configuration_that_is_neither_an_mo_nor_an_array_is_refused() -> None
     [{"totalCount": "1", "imdata": [{"fvTenant": {"attributes": {}}}]}, {"imdata": []}],
 )
 def test_a_get_response_is_named_for_what_it_is(response) -> None:
-    # The commonest way to write a configuration that quietly describes nothing,
-    # and the generic "2 keys" complaint would not lead anyone to the fix.
+    # The commonest way to write a configuration that describes nothing, and the
+    # generic "2 keys" complaint would not lead anyone to the fix.
     assert "GET response" in only(response)
     assert "imdata" in only(response)
 

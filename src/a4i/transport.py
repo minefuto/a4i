@@ -1,20 +1,13 @@
 """How a request reaches the APIC.
 
-:class:`~a4i.client.Client` holds everything a get or a post means -- the
-parameters, the validation, the dry-run comparison -- and knows nothing about
-how the request travels. That is the only difference between the two entry
-points: the CLI sends it over a Unix domain socket to the daemon holding the
-token, while a library caller sends it from a :class:`~a4i.session.Session` of
-its own.
+The one difference between the two entry points: the CLI sends over a Unix
+domain socket to the daemon holding the token, a library caller from a
+:class:`~a4i.session.Session` of its own. A caller catches the same exception
+either way, :mod:`a4i.ipc` rebuilding what the daemon flattened onto the wire.
 
-A caller catches the same exception whichever transport is underneath: the
-daemon flattens the failure onto the wire and :mod:`a4i.ipc` builds it back, so
-nothing here has to know that a crossing happened at all.
-
-The awaited transports are the same layer over an
-:class:`~a4i.session.AsyncSession`. There is no awaited daemon transport: the
-daemon exists to carry a token across the short-lived processes a CLI run is
-made of, which is not a problem an ``async with`` block has.
+There is no awaited daemon transport: the daemon exists to carry a token across
+the short-lived processes a CLI run is made of, which is not a problem an
+``async with`` block has.
 """
 
 from __future__ import annotations
@@ -83,11 +76,9 @@ class AsyncDirectTransport:
 class DaemonTransport:
     """Hands the request to the daemon that holds the token.
 
-    ``autostart`` is what a command wants and a server does not. A command is
-    something a person just typed, so starting a daemon to serve it is the
-    obvious thing; the MCP server is started by whatever launched the editor,
-    and a daemon spawned on that account would be one nobody asked for and
-    nobody is logged in to.
+    ``autostart`` is what a command wants and a server does not: the MCP server
+    is started by whatever launched the editor, and a daemon spawned on that
+    account is one nobody asked for and nobody is logged in to.
     """
 
     def __init__(self, *, autostart: bool = True) -> None:

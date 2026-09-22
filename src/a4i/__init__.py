@@ -10,12 +10,10 @@
         await client.login("admin", password)
         data = await client.get("fvTenant", kind="class", query_target="subtree")
 
-The names below are resolved on first use rather than imported here. Reaching
-:class:`~a4i.client.Client` pulls in the whole request and comparison stack,
-which costs more than a whole shell completion -- and completion runs through
-this package on every tab press. ``__version__`` is held back for the same
-reason: reading it takes importlib.metadata, which alone costs more than the
-completion it would be paid for.
+The names below are resolved on first use rather than imported here, ``__version__``
+included: shell completion runs through this package on every tab press, and
+reaching :class:`~a4i.client.Client` or importlib.metadata costs more than the
+whole completion would.
 """
 
 from __future__ import annotations

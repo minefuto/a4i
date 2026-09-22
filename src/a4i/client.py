@@ -1,18 +1,11 @@
 """The ACI REST API as a Python object.
 
-Everything a get or a post means lives here: the option-to-parameter mapping,
-the validation, and the dry-run comparison. How the request travels is the
-:mod:`a4i.transport` layer's business, so the CLI and a library caller run the
-very same code and send the very same request.
-
-A client made from a host owns its session and authenticates with
-:meth:`Client.login`; the token stays in this process's memory for as long as
-the client lives. No daemon is involved, and nothing is written to disk.
-
-:class:`AsyncClient` is the same object awaited. It is spelled out separately
-rather than shared with :class:`Client`, because what the two have in common is
-already outside both of them -- the parameters in :mod:`a4i.query`, the
-comparison in :mod:`a4i.dry_run` -- and what is left is the awaiting.
+What a get or a post means lives here; how the request travels is
+:mod:`a4i.transport`'s business, so the CLI and a library caller send the very
+same request. A client made from a host owns its session and keeps the token in
+this process's memory. :class:`AsyncClient` is spelled out separately rather
+than shared with :class:`Client`, because what the two have in common already
+lives outside both of them and what is left is the awaiting.
 """
 
 from __future__ import annotations
@@ -29,24 +22,16 @@ from a4i.validate import read_body
 if TYPE_CHECKING:
     from a4i.session import AsyncSession, Session
 
-# What a dry run needs to see of the current tree: the whole subtree, because
-# the body may reach into it, and only the settable properties, because only
-# those can change. A fabric-wide comparison wants exactly the same of each
-# subtree it walks.
+# What a comparison needs to see of a subtree: the whole of it, because the body
+# may reach into it, and only the settable properties, because only those change.
 _CURRENT_STATE = {"rsp-subtree": "full", "rsp-prop-include": "config-only"}
 
-# Listing what hangs under uni needs the DNs and nothing else. "config-only"
-# rather than "naming-only" because this list decides what gets walked, and
-# walking it with "config-only" below would find nothing in a container that
-# holds no configuration -- uni's runtime children, which nobody wrote and which
-# no intended configuration will mention. Listing them only to report them extra
-# is the wrong answer twice. It returns the DNs all the same.
+# "config-only" rather than "naming-only" because this list decides what gets
+# walked: uni's runtime children would only be reported extra. It returns the DNs
+# all the same.
 _UNI_CHILDREN = {"query-target": "children", "rsp-prop-include": "config-only"}
 
-# What listing the children of a DN asks for: the least the APIC can send while
-# still naming each child. Deliberately not _UNI_CHILDREN, which narrows to what
-# carries configuration because it decides what a comparison walks; this is a
-# browse, and leaves nothing out.
+# A browse, so it leaves nothing out -- deliberately not _UNI_CHILDREN.
 _CHILDREN = {"query-target": "children", "rsp-prop-include": "naming-only"}
 
 _NO_SESSION = "this client has no session of its own"
@@ -281,13 +266,10 @@ class Client:
     def _fetch_uni(self) -> list[Any]:
         """Fetch every MO under uni, one top-level subtree per request.
 
-        A single ``rsp-subtree=full`` over uni would be one request, but also
-        one response carrying the fabric's entire configuration, which a large
-        fabric times out on. Splitting at the top level holds each response to
-        one tenant or one policy tree, and names the subtree that failed if one
-        does. A subtree that cannot be read is fatal rather than skipped: a
-        difference found in what is left would be real, but one missed in what
-        is gone would read as a fabric that matches.
+        One ``rsp-subtree=full`` over uni is what a large fabric times out on,
+        and splitting at the top level names the subtree that failed. A subtree
+        that cannot be read is fatal rather than skipped: a difference missed in
+        what is gone would read as a fabric that matches.
         """
 
         return self._fetch_subtrees(self._top_level_dns())
@@ -302,11 +284,7 @@ class Client:
         return imdata
 
     def _top_level_dns(self) -> list[str]:
-        """Return the DNs of the MOs hanging directly under uni.
-
-        The DNs are read the way :meth:`list_children` reads them; only the
-        query differs, for the reason ``_UNI_CHILDREN`` gives.
-        """
+        """Return the DNs of the MOs hanging directly under uni."""
 
         data = self._fetch(merge.ROOT, dict(_UNI_CHILDREN))
         return mo.top_level_dns(data.get("imdata"))
@@ -314,10 +292,8 @@ class Client:
     def _fetch(self, dn: str, params: dict[str, str], *, kind: query.Kind = "mo") -> Any:
         """GET one subtree, saying which one if the APIC refuses it.
 
-        A short response is refused too. The APIC pages a long one rather than
-        failing, and a comparison cannot tell a page from the whole: every MO
-        left off the end would read as one the fabric is not carrying. Better to
-        stop and say so than to report a fabric missing what it has.
+        A short response is refused too: the APIC pages a long one rather than
+        failing, and a comparison cannot tell a page from the whole.
         """
 
         try:
@@ -337,10 +313,8 @@ class AsyncClient:
     """:class:`Client`, awaited.
 
     The same arguments, the same return values and the same exceptions, sending
-    the same requests in the same order: only the sending is awaited, so a
-    caller keeps its event loop while the APIC thinks. Every method below is
-    documented on :class:`Client`, which is the one description of what a call
-    means.
+    the same requests in the same order. Every method below is documented on
+    :class:`Client`, which is the one description of what a call means.
 
     ``transport`` replaces the session this client would otherwise build, as on
     :class:`Client`, and must be an awaited one. There is no awaited daemon
@@ -492,11 +466,8 @@ class AsyncClient:
     async def _fetch_uni(self) -> list[Any]:
         """Fetch every MO under uni, one top-level subtree per request.
 
-        One request at a time, as :meth:`Client._fetch_uni` makes them. The
-        subtrees could be fetched at once here, but a comparison that reports
-        the same fabric either way is worth more than one that is quicker on the
-        way to it, and the load a fabric sees is then the load the CLI puts on
-        it.
+        One request at a time, as :meth:`Client._fetch_uni` makes them: the load
+        a fabric sees is then the load the CLI puts on it, whoever is asking.
         """
 
         return await self._fetch_subtrees(await self._top_level_dns())
@@ -511,10 +482,7 @@ class AsyncClient:
         return imdata
 
     async def _top_level_dns(self) -> list[str]:
-        """Return the DNs of the MOs hanging directly under uni.
-
-        See :meth:`Client._top_level_dns`.
-        """
+        """Return the DNs of the MOs hanging directly under uni."""
 
         data = await self._fetch(merge.ROOT, dict(_UNI_CHILDREN))
         return mo.top_level_dns(data.get("imdata"))
@@ -541,11 +509,9 @@ class AsyncClient:
 def _check_complete(dn: str, data: Any) -> None:
     """Raise when the APIC returned fewer MOs than it says the query has.
 
-    ``totalCount`` counts what the query matched, which for a subtree GET is the
-    one MO at its root: the subtree hangs inside that one and is not counted, so
-    this catches a truncated list -- the children of uni -- and not a truncated
-    subtree. Anything but a number to compare against is left alone, since a
-    response without one is not evidence of a short one.
+    ``totalCount`` counts what the query matched, so for a subtree GET it counts
+    the MO at its root alone: this catches a truncated list of children and not a
+    truncated subtree. A response carrying no count at all is left alone.
     """
 
     if not isinstance(data, Mapping):

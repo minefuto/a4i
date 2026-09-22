@@ -1,35 +1,13 @@
 """Compare a fabric's whole configuration against the one it is meant to have.
 
-``a4i diff`` reads the intended configuration and reports where it and the
-fabric disagree. Nothing in this module performs I/O: it takes the
-configuration and the fabric as it was fetched -- :meth:`a4i.Client.fetch`
-reads that, and the daemon holds it between commands -- reads each into an
-index with :func:`a4i.merge.read`, and returns the differences.
+Nothing in this module performs I/O: :func:`compare` takes the configuration and
+the fabric as :meth:`a4i.Client.fetch` read it, reads each into an index with
+:func:`a4i.merge.read`, and returns the differences.
 
-This runs both ways, which is the whole point and the difference from
-:mod:`a4i.dry_run`. A POST can only add or change, so a dry run need only look
-at what the body mentions; this also has to report what the fabric carries and
-the intended configuration does not -- the BD someone added by hand. So an MO
-present on only one side is reported from either side (``missing`` and
-``extra``), and so is an attribute.
-
-The intended configuration is therefore taken to describe the whole of ``uni``.
-Anything it leaves out is reported as ``extra``, including the tenants and
-policies the APIC creates for itself. ``exclude`` narrows that: an MO named
-there, and everything under it, is left out of the comparison altogether. A name
-may hold a "*", which stands for any part of one RN -- ``uni/tn-test*`` -- and
-one written with a leading "!" is an exception to the rest, which is how every
-tenant but ``uni/tn-mgmt`` is left out. One may also end with an attribute
-condition -- ``uni/infra/accportprof-*/hports-*[descr=auto-*]`` -- for the MOs a
-DN cannot tell apart. :class:`a4i.mo.Exclusions` is what reads them.
-
-One configuration is compared, not several: folding several into one is
-:func:`a4i.merge.merge`, which this shares its reading with but does not call.
-Both sides here go through :func:`a4i.merge.read`, the same one merge is built
-on, so what merge refuses this refuses -- on the fabric's side too. How merge
-writes an index back out as a body -- nested, or flat with absolute DNs as it
-once did -- is nothing this has to know: a body is read down from ``uni`` either
-way.
+It runs both ways, which is the difference from :mod:`a4i.dry_run`: a POST can
+only add or change, but a fabric can carry what nobody wrote down. The intended
+configuration is therefore taken to describe the whole of ``uni``, and anything
+it leaves out is reported as ``extra`` unless ``exclude`` says otherwise.
 """
 
 from __future__ import annotations
@@ -41,13 +19,9 @@ from a4i.merge import Intended, read
 from a4i.mo import Change, Exclusions, parent_dn, split_condition
 from a4i.validate import read_body
 
-# What the merged configuration carries for the sake of a POST and a comparison
-# has nothing to say about: "status" tells the APIC what to do with an MO, so
-# the fabric never has a value to hold it against. See a4i.merge._DROPPED.
-#
-# It is the only one left to name. Both sides come through a4i.merge.read now,
-# which drops "dn", "rn" and "childAction" on the way in, so what a4i.mo.META
-# stands for is already gone by the time either side is looked at.
+# "status" tells the APIC what to do with an MO, so the fabric never has a value
+# to hold it against. The rest of a4i.mo.META is already gone by now:
+# a4i.merge.read drops it from both sides on the way in.
 _INSTRUCTION = frozenset({"status"})
 
 
@@ -62,34 +36,28 @@ def compare(
     """Return how ``fabric`` differs from the intended configuration.
 
     ``config`` is one ACI body -- one MO, a list of them, or the same as JSON
-    text -- describing the whole of ``uni``. ``fabric`` is the fabric it is
-    compared against, which is what :meth:`a4i.Client.fetch` returns: everything
-    under ``uni``, as one body. It is keyword-only so that every call says the
-    word, a comparison being worth only as much as the reader knows of where its
-    other side came from. Several configurations are merged into that one body
-    beforehand by :func:`a4i.merge.merge`. Without ``expand``, a subtree that is wholly
+    text -- describing the whole of ``uni``; several are folded into one
+    beforehand by :func:`a4i.merge.merge`. ``fabric`` is what
+    :meth:`a4i.Client.fetch` returns, and is keyword-only so that every call says
+    the word, a comparison being worth only as much as the reader knows of where
+    its other side came from. Without ``expand``, a subtree that is wholly
     missing or wholly extra is reported as its top MO alone, with the MOs below
     it counted rather than listed.
 
     ``exclude`` names MOs to leave out, each by its DN or by a pattern holding a
     "*", and each standing for everything under it as well; a leading "!" makes
     one an exception to the others, and a trailing ``[key=value]`` narrows one to
-    the MOs whose attribute matches. See :func:`_exclusions` for what a name
-    there means and :func:`_prune` for what leaving one out does.
+    the MOs whose attribute matches.
 
-    ``on_unused`` is called with the conditioned names that matched no MO at all,
-    if any did not. Nothing here writes anywhere, so a caller that wants to say
-    so passes what says it: :mod:`a4i.cli` prints a warning and goes on, since
-    leaving nothing out is not a comparison that failed.
+    ``on_unused`` is called with the conditioned names that matched no MO at all.
+    Nothing here writes anywhere, so a caller that wants to say so passes what
+    says it -- leaving nothing out is not a comparison that failed.
 
     Raises :class:`ValueError` if the configuration is not written as ACI
-    expects (see :mod:`a4i.validate`), if an MO does not carry the properties
-    its RN is built from, rather than comparing what is left: such a body names no one MO,
-    and the one it meant may well be on the fabric. Reporting that one missing
-    while reporting the real one extra is worse than saying what the input has to
-    spell out. An empty configuration is refused for a related reason: taken at
-    face value it means every MO on the fabric is extra, and what it actually
-    means is almost always a path that pointed at nothing.
+    expects, or if an MO does not carry the properties its RN is built from:
+    such a body names no one MO, and the one it meant may well be on the fabric.
+    An empty configuration is refused too, taken at face value meaning every MO
+    on the fabric is extra.
     """
 
     excluded = _exclusions(exclude)
@@ -124,30 +92,18 @@ def compare(
 def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
     """Return what to leave out, each name read the way any other DN is read.
 
-    A single string is one name rather than a list to split on something: an ACI
-    naming value can hold a comma, so nothing here separates one name from the
-    next. A leading or trailing "/" is dropped, as :func:`a4i.query.build_path`
-    drops it, and what is left of nothing but those is refused: an empty DN
-    names no MO, and it is what an unset shell variable expands to.
+    A single string is one name and is never split: an ACI naming value can hold
+    a comma, which is also why one name takes one condition and not several.
 
-    A "*" makes the name a pattern, as :class:`a4i.mo.Exclusions` describes.
-    "**" is refused rather than read as two of them: matching across RNs is the
-    one thing a pattern here does not do, and a "**" written for what gitignore
-    means by it would otherwise match nothing and quietly exclude nothing.
+    Three things are refused rather than read, each of them a spelling that would
+    otherwise quietly exclude nothing: an empty DN, which is what an unset shell
+    variable expands to; a "**", which a reader of gitignore would write for what
+    a "*" here does not do; and nothing but "!" exceptions, which excludes what
+    the comparison already compares.
 
-    A leading "!" makes the name an exception to the others -- everything under
-    ``uni/tn-*`` but ``uni/tn-mgmt`` -- and is read off before the rest of the
-    name is, so an exception is spelled and refused exactly as an exclusion is.
-    Nothing but exceptions is refused for the reason "**" is: it excludes
-    nothing, which is what the comparison already does.
-
-    A trailing ``[key=value]`` is an attribute condition, and everything above
-    is said of the DN before it: the condition is cut off first, so a trailing
-    "/" and a "**" are judged on the DN alone. One condition, not several -- a
-    "," would be read as one where an ACI ``descr`` holds one of its own -- and
-    an empty key is refused, being a condition on no attribute. The value is a
-    "*" pattern as an RN is, and needs no "**" rule: an attribute value has no
-    "/" to cross.
+    The condition is cut off first, so everything above is judged on the DN
+    alone. Its value is a "*" pattern as an RN is, and needs no "**" rule: an
+    attribute value has no "/" to cross.
     """
 
     if exclude is None:
@@ -185,14 +141,9 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
 def _prune(index: dict[str, Any], excluded: Exclusions) -> None:
     """Drop the excluded MOs from one side's index, in place.
 
-    Both sides are pruned, so an excluded MO is neither missing nor extra nor
-    modified, whichever side happens to carry it: excluding something is saying
-    nothing about it at all, and reporting it missing because the fabric was not
-    consulted would be the comparison talking about what it did not look at.
-
-    Pruning the index rather than filtering the report is what keeps the counts
-    honest -- ``child_count`` is read off these same dicts, so a subtree with an
-    excluded MO in it is reported one MO shorter.
+    Both sides are pruned, excluding something being saying nothing about it at
+    all. Pruning the index rather than filtering the report is what keeps
+    ``child_count`` honest, being read off these same dicts.
     """
 
     if not excluded:
@@ -249,8 +200,8 @@ def _extra(intended: Intended, actual: Intended, *, expand: bool) -> list[Change
 def _under_a_missing_parent(dn: str, intended: Intended, actual: Intended) -> bool:
     """True when this MO's parent is missing too, so it goes with the parent.
 
-    Only the parent is looked at: a grandparent that is missing makes the parent
-    roll up in turn, so the whole subtree collapses onto its top MO.
+    Only the parent is looked at: a missing grandparent rolls the parent up in
+    turn, so the whole subtree collapses onto its top MO.
     """
 
     parent = parent_dn(dn)
@@ -270,9 +221,8 @@ def _compare(
     """Diff one MO's attributes both ways.
 
     An attribute the fabric carries and the configuration does not is reported
-    with nothing on the right, the same way an MO only the fabric has is
-    reported. The APIC returns an unset attribute as an empty string, and that
-    is reported too: it is a value the configuration does not account for.
+    with nothing on the right. The APIC returns an unset attribute as an empty
+    string, which is a value the configuration does not account for either.
     """
 
     changed: dict[str, tuple[str | None, str | None]] = {}

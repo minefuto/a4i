@@ -61,9 +61,8 @@ def compare(
 ) -> list:
     """Compare one configuration made of the MOs given, against FABRIC.
 
-    diff takes a single body, and a list of MOs is one. So the arguments here
-    are flattened into that one list rather than passed as several inputs --
-    folding several inputs into one is a4i.merge's job, and is tested there.
+    diff takes a single body and a list of MOs is one, so the arguments here are
+    flattened into that list rather than passed as several inputs.
     """
 
     config = [one for arg in mos for one in (arg if isinstance(arg, list) else [arg])]
@@ -282,8 +281,8 @@ def test_a_fixed_rn_child_resolves_as_well() -> None:
 
 
 def test_a_class_the_fabric_has_never_seen_is_reported_missing() -> None:
-    # Nothing on the fabric can be what this fvCtx means, so it is missing -- and
-    # under the DN ACI would give it, which no MO on the fabric had to show.
+    # Reported under the DN ACI would give it, which no MO on the fabric had to
+    # show.
     tenant = mo("fvTenant", {"dn": "uni/tn-new", "name": "new"}, [mo("fvCtx", {"name": "v1"})])
     changes = compare(*INTENDED, tenant, expand=True)
     assert kinds(changes) == [
@@ -293,8 +292,8 @@ def test_a_class_the_fabric_has_never_seen_is_reported_missing() -> None:
 
 
 def test_two_mos_of_a_class_the_fabric_lacks_stay_two() -> None:
-    # Both once landed on uni/tn-demo/? and the second overwrote the first -- an
-    # MO lost that way reads as a fabric that matches.
+    # Both once landed on uni/tn-demo/? and the second overwrote the first: an MO
+    # lost that way reads as a fabric that matches.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -324,7 +323,7 @@ def test_a_root_mo_the_dictionary_says_hangs_elsewhere_is_refused() -> None:
 
 def test_a_class_the_dictionary_lacks_falls_back_to_a_stand_in_rn() -> None:
     # A newer APIC's classes are not in the bundled dictionary, and comparing on
-    # what the input gives beats refusing to compare at all.
+    # what the input gives beats not comparing.
     tenant = mo("fvTenant", {"dn": "uni/tn-new", "name": "new"}, [mo("fooBar", {"name": "b1"})])
     changes = compare(*INTENDED, tenant, expand=True)
     assert kinds(changes)[-1] == ("missing", "uni/tn-new/fooBar[name=b1]")
@@ -347,8 +346,7 @@ def test_two_such_mos_stay_two() -> None:
 
 def test_an_mo_the_input_does_not_identify_is_refused() -> None:
     # An fvBD RN is "BD-{name}" and this one gives no name, so it could be bd1 or
-    # bd2. Reporting it missing while reporting the real one extra would be worse
-    # than saying what the input has to spell out.
+    # bd2. Reporting it missing while reporting the real one extra would be worse.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -362,7 +360,7 @@ def test_an_mo_the_input_does_not_identify_is_refused() -> None:
 
 
 def test_it_is_refused_even_where_the_fabric_has_no_such_mo() -> None:
-    # The RN format settles it without the fabric: there is no MO this could be
+    # Refused without the fabric being consulted: there is no MO this could be
     # under tn-new either, but the input still names none.
     tenant = mo("fvTenant", {"dn": "uni/tn-new", "name": "new"}, [mo("fvBD", {"mtu": "9000"})])
     with pytest.raises(ValueError) as exc:
@@ -411,14 +409,14 @@ def test_a_body_wrapped_in_poluni_is_read_through() -> None:
 
 
 def test_a_poluni_wrapper_is_read_through_without_a_dn_as_well() -> None:
-    # The class says it is the wrapper, so a POST body that leaves the dn to the
-    # URL is read the same way.
+    # The class says it is the wrapper, so a body leaving the dn to the URL reads
+    # the same way.
     assert compare(mo("polUni", {}, INTENDED)) == []
 
 
 def test_a_malformed_input_is_refused_rather_than_skipped() -> None:
-    # Skipping it would compare against a configuration missing whatever the
-    # element was meant to say, and report the fabric extra for carrying it.
+    # Skipping it would report the fabric extra for carrying what the element was
+    # meant to describe.
     with pytest.raises(ValueError) as exc:
         compare(*INTENDED, "not an mo", {"a": {}, "b": {}})
     assert "[2]" in str(exc.value)
@@ -427,10 +425,9 @@ def test_a_malformed_input_is_refused_rather_than_skipped() -> None:
 
 # -- reading a response back as the configuration it describes -------------
 #
-# The whole point of "config-only": what the APIC returns for a subtree is what
-# that subtree is meant to be, so feeding one straight back has to report
-# nothing. It only does if both sides work a DN out the same way, and the APIC
-# does not always spell one out on a child.
+# Feeding a "config-only" response straight back has to report nothing, which it
+# only does if both sides work a DN out the same way -- and the APIC does not
+# always spell one out on a child.
 
 
 def test_a_response_compared_against_itself_shows_no_differences() -> None:
@@ -449,9 +446,8 @@ def test_a_child_named_only_by_an_rn_is_read_the_same_on_both_sides() -> None:
 
 
 def test_a_child_named_by_neither_a_dn_nor_an_rn_is_kept_on_the_fabric_side() -> None:
-    # The RN format names it from "name" alone, and it has to be applied to the
-    # response as well: dropping the branch would report the whole subtree
-    # missing from a fabric that is carrying it.
+    # The RN format has to be applied to the response as well: dropping the branch
+    # would report the whole subtree missing from a fabric carrying it.
     imdata = [
         mo(
             "fvTenant",
@@ -471,14 +467,14 @@ def test_an_excluded_mo_the_fabric_has_is_not_reported_extra() -> None:
 
 
 def test_excluding_an_mo_excludes_everything_under_it() -> None:
-    # With expand there is nothing left to summarise a subtree into, so this is
-    # where a child that outlived its parent would show.
+    # With expand there is nothing to summarise a subtree into, so this is where a
+    # child that outlived its parent would show.
     assert compare(INTENDED[0], exclude="uni/tn-common", expand=True) == []
 
 
 def test_an_excluded_mo_the_configuration_asks_for_is_not_reported_missing() -> None:
-    # The other side of the same rule: excluding says nothing about the subtree,
-    # so an MO in it is not missing either, however loudly the input asks for it.
+    # The other side of the same rule: an excluded MO is not missing either,
+    # however loudly the input asks for it.
     wanted = mo("fvTenant", {"dn": "uni/tn-new", "name": "new"}, [mo("fvBD", {"name": "bd9"})])
     assert compare(*INTENDED, wanted, exclude="uni/tn-new", expand=True) == []
 
@@ -512,8 +508,8 @@ def test_excluding_a_child_leaves_its_parent_compared() -> None:
 
 
 def test_the_mos_going_with_a_subtree_are_counted_without_the_excluded_ones() -> None:
-    # tn-demo carries BD-bd1, its rsctx and BD-bd2. Excluding BD-bd1 takes the
-    # rsctx under it along, leaving one MO to go with the tenant.
+    # Excluding BD-bd1 takes the rsctx under it along, leaving one MO of the three
+    # to go with the tenant.
     (whole,) = compare(INTENDED[1])
     assert whole.child_count == 3
     (pruned,) = compare(INTENDED[1], exclude="uni/tn-demo/BD-bd1")
@@ -521,8 +517,7 @@ def test_the_mos_going_with_a_subtree_are_counted_without_the_excluded_ones() ->
 
 
 def test_a_dn_that_is_not_an_rn_boundary_excludes_nothing() -> None:
-    # "uni/tn-comm" is a prefix of the text of uni/tn-common and the DN of no
-    # MO, so it leaves the tenant where it is.
+    # A prefix of the text of uni/tn-common and the DN of no MO.
     assert kinds(compare(INTENDED[0], exclude="uni/tn-comm")) == [("extra", "uni/tn-common")]
 
 
@@ -537,8 +532,8 @@ def test_a_sibling_whose_dn_starts_the_same_way_is_not_excluded() -> None:
 
 
 def test_a_prefix_ending_inside_a_naming_value_excludes_nothing() -> None:
-    # A subnet's RN holds a "/" of its own, so the ancestors are walked rather
-    # than the text of the DN matched: this one is an ancestor of nothing.
+    # A subnet's RN holds a "/" of its own, so this text is an ancestor of nothing
+    # once the DN is split properly.
     imdata = [
         mo(
             "fvTenant",
@@ -577,15 +572,14 @@ def test_the_naming_value_holding_a_slash_is_excluded_when_named_in_full() -> No
 
 
 def test_an_excluded_dn_that_matches_nothing_is_accepted() -> None:
-    # Excluding what is not there hides no difference, so it is not worth
-    # refusing: the same command line can serve a fabric that has the tenant and
-    # one that does not.
+    # Excluding what is not there hides no difference, and the same command line
+    # can serve a fabric that has the tenant and one that does not.
     assert kinds(compare(INTENDED[0], exclude="uni/tn-typo")) == [("extra", "uni/tn-common")]
 
 
 def test_one_dn_can_be_given_as_a_string_or_as_a_sequence() -> None:
     # A string is one DN, never a list to split: an ACI naming value can hold a
-    # comma, so there is nothing here to separate one DN from the next.
+    # comma.
     assert compare(INTENDED[0], exclude=["uni/tn-common"]) == []
     assert compare(INTENDED[0], exclude=("uni/tn-common",)) == []
 
@@ -601,8 +595,7 @@ def test_a_dn_is_read_with_or_without_its_slashes() -> None:
 
 
 def test_excluding_the_root_excludes_the_whole_comparison() -> None:
-    # Nothing special is made of uni: it is the ancestor of every MO, so naming
-    # it leaves nothing to compare.
+    # Nothing special is made of uni, which is the ancestor of every MO.
     assert compare(*INTENDED, exclude="uni") == []
 
 
@@ -614,7 +607,7 @@ def test_an_empty_dn_is_refused() -> None:
 
 def test_an_unidentified_mo_under_an_excluded_one_does_not_stop_the_comparison() -> None:
     # Which fvBD the input meant is a question about a subtree nothing will be
-    # reported about, so there is nothing left for the input to settle.
+    # reported about.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -635,8 +628,7 @@ def test_an_unidentified_mo_outside_the_excluded_subtree_is_still_refused() -> N
 
 
 def test_excluding_one_bd_does_not_excuse_an_unidentified_sibling() -> None:
-    # The input names no one fvBD, so it could be the excluded one or another:
-    # the exclusion settles nothing.
+    # The input names no one fvBD, so it could be the excluded one or another.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -649,7 +641,7 @@ def test_excluding_one_bd_does_not_excuse_an_unidentified_sibling() -> None:
 # -- MOs left out by a pattern ---------------------------------------------
 
 # Three tenants whose names start alike, which is what a pattern is for and what
-# a pattern gets wrong: the fabric has them, the configuration describes prod.
+# it gets wrong. The fabric has all three; the configuration describes prod.
 TENANTS = [
     mo("fvTenant", {"dn": "uni/tn-test", "name": "test"}),
     mo("fvTenant", {"dn": "uni/tn-testbed", "name": "testbed"}),
@@ -663,8 +655,8 @@ def test_a_pattern_excludes_every_mo_whose_rn_it_matches() -> None:
 
 
 def test_a_star_stands_for_nothing_as_well_as_for_something() -> None:
-    # tn-testbed is matched by tn-testbed*, so a name written out in full and a
-    # pattern that happens to end in a "*" leave out the same MO.
+    # A pattern that happens to end in a "*" and a name written out in full leave
+    # out the same MO.
     reported = kinds(compare(PROD, imdata=TENANTS, exclude="uni/tn-testbed*"))
     assert reported == [("extra", "uni/tn-test")]
 
@@ -676,15 +668,14 @@ def test_an_mo_the_pattern_does_not_match_is_still_compared() -> None:
 
 
 def test_a_pattern_excludes_everything_under_what_it_matches() -> None:
-    # The subtree goes with the MO the pattern matched, as it goes with one
-    # named outright: expand leaves nothing for a stray child to hide in.
+    # The subtree goes with the MO the pattern matched, and expand leaves nothing
+    # for a stray child to hide in.
     assert compare(INTENDED[0], exclude="uni/tn-comm*", expand=True) == []
 
 
 def test_a_pattern_matches_within_one_rn_and_not_across_a_slash() -> None:
-    # "uni/*-bd1" is two RNs, so it is held against the tenants and matches
-    # none. Matched against the text of a DN it would take a BD three RNs down
-    # with it, and the comparison would go quiet about a BD nobody excluded.
+    # "uni/*-bd1" is two RNs, so it is held against the tenants and matches none.
+    # Against the text of a DN it would quietly take a BD three RNs down with it.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -698,8 +689,7 @@ def test_a_pattern_matches_within_one_rn_and_not_across_a_slash() -> None:
 
 
 def test_a_pattern_can_name_the_depth_it_matches_at() -> None:
-    # The BDs go and the tenant above them stays, so the descr is still held to
-    # the configuration.
+    # The BDs go and the tenant above them stays.
     changed = mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "descr": "changed"})
     (change,) = compare(changed, INTENDED[1], exclude="uni/tn-demo/BD-*")
     assert (change.kind, change.dn) == ("modified", "uni/tn-demo")
@@ -707,15 +697,15 @@ def test_a_pattern_can_name_the_depth_it_matches_at() -> None:
 
 
 def test_the_mos_going_with_a_subtree_are_counted_without_the_pattern_excluded_ones() -> None:
-    # As for a DN named outright: the count is read off the pruned index, so a
-    # tenant whose BDs are all excluded takes none of them with it.
+    # The count is read off the pruned index, so a tenant whose BDs are all
+    # excluded takes none of them with it.
     (pruned,) = compare(INTENDED[1], exclude="uni/tn-demo/BD-*")
     assert pruned.child_count == 0
 
 
 def test_brackets_in_a_pattern_are_the_brackets_of_a_naming_value() -> None:
-    # fnmatch would read "[dc]" as a set of characters and take both tenants.
-    # Here it is text an RN would have to hold, and no RN does.
+    # fnmatch would read "[dc]" as a set of characters and take both tenants; here
+    # it is text an RN would have to hold, and no RN does.
     reported = kinds(compare(INTENDED[0], exclude="uni/tn-[dc]*"))
     assert reported == [("extra", "uni/tn-common")]
 
@@ -748,8 +738,7 @@ def test_a_pattern_and_a_dn_can_be_given_together() -> None:
 
 
 def test_a_star_on_its_own_excludes_the_whole_comparison() -> None:
-    # It matches uni, which is the ancestor of everything, so this is the root
-    # named a second way.
+    # It matches uni, the ancestor of everything.
     assert compare(*INTENDED, exclude="*") == []
 
 
@@ -758,8 +747,7 @@ def test_a_pattern_is_read_with_or_without_its_slashes() -> None:
 
 
 def test_two_stars_are_refused() -> None:
-    # Matching across RNs is the one thing a pattern here does not do. Read as
-    # two "*" it would match nothing and quietly exclude nothing, so it is
+    # Read as two "*" it would match nothing and quietly exclude nothing, so it is
     # refused rather than read at all.
     with pytest.raises(ValueError) as exc:
         compare(*INTENDED, exclude="uni/**/BD-bd1")
@@ -767,8 +755,7 @@ def test_two_stars_are_refused() -> None:
 
 
 def test_an_unidentified_mo_under_a_pattern_excluded_one_does_not_stop_the_comparison() -> None:
-    # The exclusion reaches the merge side too: which fvBD the input meant is a
-    # question about a subtree nothing will be reported about.
+    # The exclusion reaches the merge side too.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -780,7 +767,7 @@ def test_an_unidentified_mo_under_a_pattern_excluded_one_does_not_stop_the_compa
 # -- MOs an exception brings back ------------------------------------------
 
 # tn-demo as the fabric has it, with one attribute changed: an exception is only
-# shown to work by a difference being reported through it.
+# shown to work by a difference reported through it.
 CHANGED_DEMO = mo(
     "fvTenant",
     {"dn": "uni/tn-demo", "name": "demo", "descr": "changed"},
@@ -792,15 +779,14 @@ CHANGED_DEMO = mo(
 
 
 def test_an_exception_leaves_the_mo_it_names_in_the_comparison() -> None:
-    # Every tenant is excluded and one is named back in, so tn-common is silent
-    # and tn-demo is still held to the configuration.
+    # Every tenant is excluded and one named back in.
     reported = kinds(compare(CHANGED_DEMO, exclude=["uni/tn-*", "!uni/tn-demo"]))
     assert reported == [("modified", "uni/tn-demo")]
 
 
 def test_an_exclusion_deeper_than_an_exception_is_the_one_that_counts() -> None:
-    # The tenant comes back and its BDs go, which is the only way to describe a
-    # tenant's own attributes and nothing under it.
+    # The tenant comes back and its BDs go: the only way to compare a tenant's own
+    # attributes and nothing under it.
     tenant = mo("fvTenant", {"dn": "uni/tn-demo", "name": "demo", "descr": "changed"})
     reported = kinds(
         compare(tenant, exclude=["uni/tn-*", "!uni/tn-demo", "uni/tn-demo/BD-*"], expand=True)
@@ -814,8 +800,8 @@ def test_an_exception_is_read_with_or_without_its_spaces_and_slashes() -> None:
 
 
 def test_exceptions_on_their_own_are_refused() -> None:
-    # They exclude nothing, which is what the comparison does already: a name
-    # written this way and nothing else is a missing exclusion, not a request.
+    # They exclude nothing, so a name written this way and nothing else is a
+    # missing exclusion rather than a request.
     with pytest.raises(ValueError) as exc:
         compare(*INTENDED, exclude="!uni/tn-common")
     assert "exceptions alone exclude nothing" in str(exc.value)
@@ -835,7 +821,7 @@ def test_two_stars_are_refused_in_an_exception_too() -> None:
 
 def test_an_unidentified_mo_an_exception_brought_back_is_still_refused() -> None:
     # The exception reaches the merge side as the exclusion does: the subtree is
-    # compared again, so which fvBD the input meant has to be settled again.
+    # compared again, so the input has to name this MO after all.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-demo", "name": "demo", "descr": ""},
@@ -848,8 +834,8 @@ def test_an_unidentified_mo_an_exception_brought_back_is_still_refused() -> None
 
 # -- MOs left out by an attribute condition ---------------------------------
 
-# Two tenants a DN tells apart no better than a pattern does: what separates
-# them is what an attribute says, which is what a condition is for.
+# Two tenants a DN tells apart no better than a pattern does: what separates them
+# is what an attribute says.
 MARKED = [
     mo(
         "fvTenant",
@@ -866,8 +852,7 @@ def test_a_condition_excludes_the_mos_whose_attribute_matches() -> None:
 
 
 def test_a_condition_excludes_everything_under_what_it_matched() -> None:
-    # The BD hangs under the matched tenant and is left out with it, the way a
-    # DN named outright takes its subtree.
+    # The BD hangs under the matched tenant and is left out with it.
     assert compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]", expand=True) == []
 
 
@@ -884,15 +869,15 @@ def test_the_value_is_matched_in_full_rather_than_anywhere_in_it() -> None:
 
 def test_the_fabric_value_alone_is_enough_to_leave_an_mo_out() -> None:
     # The configuration calls it something else, so a condition read off the
-    # intended side alone would drop one side of a pair and report the other
-    # modified -- an exclusion inventing the difference it was written to quiet.
+    # intended side alone would report the fabric's value modified -- an exclusion
+    # inventing the difference it was written to quiet.
     intended = mo("fvTenant", {"dn": "uni/tn-a", "name": "a", "descr": "by hand"})
     assert compare(intended, BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]") == []
 
 
 def test_the_intended_value_alone_is_enough_to_leave_an_mo_out() -> None:
-    # This tenant is on neither the fabric nor in MARKED, so without the
-    # condition it is missing; the configuration's own descr matches it.
+    # Not on the fabric, so without the condition it is missing; the
+    # configuration's own descr is what matches it.
     wanted = mo("fvTenant", {"dn": "uni/tn-c", "name": "c", "descr": "auto-made"})
     assert compare(BY_HAND, wanted, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]") == []
 
@@ -904,15 +889,15 @@ def test_an_mo_without_the_attribute_is_not_left_out() -> None:
 
 
 def test_a_condition_matches_at_its_own_depth_alone() -> None:
-    # The BD is one deeper than the pattern, so it is not tested against it --
-    # it is left out because the tenant above it was.
+    # The BD is one deeper than the pattern, so it is left out because the tenant
+    # above it was.
     reported = kinds(compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[name=b]", expand=True))
     assert reported == [("extra", "uni/tn-a"), ("extra", "uni/tn-a/BD-b")]
 
 
 def test_a_dn_ending_in_a_bracket_is_not_read_as_a_condition() -> None:
-    # A naming value holds no "=", which is the whole of the rule: this ends in
-    # a "]" and is a DN, brackets and all.
+    # A naming value holds no "=", so this ends in a "]" and is a DN, brackets and
+    # all.
     subnet = [
         mo(
             "fvTenant",
@@ -972,8 +957,8 @@ def test_a_dn_ending_in_a_bracket_can_still_carry_a_condition() -> None:
 
 
 def test_an_exception_may_carry_a_condition_of_its_own() -> None:
-    # Every tenant is left out, but the one the fabric marked by hand comes back
-    # -- and it differs, which is what the comparison is then free to say.
+    # Every tenant is left out, but the one the fabric marked by hand comes back --
+    # and it differs.
     changed = mo("fvTenant", {"dn": "uni/tn-b", "name": "b", "descr": "changed"})
     (change,) = compare(changed, imdata=MARKED, exclude=["uni/tn-*", "!uni/tn-*[descr=by*]"])
     assert (change.kind, change.dn) == ("modified", "uni/tn-b")
@@ -1000,9 +985,8 @@ def test_a_condition_naming_no_attribute_is_refused() -> None:
 
 
 def test_a_condition_does_not_excuse_an_unidentified_mo_under_it() -> None:
-    # Which fvBD the input meant cannot be answered from a DN, and neither can
-    # the condition: it is settled once the MOs are indexed, which is after the
-    # input had to name this one.
+    # A condition is settled once the MOs are indexed, which is after the input
+    # had to name this one.
     tenant = mo(
         "fvTenant",
         {"dn": "uni/tn-a", "name": "a", "descr": "auto-generated"},

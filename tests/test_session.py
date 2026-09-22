@@ -49,8 +49,7 @@ def test_get_after_login() -> None:
 
 
 def test_post_sends_the_body_as_given() -> None:
-    # Text goes to the APIC exactly as the caller wrote it: nothing here parses
-    # it and nothing reserializes it.
+    # Text goes to the APIC exactly as the caller wrote it: nothing here parses it.
     state: dict = {}
     session = make_session(state, Clock())
     session.login("admin", "pw")
@@ -235,9 +234,9 @@ def test_node_clients_inherit_the_login_tls_setting() -> None:
 
 # -- TLS verification ------------------------------------------------------
 #
-# The real client factory, which the mocked sessions above stand in for. What
-# --ca gives is a path, and httpx2 takes one only by deprecation, so it is an
-# SSL context that has to reach the client.
+# The real client factory, which the mocked sessions above stand in for. What --ca
+# gives is a path, and httpx2 takes one only by deprecation, so an SSL context is
+# what has to reach the client.
 
 
 @pytest.mark.parametrize("verify", [True, False])
@@ -246,16 +245,16 @@ def test_a_bool_verify_reaches_the_client_as_it_is(verify: bool) -> None:
 
 
 def test_a_ca_directory_is_loaded_through_capath(tmp_path) -> None:
-    # An OpenSSL CA path is a directory of hashed symlinks rather than one
-    # bundle, and is read lazily, so an empty one is still a valid one.
+    # An OpenSSL CA path is a directory of hashed symlinks, read lazily, so an
+    # empty one is still a valid one.
     context = _ssl_context(str(tmp_path))
     assert isinstance(context, ssl.SSLContext)
     assert context.verify_mode is ssl.CERT_REQUIRED
 
 
 def test_a_ca_bundle_that_is_not_there_is_reported_at_once(tmp_path) -> None:
-    # The file branch reads the bundle there and then, unlike capath: a mistyped
-    # --ca fails the login rather than quietly verifying against nothing.
+    # The file branch reads the bundle there and then, unlike capath, so a mistyped
+    # --ca fails the login rather than verifying against nothing.
     with pytest.raises(FileNotFoundError):
         _ssl_context(str(tmp_path / "missing.pem"))
 
@@ -324,7 +323,7 @@ def test_the_timeout_a_session_is_given_reaches_its_client() -> None:
     try:
         assert session.timeout == 120.0
         # Every phase of it: an APIC slow to answer is as likely to be slow to
-        # accept the connection in the first place.
+        # accept the connection.
         assert session._client.timeout == httpx2.Timeout(120.0)
     finally:
         session.close()
@@ -344,8 +343,8 @@ def test_a_node_client_is_built_with_the_same_timeout() -> None:
 
 @pytest.mark.parametrize("timeout", [0.0, -1.0])
 def test_a_timeout_that_cannot_bound_a_request_is_refused(timeout: float) -> None:
-    # There is no way to ask for "no timeout" at all: httpx2 reads that as wait
-    # forever, and nothing here has a way out of a request that never returns.
+    # No way to ask for "no timeout" at all: nothing here has a way out of a
+    # request that never returns.
     with pytest.raises(ValueError, match="greater than 0"):
         Session(APIC_HOST, timeout=timeout)
 
@@ -381,8 +380,7 @@ def test_get_uses_the_client_timeout_by_default() -> None:
     session = make_session(state, Clock())
     session.login("admin", "pw")
     session.get("/api/class/fvTenant.json")
-    # Asking for no timeout means the client's own, not the "wait forever" that
-    # httpx2 reads a literal None as.
+    # Asking for no timeout means the client's own, not httpx2's "wait forever".
     assert state["timeouts"][-1] == httpx2.Client().timeout.read
 
 

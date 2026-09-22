@@ -1,22 +1,12 @@
 """Narrow a merged body down to the MOs a POST of it would actually change.
 
-A merged configuration describes what the fabric is meant to hold, all of it,
-and posting the whole of it hands the APIC MOs that already read exactly that
-way. The APIC touches every one of them. This module takes the same comparison
-``post --dry-run`` reports and writes it back out as a body, so that what is
-posted is the report and nothing besides.
+:func:`create` runs the comparison ``post --dry-run`` reports and writes it back
+out as a body, so that what is posted is the report and nothing besides.
+Nothing here performs I/O.
 
-Nothing here performs I/O. :func:`create` takes a configuration and the fabric
-as it was fetched -- :meth:`a4i.Client.fetch` reads that, and the daemon holds
-it between commands -- runs the dry run over the two, and returns both the
-report and the body to post.
-
-The guarantee is one-way, and that is the point. If the comparison misses a
-change, the MO is left out and the fabric keeps what it has -- a configuration
-not yet applied, which the next run reports again. Nothing outside the report
-is ever written. A body wide enough to be safe against a missed comparison
-would have to be the whole configuration, which is the blast radius this exists
-to avoid.
+The guarantee is one-way, and that is the point: a change the comparison misses
+leaves the fabric as it is, to be reported again next run, where a body wide
+enough to be safe against a missed comparison would be the whole configuration.
 """
 
 from __future__ import annotations
@@ -29,12 +19,10 @@ from a4i.mo import ROOT, WRAPPER, Change, child_dn, split_mo, tail_rn
 from a4i.output import plural
 from a4i.validate import read_body
 
-# What a container is: an MO no change names, standing in the output only
-# because something under it changed. It is on the fabric already -- a
-# comparison that did not report it as created is a comparison that found it --
-# so it says as much, and the APIC refuses the POST outright if it is not.
-# Without this it would read as create-or-modify, and a comparison gone wrong
-# would quietly grow an empty MO where it thought one stood.
+# A container -- an MO no change names, in the body only to nest what changed --
+# is on the fabric already, so it says as much and the APIC refuses the POST
+# outright if it is not. The APIC's own default would be create-or-modify, where
+# a comparison gone wrong would quietly grow an empty MO instead.
 _CONTAINER_STATUS = "modified"
 
 _WARNED = (
@@ -64,10 +52,8 @@ class Plan:
     def containers(self) -> int:
         """How many MOs the body carries that no change names.
 
-        The report has no line for these: they are in the body only to nest what
-        does change (see :data:`_CONTAINER_STATUS`). A reader comparing the two
-        has to be told how many, or the body reads as a comparison that found
-        more than it said.
+        The report has no line for these (see :data:`_CONTAINER_STATUS`), so a
+        reader comparing the two has to be told how many.
         """
 
         return count(self.body) - len(self.changes)
@@ -78,16 +64,13 @@ def create(config: str | Any, *, fabric: Any) -> Plan:
 
     ``config`` is one ACI body, as :func:`a4i.diff.compare` takes one: several
     configurations are folded into it beforehand with :func:`a4i.merge.merge`,
-    which this runs it through in any case -- the placement rules, the refusals
-    and the output shape are the merged body's, and merging is idempotent, so a
-    body that has been through it already comes out unchanged.
+    which this runs it through in any case -- merging is idempotent, so a body
+    that has been through it already comes out unchanged.
 
     ``fabric`` is what the POST would land on, as :meth:`a4i.Client.fetch`
     returns it, and is keyword-only for the reason :func:`a4i.diff.compare`
     gives. The comparison itself is :func:`a4i.dry_run.check`, the one
-    ``post --dry-run`` reports, run over the merged body at uni. Only what the
-    configuration names is looked at, the rest of the fabric being nothing a
-    POST of it could touch.
+    ``post --dry-run`` reports, run over the merged body at uni.
 
     The result carries the changes ``post --dry-run`` reports and the body those
     changes make between them. Posting that body at uni does what the changes
@@ -107,24 +90,14 @@ def create(config: str | Any, *, fabric: Any) -> Plan:
 def body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:
     """Return the body posting only ``changes`` takes, wrapped for uni.
 
-    ``merged`` is a :func:`a4i.merge.merge` result and ``changes`` is what
-    :func:`a4i.dry_run.compare` made of it. The output is shaped exactly as a
-    merged body is -- a ``polUni`` of MOs nested under the MO each hangs off,
-    each naming itself by its ``rn`` -- so the two can be read side by side.
-    What differs is what is in it: the MOs the changes name, the MOs they hang
-    under, and nothing else.
+    Shaped exactly as the merged body it was made from, so the two can be read
+    side by side; what differs is what is in it.
 
-    Every MO carries the ``status`` the change says it is: ``created`` for one
-    the fabric does not have, ``modified`` for one it has, ``deleted`` for one
-    the body asks to remove. The status the input wrote is not carried over. It
-    said what the configuration meant in general; this body is about one POST
-    against one fabric that was just read, and the status here asserts what that
-    read found. Where the assertion is wrong the APIC refuses the POST, which is
-    the failure this is meant to have.
-
-    A ``modified`` MO carries only the attributes that change. A POST leaves
-    every attribute it does not mention alone, so the rest would be the fabric's
-    own values handed back to it.
+    Every MO carries the ``status`` the change says it is, and the status the
+    input wrote is not carried over: that said what the configuration meant in
+    general, where this asserts what one read of one fabric found. Where the
+    assertion is wrong the APIC refuses the POST, which is the failure this is
+    meant to have.
 
     Raises ``ValueError`` if any change is a warning -- the report says the POST
     will fail, and a body that quietly succeeded instead would be doing
@@ -176,8 +149,7 @@ def _children(dn: str, body_of: dict[str, Any], wanted: dict[str, Change]) -> li
         dn_of_child, _ = child_dn(dn, class_name, child_body)
         change = wanted.pop(dn_of_child, None)
         if change is not None and change.kind == "deleted":
-            # The subtree goes with the MO. Anything under it the comparison
-            # would have reported is a change the comparison never made.
+            # The subtree goes with the MO, so nothing under it is walked.
             kept.append({class_name: _attributes(dn_of_child, change)})
             continue
         below = _children(dn_of_child, child_body, wanted)

@@ -73,8 +73,7 @@ def test_root_dn_prefers_the_dn_attribute_over_the_target() -> None:
 @pytest.mark.parametrize(
     "target_kind_and_body",
     [
-        # A class target with no dn attribute leaves the MO unidentified: it says
-        # what the body is, not where it goes.
+        # A class target says what the body is, not where it goes.
         ("fvTenant", "class", mo("fvTenant", {"name": "demo"})),
         ("uni/tn-demo", "class", mo("fvTenant", {"name": "demo"})),
         # Not an MO at all.
@@ -148,8 +147,8 @@ def test_a_child_of_a_class_the_fabric_lacks_gets_a_real_dn_too() -> None:
 
 
 def test_a_child_of_an_unknown_class_is_new_under_a_stand_in_rn() -> None:
-    # No rnFormat is bundled for a class the dictionary has never heard of, so
-    # the MO is named after what the body does give.
+    # No rnFormat is bundled for a class the dictionary has never heard of, so the
+    # MO is named after what the body gives.
     body = mo("fvTenant", {"name": "demo"}, [mo("fooBar", {"name": "b1"})])
     (change,) = dry_run_compare(body)
     assert (change.kind, change.dn) == ("created", "uni/tn-demo/fooBar[name=b1]")
@@ -249,8 +248,8 @@ def test_created_on_a_new_mo_is_just_a_creation() -> None:
 
 
 def test_created_modified_on_an_existing_mo_is_not_a_warning() -> None:
-    # "created,modified" is the usual create-or-update, spelled out; the APIC
-    # takes it whether the MO is there or not.
+    # "created,modified" is the usual create-or-update spelled out, which the APIC
+    # takes whether the MO is there or not.
     body = mo(
         "fvTenant",
         {"name": "demo"},
@@ -281,10 +280,9 @@ def test_created_modified_on_a_missing_mo_is_just_a_creation() -> None:
 def test_a_body_that_names_no_mo_is_refused_rather_than_compared() -> None:
     """The same refusal merge and diff make, since all three read through one reader.
 
-    An fvBD RN is "BD-{name}" and this one gives no name, so the body names no
-    one MO -- and the one it meant may well be on the fabric. Reporting a
-    made-up DN as created while the real MO sits there unmentioned is worse than
-    saying what the body has to spell out.
+    An fvBD RN is "BD-{name}" and this one gives no name, so the MO it meant may
+    well be on the fabric under another DN: reporting a made-up one as created
+    while the real MO sits there unmentioned is worse.
     """
 
     body = mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"mtu": "9000"})])

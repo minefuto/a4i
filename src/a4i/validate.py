@@ -1,27 +1,17 @@
 """Refusing an input that is not a configuration, before anything reads it.
 
 An MO the APIC returned and an MO someone wrote are the same JSON, and a
-malformed one wants opposite treatment on the two sides. A response is a fact:
-an element a4i cannot make sense of is a4i falling short, and reading past it
-beats refusing to report the fabric at all. An input is an intention: an element
-a4i cannot make sense of is a line someone wrote that will not take effect, and
-reading past it is a configuration that quietly means something other than what
-it says -- a BD that never reaches the fabric, or a fabric that reads as
-matching because the MO it differs on was dropped on the way in.
+malformed one wants opposite treatment: skipping an element of a response is a4i
+falling short of reporting the fabric, where skipping one of an input is a
+configuration that quietly means something other than what it says. So the
+leniency stays where responses are read (:func:`a4i.mo.split_mo` goes on
+returning None) and every path carrying an input runs it past :func:`problems`
+first -- bar a raw ``a4i post``, which never parses the body at all.
 
-So the leniency stays where the responses are read (:func:`a4i.mo.split_mo` goes
-on returning None for what is not an MO), and every path that carries an input
--- ``merge``, ``diff``, ``post --dry-run`` -- runs it past :func:`problems`
-first. Only a raw ``a4i post`` does not: it sends the body text untouched
-without ever parsing it, and what the APIC makes of a malformed one is the
-APIC's answer to give.
-
-What is checked is the shape alone -- that each element is an MO, that a body
-holds ``attributes`` and ``children``, that an attribute value is something ACI
-could carry. Whether the MOs make sense together is :func:`a4i.merge.merge`'s
-question and is asked afterwards, on an input already known to be well formed:
-a diagnosis about a missing parent, drawn from a tree half of whose elements
-were skipped, would be a diagnosis of the wrong thing.
+The shape alone is checked. Whether the MOs make sense together is
+:func:`a4i.merge.merge`'s question and is asked afterwards, on an input already
+known to be well formed: a diagnosis drawn from a tree half of whose elements
+were skipped would be a diagnosis of the wrong thing.
 """
 
 from __future__ import annotations
@@ -47,10 +37,7 @@ def read_body(body: str | Any) -> tuple[str, Any]:
     """Return the text to send and the object it parses to.
 
     Text is passed through untouched rather than reserialized, so the key order
-    and the formatting reach the APIC exactly as the caller wrote them. A
-    comparison reads its one configuration through here too, and wants only the
-    object -- which is why the message below says "body" rather than "POST
-    body".
+    and the formatting reach the APIC exactly as the caller wrote them.
     """
 
     if not isinstance(body, str):
@@ -67,17 +54,13 @@ def problems(config: Any, source: str | None = None) -> list[str]:
     """Return what is wrong with ``config``, one line each, in reading order.
 
     ``source`` names where the input came from -- a file path, or ``configs[1]``
-    for one body handed over in an argument -- and is written into every line,
-    because a configuration is folded from several inputs and the one to fix is
-    not otherwise apparent. Passing None leaves the lines naming a position
-    alone, which is what one body handed to ``diff`` or ``post`` wants.
+    for one handed over in an argument -- and is written into every line, a
+    configuration being folded from several inputs. None leaves the lines naming
+    a position alone.
 
-    An empty list means the input is well formed, and an input that describes
-    nothing at all -- ``[]``, ``{}``, an empty ``polUni`` -- is well formed: a
-    directory of files is merged, and a placeholder among them is not a mistake.
-    What is refused is an element that was meant to be an MO and is not. Whether
-    the inputs together describe any MO is :func:`a4i.merge.merge`'s to answer,
-    and it does.
+    An input that describes nothing at all -- ``[]``, ``{}``, an empty ``polUni``
+    -- is well formed: a placeholder among a directory of files is not a mistake.
+    What is refused is an element that was meant to be an MO and is not.
     """
 
     found: list[str] = []
@@ -100,9 +83,7 @@ def refuse(found: list[str]) -> None:
     """Raise :class:`ValueError` reporting ``found``, or return if there is none.
 
     The first few are spelled out and the rest counted, as every other refusal
-    in a4i does it. A count is worth more than the lines it stands for here: one
-    mistyped element is one line to fix wherever it sits, so what the reader
-    needs is a place to start and the knowledge that there is more of it.
+    in a4i does it.
     """
 
     if not found:
@@ -208,11 +189,9 @@ def _body(
 def _dn_of(class_name: str, body: dict[str, Any], parent: str | None, *, sound: bool) -> str | None:
     """Return the DN to name this MO's children by, or None to name none of them.
 
-    The DN is worked out the way :class:`a4i.merge.Intended` works it out, so
-    that the position a problem is reported at is the position the merge would
-    have put the MO at. None means it cannot be: something is already wrong with
-    this body, or the input does not say which MO it means, and a DN built from
-    that would be a place that does not exist.
+    Worked out the way :class:`a4i.merge.Intended` works it out, so that a
+    problem is reported at the position the merge would have put the MO at. None
+    where a DN built from this body would name a place that does not exist.
     """
 
     if parent is None or not sound:
@@ -226,11 +205,10 @@ def _dn_of(class_name: str, body: dict[str, Any], parent: str | None, *, sound: 
 def _attributes(attributes: dict[str, Any], where: str, found: list[str]) -> None:
     """Check that every attribute value is one ACI could carry.
 
-    A string is what ACI carries and a number is written as one often enough to
-    be worth accepting -- ``"mtu": 9000`` reaches the APIC as ``"9000"``.
-    Everything else is refused rather than stringified: ``null`` would reach it
-    as ``"None"`` and ``true`` as ``"True"``, neither of which is a value any
-    property takes, and both of which a diff would go on reporting for ever.
+    A number is accepted and reaches the APIC as a string. Everything else is
+    refused rather than stringified: ``null`` would reach it as ``"None"`` and
+    ``true`` as ``"True"``, which no property takes and a diff would go on
+    reporting for ever.
     """
 
     for key, value in attributes.items():
@@ -256,11 +234,9 @@ def _attributes(attributes: dict[str, Any], where: str, found: list[str]) -> Non
 def _where(source: str | None, path: str, parent: str | None) -> str:
     """Say where in the input something sits: the file, the position, the parent.
 
-    The position is the one thing always there, and it is what an editor can be
-    pointed at. The parent DN is added when there is one to add, because a file
-    written as one tenant per element has a dozen positions that look alike and
-    only the DN tells them apart. It is left off at the top level, where "child
-    of uni" would be saying that every root MO hangs under uni.
+    The parent DN is added when there is one to add, a file written as one
+    tenant per element having a dozen positions that look alike. It is left off
+    at the top level, where every root MO hangs under uni in any case.
     """
 
     text = f"{source}: {path}" if source and path else (source or path or "the body")
