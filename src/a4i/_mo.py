@@ -12,10 +12,6 @@ from typing import Any
 
 from a4i._metadata import rn_format
 
-# Attributes that identify the MO or steer the request, never a configuration
-# value worth diffing.
-META = frozenset({"dn", "rn", "status", "childAction"})
-
 # The policy universe every configurable MO hangs under, and the class of the MO
 # itself. Facts about the tree rather than about one command, which is why they
 # sit here rather than in a4i._merge.
@@ -49,24 +45,17 @@ class Change:
     message: str = ""
 
 
-# The bool is False only where an RN format is known and the body does not give what it
-# fills from: a class the dictionary has never heard of gets a stand-in RN and True with
-# it, being the dictionary falling short rather than the input.
-def child_dn(parent: str, class_name: str, body: dict[str, Any]) -> tuple[str, bool]:
+def child_dn(parent: str, class_name: str, body: dict[str, Any]) -> str | None:
     attributes = body.get("attributes") or {}
     dn = attributes.get("dn")
     if isinstance(dn, str) and dn.strip("/"):
-        return dn.strip("/"), True
+        return dn.strip("/")
     rn = attributes.get("rn")
     if isinstance(rn, str) and rn:
-        return f"{parent}/{rn}", True
+        return f"{parent}/{rn}"
     fmt = rn_format(class_name)
-    if fmt is None:
-        return f"{parent}/{pseudo_rn(class_name, attributes)}", True
-    built = fill_rn(fmt, attributes)
-    if built is None:
-        return f"{parent}/{pseudo_rn(class_name, attributes)}", False
-    return f"{parent}/{built}", True
+    built = None if fmt is None else fill_rn(fmt, attributes)
+    return None if built is None else f"{parent}/{built}"
 
 
 def fill_rn(fmt: str, attributes: dict[str, Any]) -> str | None:
@@ -101,24 +90,8 @@ def _rn_pattern(fmt: str) -> re.Pattern[str]:
     return re.compile(pattern, re.DOTALL)
 
 
-# fvCtx[name=vrf1]. ACI writes no RN as key=value, so a stand-in cannot be mistaken for
-# one the APIC would return. Falling back to every attribute rather than to fewer keeps
-# two inputs from merging unless they say the very same thing: an MO reported twice is a
-# nuisance, one silently merged away is a fabric that reads as matching.
-def pseudo_rn(class_name: str, attributes: dict[str, Any]) -> str:
-    name = attributes.get("name")
-    if name is not None and text(name):
-        return f"{class_name}[name={text(name)}]"
-    values = ",".join(
-        f"{key}={text(value)}"
-        for key, value in sorted(attributes.items())
-        if key not in META and value is not None and text(value)
-    )
-    return f"{class_name}[{values}]"
-
-
-# Nothing is built here, unlike in child_dn: a response is not an input, so an MO it
-# does not name is left out rather than given a stand-in.
+# A response is not an input, so an MO it does not name is left out rather than
+# refused.
 def top_level_dns(imdata: Any) -> list[str]:
     dns: set[str] = set()
     for child in imdata if isinstance(imdata, list) else []:

@@ -312,24 +312,12 @@ def test_a_root_mo_the_dictionary_says_hangs_elsewhere_is_refused() -> None:
 # -- MOs with no bundled RN format -----------------------------------------
 
 
-def test_a_class_the_dictionary_lacks_falls_back_to_a_stand_in_rn() -> None:
-    # A newer APIC's classes are not in the bundled dictionary, and comparing on
-    # what the input gives beats not comparing.
+def test_a_class_the_dictionary_lacks_is_refused_without_a_dn_or_rn() -> None:
+    # No RN it could be keyed by would ever match the DN the APIC reports for it.
     tenant = mo("fvTenant", {"dn": "uni/tn-new", "name": "new"}, [mo("fooBar", {"name": "b1"})])
-    changes = compare(*INTENDED, tenant, expand=True)
-    assert kinds(changes)[-1] == ("missing", "uni/tn-new/fooBar[name=b1]")
-
-
-def test_two_such_mos_stay_two() -> None:
-    # Their stand-in RNs differ, so neither is merged away into the other.
-    tenant = mo(
-        "fvTenant",
-        {"dn": "uni/tn-new", "name": "new"},
-        [mo("fooBar", {"prop": "p"}), mo("fooBar", {"prop": "q"})],
-    )
-    reported = kinds(compare(*INTENDED, tenant, expand=True))
-    assert ("missing", "uni/tn-new/fooBar[prop=p]") in reported
-    assert ("missing", "uni/tn-new/fooBar[prop=q]") in reported
+    with pytest.raises(ValueError) as exc:
+        compare(*INTENDED, tenant, expand=True)
+    assert "fooBar under uni/tn-new (a class the bundled dictionary lacks)" in str(exc.value)
 
 
 # -- MOs the input does not name -------------------------------------------
@@ -347,7 +335,7 @@ def test_an_mo_the_input_does_not_identify_is_refused() -> None:
         compare(tenant, INTENDED[1])
     assert "fvBD under uni/tn-demo" in str(exc.value)
     assert "BD-{name}" in str(exc.value)
-    assert '"dn" or an "rn"' in str(exc.value)
+    assert '"dn", an "rn"' in str(exc.value)
 
 
 def test_it_is_refused_even_where_the_fabric_has_no_such_mo() -> None:

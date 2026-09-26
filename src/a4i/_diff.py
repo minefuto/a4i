@@ -35,10 +35,10 @@ def compare(
     the MOs whose attribute matches.
 
     Raises :class:`ValueError` if the configuration is not written as ACI
-    expects, or if an MO does not carry the properties its RN is built from:
-    such a body names no one MO, and the one it meant may well be on the fabric.
-    An empty configuration is refused too, taken at face value meaning every MO
-    on the fabric is extra.
+    expects, or if an MO gives neither a ``dn``, an ``rn`` nor the properties
+    the bundled dictionary builds its RN from: such a body names no one MO, and
+    the one it meant may well be on the fabric. An empty configuration is
+    refused too, taken at face value meaning every MO on the fabric is extra.
     """
 
     excluded = _exclusions(exclude)

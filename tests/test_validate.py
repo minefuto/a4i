@@ -82,8 +82,6 @@ def test_an_mo_giving_neither_attributes_nor_children_is_refused() -> None:
 
 
 def test_a_class_the_dictionary_lacks_is_refused_when_it_says_nothing_either() -> None:
-    # A pseudo RN would key it as "zzUnknown[]" and it would reach the APIC,
-    # which has no way to build an RN from nothing.
     assert "nothing to configure" in only({"zzUnknown": {"attributes": {}}})
 
 

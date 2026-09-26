@@ -502,15 +502,6 @@ def test_a_class_written_under_itself_is_held() -> None:
 # -- a class the dictionary does not know ----------------------------------
 
 
-def test_a_stand_in_rn_is_not_written_back() -> None:
-    # a4i._mo.pseudo_rn keys an unknown class by what the body gives, which is no
-    # RN the APIC would take, so the nesting has to say where the MO sits.
-    config = mo("fvTenant", {"name": "t"}, [mo("fooBar", {"name": "x", "descr": "y"})])
-    _, (_, dn, unknown) = walk(merge(config))
-    assert dn == "uni/tn-t/?"
-    assert unknown == {"name": "x", "descr": "y"}
-
-
 def test_an_unknown_class_keeps_an_rn_the_input_spelled_out() -> None:
     config = mo("fvTenant", {"name": "t"}, [mo("fooBar", {"rn": "foo-x", "descr": "y"})])
     _, (_, dn, unknown) = walk(merge(config))

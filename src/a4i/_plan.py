@@ -71,12 +71,12 @@ def _narrow(intended: Intended, changes: list[Change]) -> Intended:
         for key, (_, after) in change.attributes.items():
             if after is not None:
                 attributes[key] = after
-        narrowed.index[change.dn] = Mo(node.class_name, change.dn, attributes, node.real_rn)
+        narrowed.index[change.dn] = Mo(node.class_name, change.dn, attributes)
     for dn in list(narrowed.index):
         parent = parent_dn(dn)
         while parent is not None and parent != ROOT and parent not in narrowed.index:
             node = intended.index[parent]
             attributes = {"status": _CONTAINER_STATUS}
-            narrowed.index[parent] = Mo(node.class_name, parent, attributes, node.real_rn)
+            narrowed.index[parent] = Mo(node.class_name, parent, attributes)
             parent = parent_dn(parent)
     return narrowed

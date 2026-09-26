@@ -23,9 +23,8 @@ from a4i._mo import (
 from a4i._validate import problems, refuse
 
 # What the key says about an MO is not written again among its attributes, and
-# "childAction" is the APIC talking. "status" is deliberately not here, unlike in
-# a4i._mo.META: dropping it would be a configuration whose deletions had silently
-# stopped working.
+# "childAction" is the APIC talking. "status" is deliberately not here: dropping it
+# would be a configuration whose deletions had silently stopped working.
 _DROPPED = frozenset({"dn", "rn", "childAction"})
 # What is left for a comparison to skip: "status" tells the APIC what to do with an
 # MO, so the fabric never has a value to hold it against.
@@ -54,7 +53,8 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     filled-in ancestor is an MO the POST may create that no input asked for.
 
     Raises :class:`ValueError` if an input is not written as ACI expects, if an
-    MO does not carry the properties its RN is built from, if the inputs describe
+    MO gives neither a ``rn``, a ``dn`` nor the properties the bundled dictionary
+    builds its RN from, if the inputs describe
     no MO at all, or if an MO cannot be placed under ``uni``, and
     :class:`UndescribedError` for the one refusal ``loose`` lifts.
     """
@@ -93,11 +93,7 @@ def write(intended: Intended) -> dict[str, Any]:
     # hang it on: a DN is a prefix of the DNs below it, and a prefix sorts
     # first. Within one parent this is RN order.
     for dn, node in sorted(intended.index.items()):
-        attributes: dict[str, str] = {}
-        if node.real_rn:
-            attributes["rn"] = tail_rn(dn)
-        attributes.update(node.attributes)
-        body: dict[str, Any] = {"attributes": attributes}
+        body: dict[str, Any] = {"attributes": {"rn": tail_rn(dn), **node.attributes}}
         bodies[dn] = body
         parent = parent_dn(dn)
         if parent is None or parent == ROOT:
@@ -368,21 +364,6 @@ class Mo:
     class_name: str
     dn: str
     attributes: dict[str, str] = field(default_factory=dict)
-    # False where the last RN is the stand-in a4i._mo.pseudo_rn builds. It keys
-    # the merge as well as a real RN does, but writing one back out would be
-    # writing an RN no POST could carry.
-    real_rn: bool = True
-
-
-def _names_its_own_rn(class_name: str, body: dict[str, Any]) -> bool:
-    attributes = body.get("attributes") or {}
-    dn = attributes.get("dn")
-    if isinstance(dn, str) and dn.strip("/"):
-        return True
-    rn = attributes.get("rn")
-    if isinstance(rn, str) and rn:
-        return True
-    return rn_format(class_name) is not None
 
 
 # excluded is for a4i._diff alone. merge excludes nothing: dropping an MO from a body
@@ -394,7 +375,7 @@ class Intended:
         # (class name, parent DN, RN format) of every MO the input does not say
         # enough about to name. Collected rather than raised on the spot, so that
         # one run names everything that has to be fixed.
-        self.unidentified: list[tuple[str, str, str]] = []
+        self.unidentified: list[tuple[str, str, str | None]] = []
 
     def absorb(self, config: Any) -> None:
         for root in config if isinstance(config, list) else [config]:
@@ -407,11 +388,12 @@ class Intended:
                 # read through just the same.
                 self._absorb_children(body, ROOT)
                 continue
-            dn, identified = child_dn(ROOT, class_name, body)
+            dn = child_dn(ROOT, class_name, body)
             if dn == ROOT:
                 self._absorb_children(body, ROOT)
                 continue
-            if self._unidentified(class_name, ROOT, identified):
+            if dn is None:
+                self._unidentified(class_name, ROOT)
                 continue
             self._absorb(class_name, body, dn)
 
@@ -423,7 +405,7 @@ class Intended:
         }
         node = self.index.get(dn)
         if node is None:
-            self.index[dn] = Mo(class_name, dn, attributes, _names_its_own_rn(class_name, body))
+            self.index[dn] = Mo(class_name, dn, attributes)
         else:
             # Attribute by attribute, so an attribute a later input is silent
             # about keeps the earlier value -- "status" included.
@@ -436,36 +418,35 @@ class Intended:
             if parsed is None:
                 continue
             child_class, child_body = parsed
-            dn_of_child, identified = child_dn(dn, child_class, child_body)
-            if self._unidentified(child_class, dn, identified):
+            dn_of_child = child_dn(dn, child_class, child_body)
+            if dn_of_child is None:
+                self._unidentified(child_class, dn)
                 continue
             self._absorb(child_class, child_body, dn_of_child)
 
     # Its children are not walked either: their keys hang off this one, so naming them
     # would only repeat this.
-    def _unidentified(self, class_name: str, parent: str, identified: bool) -> bool:
-        if identified:
-            return False
+    def _unidentified(self, class_name: str, parent: str) -> None:
         if not self._excluded.covers(parent):
-            self.unidentified.append((class_name, parent, rn_format(class_name) or ""))
-        return True
+            self.unidentified.append((class_name, parent, rn_format(class_name)))
 
     def descendant_count(self, dn: str) -> int:
         prefix = f"{dn}/"
         return sum(1 for key in self.index if key.startswith(prefix))
 
 
-def unidentified_message(unidentified: Iterable[tuple[str, str, str]]) -> str:
+def unidentified_message(unidentified: Iterable[tuple[str, str, str | None]]) -> str:
     # The same class under the same parent twice is one thing to fix, not two.
     unique = list(dict.fromkeys(unidentified))
     named = ", ".join(
-        f'{class_name} under {parent} (its RN is "{fmt}")'
+        f"{class_name} under {parent} "
+        + ("(a class the bundled dictionary lacks)" if fmt is None else f'(its RN is "{fmt}")')
         for class_name, parent, fmt in unique[:_NAMED]
     )
     if len(unique) > _NAMED:
         named += f", and {len(unique) - _NAMED} more"
     give = "Give it" if len(unique) == 1 else "Give each"
     return (
-        f"cannot tell which MO the input means by {named}: the properties an RN is "
-        f'built from are missing. {give} those, a "dn" or an "rn".'
+        f"cannot tell which MO the input means by {named}. "
+        f'{give} a "dn", an "rn" or the properties its RN is built from.'
     )

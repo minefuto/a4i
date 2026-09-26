@@ -142,14 +142,6 @@ def test_a_child_of_a_class_the_fabric_lacks_gets_a_real_dn_too() -> None:
     assert (change.kind, change.dn) == ("created", "uni/tn-demo/ctx-v1")
 
 
-def test_a_child_of_an_unknown_class_is_new_under_a_stand_in_rn() -> None:
-    # No rnFormat is bundled for a class the dictionary has never heard of, so the
-    # MO is named after what the body gives.
-    body = mo("fvTenant", {"name": "demo"}, [mo("fooBar", {"name": "b1"})])
-    (change,) = dry_run_compare(body)
-    assert (change.kind, change.dn) == ("created", "uni/tn-demo/fooBar[name=b1]")
-
-
 def test_a_relation_with_a_fixed_rn_is_matched_as_the_only_one() -> None:
     # fvRsCtx puts no attribute value in its RN, and a BD has exactly one.
     body = mo(

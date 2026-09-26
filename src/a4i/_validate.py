@@ -158,8 +158,7 @@ def _dn_of(class_name: str, body: dict[str, Any], parent: str | None, *, sound: 
         return None
     if class_name == WRAPPER:
         return ROOT
-    dn, identified = child_dn(parent, class_name, body)
-    return dn if identified else None
+    return child_dn(parent, class_name, body)
 
 
 # A number is accepted and reaches the APIC as a string. Everything else is refused
