@@ -8,7 +8,8 @@ from typing import Any
 
 from a4i import _dry_run as dry_run
 from a4i import _merge as merge
-from a4i._mo import ROOT, WRAPPER, Change, child_dn, split_mo, tail_rn
+from a4i._merge import Intended, Mo
+from a4i._mo import ROOT, Change, parent_dn
 from a4i._output import plural
 from a4i._validate import read_body
 
@@ -22,10 +23,6 @@ _WARNED = (
     "refusing to write a plan: the dry run reported {count}, "
     "so this POST would fail as written. Fix the body and try again; "
     "post --dry-run names the MOs"
-)
-_LOST = (
-    "refusing to write a plan: {count} the dry run reported "
-    "cannot be placed in the merged body it was made from"
 )
 
 
@@ -52,61 +49,34 @@ def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     """
 
     _, parsed = read_body(config)
-    merged = merge.merge(parsed)
-    return _body(merged, dry_run.check(ROOT, merged, kind="mo", fabric=fabric))
-
-
-# -- walking the merged body -----------------------------------------------
+    intended = merge.read(parsed)
+    if not intended.index:
+        raise ValueError(merge.EMPTY)
+    changes = dry_run.compare(intended, merge.read(fabric, loose=True))
+    warnings = sum(1 for change in changes if change.kind == "warning")
+    if warnings:
+        raise ValueError(_WARNED.format(count=plural(warnings, "warning")))
+    return merge.write(_narrow(intended, changes))
 
 
 # Every MO carries the status the change says it is, and the status the input wrote is
 # not carried over: that said what the configuration meant in general, where this
 # asserts what one read of one fabric found. Where the assertion is wrong the APIC
 # refuses the POST, which is the failure this is meant to have.
-def _body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:
-    warnings = sum(1 for change in changes if change.kind == "warning")
-    if warnings:
-        raise ValueError(_WARNED.format(count=plural(warnings, "warning")))
-    wanted = {change.dn: change for change in changes if change.kind != "warning"}
-    children = _children(ROOT, merged.get(WRAPPER) or {}, wanted)
-    if wanted:
-        raise ValueError(_LOST.format(count=plural(len(wanted), "MO")))
-    return {WRAPPER: {"attributes": {"dn": ROOT}, "children": children}}
-
-
-# wanted is emptied as it goes, so that a change left in it at the end is one this walk
-# never reached -- a change that would otherwise be posted by nobody while the
-# comparison said it would be.
-def _children(dn: str, body_of: dict[str, Any], wanted: dict[str, Change]) -> list[dict[str, Any]]:
-    kept: list[dict[str, Any]] = []
-    for child in body_of.get("children") or []:
-        parsed = split_mo(child)
-        if parsed is None:
-            continue
-        class_name, child_body = parsed
-        dn_of_child, _ = child_dn(dn, class_name, child_body)
-        change = wanted.pop(dn_of_child, None)
-        if change is not None and change.kind == "deleted":
-            # The subtree goes with the MO, so nothing under it is walked.
-            kept.append({class_name: _attributes(dn_of_child, change)})
-            continue
-        below = _children(dn_of_child, child_body, wanted)
-        if change is None and not below:
-            continue
-        mo_body = _attributes(dn_of_child, change)
-        if below:
-            mo_body["children"] = below
-        kept.append({class_name: mo_body})
-    return kept
-
-
-def _attributes(dn: str, change: Change | None) -> dict[str, Any]:
-    attributes = {"rn": tail_rn(dn)}
-    if change is None:
-        attributes["status"] = _CONTAINER_STATUS
-        return {"attributes": attributes}
-    attributes["status"] = change.kind
-    for key, (_, after) in change.attributes.items():
-        if after is not None:
-            attributes[key] = after
-    return {"attributes": attributes}
+def _narrow(intended: Intended, changes: list[Change]) -> Intended:
+    narrowed = Intended()
+    for change in changes:
+        node = intended.index[change.dn]
+        attributes = {"status": change.kind}
+        for key, (_, after) in change.attributes.items():
+            if after is not None:
+                attributes[key] = after
+        narrowed.index[change.dn] = Mo(node.class_name, change.dn, attributes, node.real_rn)
+    for dn in list(narrowed.index):
+        parent = parent_dn(dn)
+        while parent is not None and parent != ROOT and parent not in narrowed.index:
+            node = intended.index[parent]
+            attributes = {"status": _CONTAINER_STATUS}
+            narrowed.index[parent] = Mo(node.class_name, parent, attributes, node.real_rn)
+            parent = parent_dn(parent)
+    return narrowed

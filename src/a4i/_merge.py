@@ -31,6 +31,11 @@ _DROPPED = frozenset({"dn", "rn", "childAction"})
 # How many unidentified MOs to name before summarising the rest.
 _NAMED = 3
 
+EMPTY = (
+    "the configuration is empty: nothing given describes an MO. Check the paths -- "
+    "a directory is searched for *.json, and a file holding {} or [] describes nothing."
+)
+
 
 def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     """Return the single body ``configs`` describe between them.
@@ -53,11 +58,8 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
 
     intended = read(*configs, loose=loose)
     if not intended.index:
-        raise ValueError(
-            "the configuration is empty: nothing given describes an MO. Check the paths -- "
-            "a directory is searched for *.json, and a file holding {} or [] describes nothing."
-        )
-    return _body(intended)
+        raise ValueError(EMPTY)
+    return write(intended)
 
 
 # An empty index is not refused here: what that means differs between a merge, a
@@ -81,7 +83,7 @@ def empty() -> dict[str, Any]:
     return {WRAPPER: {"attributes": {"dn": ROOT}, "children": []}}
 
 
-def _body(intended: Intended) -> dict[str, Any]:
+def write(intended: Intended) -> dict[str, Any]:
     bodies: dict[str, dict[str, Any]] = {}
     roots: list[dict[str, Any]] = []
     # Sorted, so a parent is written before anything under it and is there to

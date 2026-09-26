@@ -3,8 +3,7 @@ from __future__ import annotations
 import pytest
 
 from a4i import _plan as plan
-from a4i._merge import count, merge
-from a4i._mo import Change
+from a4i._merge import count
 
 CURRENT = [
     {
@@ -163,13 +162,6 @@ def test_a_warning_is_refused_rather_than_written_into_a_body() -> None:
         )
     assert "refusing to write a plan" in str(exc.value)
     assert "1 warning" in str(exc.value)
-
-
-def test_a_change_the_merged_body_cannot_hold_is_refused() -> None:
-    merged = merge({"fvTenant": {"attributes": {"dn": "uni/tn-demo", "name": "demo"}}})
-    with pytest.raises(ValueError) as exc:
-        plan._body(merged, [Change("modified", "fvBD", "uni/tn-other/BD-bd1")])
-    assert "cannot be placed" in str(exc.value)
 
 
 def test_counting_leaves_the_wrapper_out() -> None:
