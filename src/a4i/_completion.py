@@ -1,11 +1,7 @@
-"""Shell completion, derived from the ``argparse`` parser itself.
-
-Everything on offer comes from the parser, so adding an option to the CLI cannot
-leave the completion behind. Nothing here reaches the APIC or the daemon, and
-nothing loads a dictionary: a tab press costs one process start and no I/O, and
-class names and DNs are listed by ``a4i list`` instead, where the wait is the
-user's to ask for.
-"""
+# Everything on offer comes from the argparse parser, so adding an option to the CLI
+# cannot leave the completion behind. Nothing here reaches the APIC or the daemon, and
+# nothing loads a dictionary: a tab press costs one process start and no I/O, and class
+# names and DNs are listed by a4i list instead, where the wait is the user's to ask for.
 
 from __future__ import annotations
 
@@ -34,21 +30,15 @@ FILES_MARKER = "__a4i_files__"
 
 
 def complete_from(values: Sequence[str]) -> Completer:
-    """Return a completer that prefix-matches a fixed list of values."""
-
     def complete(incomplete: str) -> list[str]:
         return [value for value in values if value.startswith(incomplete)]
 
     return complete
 
 
+# What came before the last comma is prepended back, because the shell replaces the
+# whole word.
 def complete_csv(complete_one: Completer) -> Completer:
-    """Lift a single-value completer into one for a comma-separated list.
-
-    Only the text after the last comma is a candidate prefix; what came before
-    is prepended back, because the shell replaces the whole word.
-    """
-
     def complete(incomplete: str) -> list[str]:
         head, comma, last = incomplete.rpartition(",")
         return [f"{head}{comma}{value}" for value in complete_one(last)]
@@ -60,26 +50,18 @@ class _Completable(Protocol):
     completer: Completer
 
 
+# argparse has no notion of completion, so the callback rides along on the action as an
+# attribute, the convention argcomplete established.
 def attach(action: argparse.Action, completer: Completer) -> None:
-    """Give an argparse action a completion callback.
-
-    argparse has no notion of completion, so the callback rides along on the
-    action as an attribute, the convention argcomplete established.
-    """
-
     cast("_Completable", action).completer = completer
 
 
 # -- request parsing ------------------------------------------------------
 
 
+# A completion request is by definition mid-word, so an unterminated quote is normal
+# rather than an error; the partial token is used as-is.
 def _split(string: str) -> list[str]:
-    """Split a command line like ``shlex.split``, tolerating an unfinished token.
-
-    A completion request is by definition mid-word, so an unterminated quote is
-    normal rather than an error; the partial token is used as-is.
-    """
-
     lex = shlex.shlex(string, posix=True)
     lex.whitespace_split = True
     lex.commenters = ""
@@ -94,8 +76,6 @@ def _split(string: str) -> list[str]:
 
 
 def _request_args(shell: str) -> tuple[list[str], str] | None:
-    """Return ``(words, incomplete)`` for the pending request, or None if unusable."""
-
     if shell in {"zsh", "fish"}:
         line = os.environ.get(WORDS_VAR)
         if line is None:
@@ -130,8 +110,6 @@ def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction[A
 
 
 def _takes_value(action: argparse.Action) -> bool:
-    """True if the option consumes a following word (as opposed to a plain flag)."""
-
     return action.nargs != 0
 
 
@@ -145,8 +123,6 @@ def _option(parser: argparse.ArgumentParser, word: str) -> argparse.Action | Non
 def _resolve(
     parser: argparse.ArgumentParser, words: list[str]
 ) -> tuple[argparse.ArgumentParser, list[str]]:
-    """Follow subcommands in ``words``, returning the innermost parser and the rest."""
-
     sub = _subparsers(parser)
     if sub is None:
         return parser, words
@@ -165,8 +141,6 @@ def _positionals(parser: argparse.ArgumentParser) -> list[argparse.Action]:
 
 
 def _from_action(action: argparse.Action, incomplete: str) -> list[str]:
-    """Candidates for one action: its completer if it has one, else its choices."""
-
     completer = getattr(action, "completer", None)
     if completer is not None:
         # The completer does its own matching -- a comma-separated list matches
@@ -177,13 +151,9 @@ def _from_action(action: argparse.Action, incomplete: str) -> list[str]:
     return []
 
 
+# An option that takes a value swallows the next word, which is therefore not a
+# positional, so the options have to be walked to count the positionals.
 def _scan(parser: argparse.ArgumentParser, rest: list[str]) -> int:
-    """Return how many positional slots ``rest`` fills.
-
-    An option that takes a value swallows the next word, which is therefore not
-    a positional, so the options have to be walked to count the positionals.
-    """
-
     used = 0
     i = 0
     while i < len(rest):
@@ -199,8 +169,6 @@ def _scan(parser: argparse.ArgumentParser, rest: list[str]) -> int:
 
 
 def candidates(parser: argparse.ArgumentParser, words: list[str], incomplete: str) -> list[str]:
-    """Return the completion candidates for ``incomplete`` in the context of ``words``."""
-
     parser, rest = _resolve(parser, words)
 
     if incomplete.startswith("-"):
@@ -243,8 +211,6 @@ def _render(shell: str, values: list[str]) -> str:
 
 
 def complete(parser: argparse.ArgumentParser) -> int:
-    """Print candidates for the pending completion request."""
-
     shell = os.environ.get(COMPLETE_VAR, "")
     if shell not in SHELLS:
         return 0
@@ -295,8 +261,6 @@ complete -c a4i -f -a '(_a4i_completion)'
 
 
 def completion_script(shell: str) -> str:
-    """Return the completion widget for ``shell``."""
-
     if shell not in SHELLS:
         raise ValueError(f"unsupported shell: {shell} (expected one of {', '.join(SHELLS)})")
     return _SCRIPTS[shell]

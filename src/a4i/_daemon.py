@@ -1,11 +1,6 @@
-"""Per-user daemon that holds the APIC session token in memory.
-
-One request per connection, over a Unix domain socket, against a single
-:class:`~a4i._session.Session` whose token is never written to disk. It holds one
-other thing: the fabric a ``fetch`` read, dropped the moment it could no longer
-be true of the session that answers. Both are things no CLI process can keep,
-each one ending.
-"""
+# Besides the session, the daemon holds the fabric a fetch read, dropped the moment it
+# could no longer be true of the session that answers. Both are things no CLI process
+# can keep.
 
 from __future__ import annotations
 
@@ -62,8 +57,6 @@ class Daemon:
     # -- lifecycle --------------------------------------------------------
 
     def _bind(self) -> bool:
-        """Bind the socket. Return False if another daemon already owns it."""
-
         # Unlinking a stale socket below is only safe in a directory no other
         # user can write to, which is what create_socket_dir guarantees.
         create_socket_dir(os.path.dirname(self._path))
@@ -171,14 +164,9 @@ class Daemon:
             "read_only": self._read_only,
         }
 
+    # The session goes either way, so the APIC's failure is reported back rather than
+    # raised, and the client turns it into a warning over a successful logout.
     def _end_session(self) -> str | None:
-        """Log out of the APIC and drop the session. Return the APIC failure, if any.
-
-        The session goes either way -- the token is gone from here whether or not
-        the APIC could be told -- so the failure is reported back rather than
-        raised, and the client turns it into a warning over a successful logout.
-        """
-
         apic_error: str | None = None
         if self._session is not None:
             try:
@@ -230,13 +218,9 @@ class Daemon:
         self._drop_fabric()
         return data
 
+    # The reading is the client's own -- the same code a library caller runs -- over a
+    # transport that talks to this daemon's session directly.
     def _op_fetch(self, args: dict[str, Any]) -> Any:
-        """Read the whole of uni and hold it, for the comparisons to come.
-
-        The reading is the client's own -- the same code a library caller runs --
-        over a transport that talks to this daemon's session directly.
-        """
-
         # Imported here rather than at module scope: it pulls in the whole
         # comparison stack, and a daemon that is only ever logged in to and
         # queried should not pay for it at startup.
@@ -272,8 +256,6 @@ class Daemon:
         self._fabric_count = 0
 
     def _fabric_held(self) -> dict[str, Any] | None:
-        """What is cached, or None. Elapsed rather than a timestamp, as expires_in is."""
-
         if self._fabric is None:
             return None
         return {"count": self._fabric_count, "fetched_ago": self._clock() - self._fetched_at}

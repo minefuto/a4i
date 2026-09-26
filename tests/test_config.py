@@ -119,13 +119,9 @@ def test_a_file_that_is_already_there_is_refused(tmp_path) -> None:
     assert out.read_text() == "keep me"
 
 
+# 'a4i merge' says --force and the MCP merge tool says overwrite: true, so a remedy
+# written here would be wrong for one of them.
 def test_the_refusal_names_no_way_out(tmp_path) -> None:
-    """The way out belongs to the caller's interface, so this must not guess it.
-
-    'a4i merge' says --force and the MCP merge tool says overwrite: true, so a
-    remedy written here would be wrong for one of them.
-    """
-
     out = tmp_path / "tn.json"
     out.write_text("keep me")
     with pytest.raises(FileExistsError) as exc:

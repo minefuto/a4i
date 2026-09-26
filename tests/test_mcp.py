@@ -1,10 +1,6 @@
-"""The MCP server, from the protocol down to the fabric.
-
-The JSON-RPC layer is written out in a4i rather than taken from an SDK, so it is
-tested the way a client exercises it: by handing :class:`~a4i._mcp.server.Server`
-whole messages and reading whole replies. Underneath, the tools run against the
-same mocked APIC every other test uses.
-"""
+# The JSON-RPC layer is written out in a4i rather than taken from an SDK, so it is
+# tested the way a client exercises it: by handing Server whole messages and reading
+# whole replies.
 
 from __future__ import annotations
 
@@ -42,8 +38,6 @@ def _wait_for_socket(path) -> None:
 
 @pytest.fixture
 def daemon(monkeypatch):
-    """A real daemon on a private socket, serving the mocked APIC."""
-
     state: dict = {}
     clock = Clock()
     sock_dir = Path(tempfile.gettempdir()) / f"a4i-m-{uuid.uuid4().hex[:8]}"
@@ -60,14 +54,10 @@ def daemon(monkeypatch):
     shutil.rmtree(sock_dir, ignore_errors=True)
 
 
+# Under the system temp dir rather than pytest's, whose path is long enough to turn
+# "nothing is listening" into "this socket cannot be used".
 @pytest.fixture
 def no_daemon(monkeypatch):
-    """A socket path nothing is listening on, as before anyone has logged in.
-
-    Under the system temp dir rather than pytest's, whose path is long enough to
-    turn "nothing is listening" into "this socket cannot be used".
-    """
-
     directory = Path(tempfile.gettempdir()) / f"a4i-n-{uuid.uuid4().hex[:8]}"
     directory.mkdir(mode=0o700)
     monkeypatch.setattr(ipc, "socket_path", lambda: directory / "daemon.sock")
@@ -185,12 +175,9 @@ def test_an_unknown_resource_is_refused(no_daemon) -> None:
 # -- the tool list follows the daemon --------------------------------------
 
 
+# A client lists tools before the user logs in, so read-only is not yet known, and a
+# client that lists once at startup would otherwise never be offered post.
 def test_post_is_offered_when_nobody_has_logged_in(no_daemon) -> None:
-    """A client lists tools before the user logs in, so read-only is not yet known.
-
-    A client that lists once at startup would otherwise never be offered post.
-    """
-
     names = [tool["name"] for tool in _call(Server(), "tools/list")["result"]["tools"]]
     assert "post" in names
 
@@ -341,13 +328,9 @@ def test_post_writes_the_body(daemon) -> None:
     assert json.loads(daemon["last_body"]) == body
 
 
+# Withholding the tool is guidance for the model; the refusal is the guarantee, and it
+# does not depend on the model having been told.
 def test_post_is_refused_on_a_read_only_session(daemon) -> None:
-    """The daemon refuses it even though the tool was never offered.
-
-    Withholding the tool is guidance for the model; the refusal is the guarantee,
-    and it does not depend on the model having been told.
-    """
-
     _login(read_only=True)
     text, is_error = _tool_text(
         Server(),
@@ -614,8 +597,6 @@ def test_diff_without_a_fetch_says_to_fetch(daemon) -> None:
 
 
 def test_a_post_drops_what_the_fetch_read(daemon) -> None:
-    """The one thing a model cannot work out for itself: the fabric moved."""
-
     _login()
     assert not _tool_text(Server(), "fetch", {})[1]
     assert not _tool_text(Server(), "diff", {"body": INFRA})[1]
@@ -660,13 +641,9 @@ def test_describe_carries_what_a_body_needs(no_daemon) -> None:
     assert set(record["props"]["arpFlood"]["values"]) == {"no", "yes"}
 
 
+# The source lists 317 classes under fvBD, almost all of them counters the fabric
+# maintains for itself.
 def test_describe_lists_only_configurable_children(no_daemon) -> None:
-    """The children a body could actually write, not everything the fabric hangs there.
-
-    The source lists 317 classes under fvBD, almost all of them counters the
-    fabric maintains for itself.
-    """
-
     record = json.loads(_tool_text(Server(), "describe", {"class_name": "fvBD"})[0])
     assert "fvSubnet" in record["children"] and "fvRsCtx" in record["children"]
     assert len(record["children"]) < 50
@@ -692,6 +669,8 @@ def test_search_finds_a_class_by_what_it_is_called(no_daemon) -> None:
     assert any(line.startswith("fvBD\t") for line in text.splitlines())
 
 
+# A model that asks for three results and gets fhsRtBDToFhs, dhcpRtBDToRelayP and
+# infraRsInfraBD has been answered wrongly, however defensible each match is on its own.
 @pytest.mark.parametrize(
     ("keyword", "expected"),
     [
@@ -704,13 +683,6 @@ def test_search_finds_a_class_by_what_it_is_called(no_daemon) -> None:
     ],
 )
 def test_search_puts_the_object_above_the_wiring(no_daemon, keyword, expected) -> None:
-    """The thing itself, not the relations pointing at it.
-
-    A model that asks for three results and gets fhsRtBDToFhs, dhcpRtBDToRelayP
-    and infraRsInfraBD has been answered wrongly, however defensible each match is
-    on its own.
-    """
-
     text, _ = _tool_text(Server(), "search", {"keyword": keyword, "limit": 3})
     assert text.splitlines()[0].split("\t")[0] == expected
 
@@ -739,8 +711,6 @@ def test_every_tool_declares_a_schema(no_daemon) -> None:
 
 
 def _cli_get_options() -> set[str]:
-    """Return the option names 'a4i get class' takes, as the tool would name them."""
-
     import argparse
 
     from a4i import _cli as cli
@@ -755,11 +725,7 @@ def _cli_get_options() -> set[str]:
     }
 
 
+# A divergence here means a4i has grown a dialect of its own.
 def test_get_takes_every_query_option_the_cli_does(no_daemon) -> None:
-    """The tool's arguments are the CLI's options, which are ACI's parameter names.
-
-    A divergence here means a4i has grown a dialect of its own.
-    """
-
     declared = set(tools.GET["inputSchema"]["properties"]) - {"kind", "target"}
     assert declared == _cli_get_options()

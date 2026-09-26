@@ -1,18 +1,13 @@
-"""Refusing an input that is not a configuration, before anything reads it.
-
-An MO the APIC returned and an MO someone wrote are the same JSON, and a
-malformed one wants opposite treatment: skipping an element of a response is a4i
-falling short of reporting the fabric, where skipping one of an input is a
-configuration that quietly means something other than what it says. So the
-leniency stays where responses are read (:func:`a4i._mo.split_mo` goes on
-returning None) and every path carrying an input runs it past :func:`problems`
-first -- bar a raw ``a4i post``, which never parses the body at all.
-
-The shape alone is checked. Whether the MOs make sense together is
-:func:`a4i._merge.merge`'s question and is asked afterwards, on an input already
-known to be well formed: a diagnosis drawn from a tree half of whose elements
-were skipped would be a diagnosis of the wrong thing.
-"""
+# An MO the APIC returned and an MO someone wrote are the same JSON, and a malformed one
+# wants opposite treatment: skipping an element of a response is a4i falling short of
+# reporting the fabric, where skipping one of an input is a configuration that quietly
+# means something other than what it says. So the leniency stays where responses are
+# read (a4i._mo.split_mo goes on returning None) and every path carrying an input runs
+# it past problems first -- bar a raw a4i post, which only checks that the body is JSON.
+#
+# The shape alone is checked. Whether the MOs make sense together is a4i._merge's
+# question and is asked afterwards: a diagnosis drawn from a tree half of whose elements
+# were skipped would be a diagnosis of the wrong thing.
 
 from __future__ import annotations
 
@@ -33,13 +28,9 @@ _VALUE_SHAPE = "an ACI attribute value is a string"
 _RESPONSE = 'this is a GET response, not a configuration. Pass what is inside "imdata".'
 
 
+# Text is passed through untouched rather than reserialized, so the key order and the
+# formatting reach the APIC exactly as the caller wrote them.
 def read_body(body: str | Any) -> tuple[str, Any]:
-    """Return the text to send and the object it parses to.
-
-    Text is passed through untouched rather than reserialized, so the key order
-    and the formatting reach the APIC exactly as the caller wrote them.
-    """
-
     if not isinstance(body, str):
         return json.dumps(body), body
     if not body.strip():
@@ -50,19 +41,9 @@ def read_body(body: str | Any) -> tuple[str, Any]:
         raise ValueError(f"invalid JSON body: {exc}") from None
 
 
+# An input that describes nothing at all -- [], {}, an empty polUni -- is well formed: a
+# placeholder among a directory of files is not a mistake.
 def problems(config: Any, source: str | None = None) -> list[str]:
-    """Return what is wrong with ``config``, one line each, in reading order.
-
-    ``source`` names where the input came from -- a file path, or ``configs[1]``
-    for one handed over in an argument -- and is written into every line, a
-    configuration being folded from several inputs. None leaves the lines naming
-    a position alone.
-
-    An input that describes nothing at all -- ``[]``, ``{}``, an empty ``polUni``
-    -- is well formed: a placeholder among a directory of files is not a mistake.
-    What is refused is an element that was meant to be an MO and is not.
-    """
-
     found: list[str] = []
     if isinstance(config, list):
         for index, element in enumerate(config):
@@ -80,12 +61,6 @@ def problems(config: Any, source: str | None = None) -> list[str]:
 
 
 def refuse(found: list[str]) -> None:
-    """Raise :class:`ValueError` reporting ``found``, or return if there is none.
-
-    The first few are spelled out and the rest counted, as every other refusal
-    in a4i does it.
-    """
-
     if not found:
         return
     named = "\n".join(found[:_NAMED])
@@ -95,20 +70,12 @@ def refuse(found: list[str]) -> None:
     raise ValueError(f"the configuration is not written as ACI expects{where}:\n{named}")
 
 
-def check(config: Any, source: str | None = None) -> None:
-    """Refuse ``config`` if anything is wrong with it. See :func:`problems`."""
-
-    refuse(problems(config, source))
-
-
 # -- walking the input -----------------------------------------------------
 
 
 def _element(
     element: Any, source: str | None, path: str, parent: str | None, found: list[str]
 ) -> None:
-    """Check one element that is meant to be an MO, and everything under it."""
-
     where = _where(source, path, parent)
     if not isinstance(element, dict):
         found.append(f"{where}: this element is {_kind(element)}, not an MO -- {_MO_SHAPE}.")
@@ -148,8 +115,6 @@ def _body(
     parent: str | None,
     found: list[str],
 ) -> None:
-    """Check an MO body, its attribute values, and its children."""
-
     where = _where(source, path, parent)
     before = len(found)
     unknown = [key for key in body if key not in _BODY_KEYS]
@@ -186,14 +151,9 @@ def _body(
         _element(child, source, _under(path, index), dn, found)
 
 
+# Worked out the way a4i._merge.Intended works it out, so that a problem is reported at
+# the position the merge would have put the MO at.
 def _dn_of(class_name: str, body: dict[str, Any], parent: str | None, *, sound: bool) -> str | None:
-    """Return the DN to name this MO's children by, or None to name none of them.
-
-    Worked out the way :class:`a4i._merge.Intended` works it out, so that a
-    problem is reported at the position the merge would have put the MO at. None
-    where a DN built from this body would name a place that does not exist.
-    """
-
     if parent is None or not sound:
         return None
     if class_name == WRAPPER:
@@ -202,15 +162,10 @@ def _dn_of(class_name: str, body: dict[str, Any], parent: str | None, *, sound: 
     return dn if identified else None
 
 
+# A number is accepted and reaches the APIC as a string. Everything else is refused
+# rather than stringified: null would reach it as "None" and true as "True", which no
+# property takes and a diff would go on reporting for ever.
 def _attributes(attributes: dict[str, Any], where: str, found: list[str]) -> None:
-    """Check that every attribute value is one ACI could carry.
-
-    A number is accepted and reaches the APIC as a string. Everything else is
-    refused rather than stringified: ``null`` would reach it as ``"None"`` and
-    ``true`` as ``"True"``, which no property takes and a diff would go on
-    reporting for ever.
-    """
-
     for key, value in attributes.items():
         if isinstance(value, str) or (
             isinstance(value, int | float) and not isinstance(value, bool)
@@ -231,14 +186,9 @@ def _attributes(attributes: dict[str, Any], where: str, found: list[str]) -> Non
 # -- saying where ----------------------------------------------------------
 
 
+# The parent DN is added because a file written as one tenant per element has a dozen
+# positions that look alike.
 def _where(source: str | None, path: str, parent: str | None) -> str:
-    """Say where in the input something sits: the file, the position, the parent.
-
-    The parent DN is added when there is one to add, a file written as one
-    tenant per element having a dozen positions that look alike. It is left off
-    at the top level, where every root MO hangs under uni in any case.
-    """
-
     text = f"{source}: {path}" if source and path else (source or path or "the body")
     if parent is not None and parent != ROOT:
         text += f" (child of {parent})"
@@ -250,8 +200,6 @@ def _under(path: str, index: int) -> str:
 
 
 def _kind(value: Any) -> str:
-    """Name the JSON type of ``value``, as the input spells it."""
-
     if value is None:
         return "null"
     if isinstance(value, bool):

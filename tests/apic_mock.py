@@ -1,5 +1,3 @@
-"""Shared test helpers: a fake clock and a mocked APIC transport."""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -11,8 +9,6 @@ from a4i._session import DEFAULT_TIMEOUT, AsyncSession, Session
 
 
 class Clock:
-    """A manually advanced monotonic clock for deterministic timing tests."""
-
     def __init__(self) -> None:
         self.t = 0.0
 
@@ -26,15 +22,11 @@ class Clock:
 APIC_HOST = "apic.test"
 
 
+# Requests are routed by host: apic.test behaves like an APIC, and any other host like a
+# switch serving its local MIT read-only. state is both what the handler records and
+# what makes it fail: the fail_* keys and unreachable steer it, and the rest is written
+# as requests arrive.
 def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Response]:
-    """Return the handler standing in for an APIC and the fabric nodes behind it.
-
-    Requests are routed by host: ``apic.test`` behaves like an APIC, and any other
-    host like a switch serving its local MIT read-only. ``state`` is both what the
-    handler records and what makes it fail: the ``fail_*`` keys and
-    ``unreachable`` steer it, and the rest is written as requests arrive.
-    """
-
     state.setdefault("token_n", 0)
     state.setdefault("mo_requests", {})
     state.setdefault("unreachable", set())
@@ -59,9 +51,8 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
             },
         )
 
+    # A fabric switch issues no tokens of its own.
     def node_handler(request: httpx2.Request) -> httpx2.Response:
-        """A fabric switch: same REST surface, but it issues no tokens of its own."""
-
         path = request.url.path
         state["node_requests"].append((request.url.host, path))
         state["node_cookie"] = request.headers.get("cookie")
@@ -295,28 +286,20 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
 
 
 def make_client(state: dict[str, Any], base_url: str = f"https://{APIC_HOST}") -> httpx2.Client:
-    """Return an httpx2.Client backed by a mocked APIC and mocked fabric nodes."""
-
     return httpx2.Client(transport=httpx2.MockTransport(_make_handler(state)), base_url=base_url)
 
 
+# httpx2.MockTransport serves a synchronous handler to an awaited client too, down to
+# the recorded state, so what the two see differs only where a4i does.
 def make_async_client(
     state: dict[str, Any], base_url: str = f"https://{APIC_HOST}"
 ) -> httpx2.AsyncClient:
-    """The very same mocked fabric, behind an awaited client.
-
-    httpx2.MockTransport serves a synchronous handler to an awaited client too,
-    down to the recorded state, so what the two see differs only where a4i does.
-    """
-
     return httpx2.AsyncClient(
         transport=httpx2.MockTransport(_make_handler(state)), base_url=base_url
     )
 
 
 def make_client_factory(state: dict[str, Any]):
-    """A Session-compatible client factory serving every host from the mock."""
-
     def factory(base_url: str, verify: bool | str = True) -> httpx2.Client:
         state.setdefault("verify", {})[base_url] = verify
         return make_client(state, base_url)
@@ -325,8 +308,6 @@ def make_client_factory(state: dict[str, Any]):
 
 
 def make_async_client_factory(state: dict[str, Any]):
-    """An AsyncSession-compatible client factory serving every host from the mock."""
-
     def factory(base_url: str, verify: bool | str = True) -> httpx2.AsyncClient:
         state.setdefault("verify", {})[base_url] = verify
         return make_async_client(state, base_url)
@@ -346,13 +327,9 @@ def make_async_session(
     )
 
 
+# timeout is carried into the session, where the daemon reads it back to report it, but
+# not into the mocked clients, which never wait.
 def make_session_factory(state: dict[str, Any], clock: Clock):
-    """A Daemon-compatible factory that serves every host from the mock.
-
-    ``timeout`` is carried into the session, where the daemon reads it back to
-    report it, but not into the mocked clients, which never wait.
-    """
-
     def factory(
         host: str, *, verify: bool | str = True, timeout: float = DEFAULT_TIMEOUT
     ) -> Session:

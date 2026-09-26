@@ -1,14 +1,9 @@
-"""The awaited twins are the same code, and this is where that is checked.
-
-a4i writes its awaited entry points out separately rather than sharing them, and
-each of those modules says in its docstring that the two differ only in the
-awaiting. This is what makes the claim worth something: because it holds, a
-behaviour verified against the synchronous class is verified against the awaited
-one, and the awaited tests need only cover what this cannot see.
-
-The comparison runs on the syntax tree rather than on the text, so a line broken
-differently is not a difference.
-"""
+# a4i writes its awaited entry points out separately rather than sharing them, and
+# claims the two differ only in the awaiting. This is what makes the claim worth
+# something: because it holds, a behaviour verified against the synchronous class is
+# verified against the awaited one, and the awaited tests need only cover what this
+# cannot see. The comparison runs on the syntax tree rather than on the text, so a line
+# broken differently is not a difference.
 
 from __future__ import annotations
 
@@ -53,8 +48,6 @@ SPELLINGS["AsyncTransport"] = "Transport"
 
 
 class _Normalize(ast.NodeTransformer):
-    """Take the awaiting and the awaited spellings out, leaving what is done."""
-
     def visit_Await(self, node: ast.Await) -> ast.AST:
         return self.visit(node.value)
 
@@ -84,17 +77,14 @@ def _methods(module, class_name: str) -> dict[str, ast.FunctionDef | ast.AsyncFu
 
 
 def _signature(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    """What a caller has to pass and what comes back, decorators included."""
-
     parts = [_normalized(decorator) for decorator in fn.decorator_list]
     parts.append(_normalized(fn.args))
     parts.append(_normalized(fn.returns) if fn.returns is not None else "")
     return " | ".join(parts)
 
 
+# The docstring is left out: the awaited one says "see the other one".
 def _body(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
-    """The statements, minus the docstring -- which says "see the other one"."""
-
     statements = fn.body
     first = statements[0]
     if isinstance(first, ast.Expr) and isinstance(getattr(first.value, "value", None), str):
@@ -102,14 +92,10 @@ def _body(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     return "\n".join(_normalized(statement) for statement in statements)
 
 
+# The half a comparison of bodies cannot do: a method written on one side alone has
+# nothing to be compared against, so it would pass unnoticed.
 @pytest.mark.parametrize(("module", "sync_name", "async_name"), PAIRS, ids=IDS)
 def test_the_awaited_class_carries_the_same_methods(module, sync_name, async_name) -> None:
-    """Neither class may grow a method the other has not got.
-
-    The half a comparison of bodies cannot do: a method written on one side alone
-    has nothing to be compared against, so it would pass unnoticed.
-    """
-
     expected = {ALIASES.get(name, name) for name in _methods(module, sync_name)}
     assert expected == set(_methods(module, async_name)), (
         f"{sync_name} and {async_name} no longer carry the same methods; "
@@ -119,13 +105,6 @@ def test_the_awaited_class_carries_the_same_methods(module, sync_name, async_nam
 
 @pytest.mark.parametrize(("module", "sync_name", "async_name"), PAIRS, ids=IDS)
 def test_every_awaited_method_is_the_synchronous_one_awaited(module, sync_name, async_name) -> None:
-    """The claim each of those modules makes, checked line by line.
-
-    Take the awaiting out of the awaited method and what is left must be the
-    synchronous one, statement for statement. Anything else is a second
-    implementation.
-    """
-
     synchronous = _methods(module, sync_name)
     awaited = _methods(module, async_name)
     exempt = EXEMPT[sync_name, async_name]
@@ -143,13 +122,9 @@ def test_every_awaited_method_is_the_synchronous_one_awaited(module, sync_name, 
     assert compared == len(synchronous) - len(exempt)
 
 
+# The next method to take a gone name would be waved through on a reason written for
+# something else.
 def test_nothing_is_exempt_without_a_pair_to_be_exempt_from() -> None:
-    """An exemption naming a method that has gone is one nobody will notice.
-
-    The next method to take that name would be waved through on a reason written
-    for something else.
-    """
-
     for module, sync_name, async_name in PAIRS:
         for name in EXEMPT[sync_name, async_name]:
             assert name in _methods(module, sync_name), f"{sync_name}.{name} is gone"

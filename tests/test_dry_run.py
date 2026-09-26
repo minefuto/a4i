@@ -39,15 +39,11 @@ TENANT = [
 ]
 
 
+# Both sides go through a4i._merge.read, as Client.dry_run runs it, which is the point:
+# what the body means and what the response means are settled by the same reading.
 def dry_run_compare(
     body: object, imdata: list | None = None, dn: str = "uni/tn-demo"
 ) -> list[dry_run.Change]:
-    """Run one dry run end to end, as a4i._client.Client.dry_run runs it.
-
-    Both sides go through a4i._merge.read, which is the point: what the body
-    means and what the response means are settled by the same reading.
-    """
-
     intended = read(dry_run.rooted(dn, "mo", body))
     current = read(TENANT if imdata is None else imdata, loose=True)
     return dry_run.compare(intended, current)
@@ -277,14 +273,10 @@ def test_created_modified_on_a_missing_mo_is_just_a_creation() -> None:
     assert change.kind == "created"
 
 
+# An fvBD RN is "BD-{name}" and this one gives no name, so the MO it meant may well be
+# on the fabric under another DN: reporting a made-up one as created while the real MO
+# sits there unmentioned is worse.
 def test_a_body_that_names_no_mo_is_refused_rather_than_compared() -> None:
-    """The same refusal merge and diff make, since all three read through one reader.
-
-    An fvBD RN is "BD-{name}" and this one gives no name, so the MO it meant may
-    well be on the fabric under another DN: reporting a made-up one as created
-    while the real MO sits there unmentioned is worse.
-    """
-
     body = mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"mtu": "9000"})])
     with pytest.raises(ValueError) as exc:
         dry_run_compare(body)
@@ -339,8 +331,6 @@ def test_a_malformed_body_is_refused() -> None:
 
 
 def test_a_malformed_child_is_refused_rather_than_skipped() -> None:
-    """Named and refused, not passed over: a body nobody read is a body nobody meant."""
-
     body = mo("fvTenant", {"name": "demo"}, ["junk", mo("fvBD", {"name": "bd9"})])
     with pytest.raises(ValueError) as exc:
         dry_run_compare(body)

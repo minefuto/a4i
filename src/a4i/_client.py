@@ -1,12 +1,6 @@
-"""The ACI REST API as a Python object.
-
-What a get or a post means lives here; how the request travels is
-:mod:`a4i._transport`'s business, so the CLI and a library caller send the very
-same request. A client made from a host owns its session and keeps the token in
-this process's memory. :class:`AsyncClient` is spelled out separately rather
-than shared with :class:`Client`, because what the two have in common already
-lives outside both of them and what is left is the awaiting.
-"""
+# AsyncClient is spelled out separately rather than shared with Client, because what the
+# two have in common already lives outside both of them and what is left is the
+# awaiting.
 
 from __future__ import annotations
 
@@ -204,7 +198,7 @@ class Client:
         """Return the changes posting ``body`` would cause, reading the fabric first.
 
         The APIC has no server-side dry run, so the current state is fetched and
-        the comparison happens here, in :func:`a4i._dry_run.check`. An empty list
+        the comparison happens here, in :func:`a4i.dry_run`. An empty list
         means the POST would change nothing at all.
 
         What is fetched is the subtree of each MO the body stands at, one
@@ -213,10 +207,10 @@ class Client:
         a fabric missing everything past the page, and every MO on the far side
         of it would be reported as one this POST creates. A body wrapped in
         ``polUni`` is fetched one top-level subtree at a time rather than as uni
-        whole, for the reason :meth:`_fetch_uni` gives.
+        whole, as :meth:`fetch` reads it.
 
         A caller already holding a fabric -- :meth:`fetch` returns one -- calls
-        :func:`a4i._dry_run.check` with it instead, and sends nothing. That is
+        :func:`a4i.dry_run` with it instead, and sends nothing. That is
         what ``post --dry-run`` does when ``a4i fetch`` has left one in the
         daemon; this is what it falls back to when none has.
 
@@ -230,22 +224,23 @@ class Client:
         return dry_run.check(target, parsed, kind=kind, fabric=current)
 
     def fetch(self) -> dict[str, Any]:
-        """Return the fabric's own configuration, shaped as :func:`a4i._merge.merge` shapes one.
+        """Return the fabric's own configuration, shaped as :func:`a4i.merge` shapes one.
 
-        Everything under uni is read one top-level subtree at a time, and what
+        Everything under uni is read one top-level subtree at a time -- one
+        ``rsp-subtree=full`` over uni is what a large fabric times out on, and
+        splitting names the subtree that failed -- and what
         comes back is folded into the one body those MOs describe: a ``polUni``
         holding each of them nested under the MO it hangs off, siblings in RN
         order. Nothing is compared -- this is the fabric written as an intended
         configuration, ready to be kept in git, posted at uni, or handed to
-        :func:`a4i._diff.compare` and :func:`a4i._plan.create` as the fabric they
-        compare against.
+        :func:`a4i.diff` and :func:`a4i.plan` as the fabric they compare against.
 
         What the APIC sends is every settable property, its defaults included,
         so this is a great deal longer than the configuration a person would
         have written for the same fabric.
 
         Raises :class:`ValueError` if the fabric holds an MO that no single body
-        posted at uni could carry -- see :func:`a4i._merge.merge`. That is the
+        posted at uni could carry -- see :func:`a4i.merge`. That is the
         bundled dictionary disagreeing with the fabric in front of it, and it
         names the MO rather than quietly leaving it out.
         """
@@ -257,20 +252,12 @@ class Client:
 
     # -- internals --------------------------------------------------------
 
+    # A subtree that cannot be read is fatal rather than skipped: a difference missed in
+    # what is gone would read as a fabric that matches.
     def _fetch_uni(self) -> list[Any]:
-        """Fetch every MO under uni, one top-level subtree per request.
-
-        One ``rsp-subtree=full`` over uni is what a large fabric times out on,
-        and splitting at the top level names the subtree that failed. A subtree
-        that cannot be read is fatal rather than skipped: a difference missed in
-        what is gone would read as a fabric that matches.
-        """
-
         return self._fetch_subtrees(self._top_level_dns())
 
     def _fetch_subtrees(self, dns: Sequence[str]) -> list[Any]:
-        """Fetch one subtree per DN and concatenate what comes back."""
-
         imdata: list[Any] = []
         for dn in dns:
             data = self._fetch(dn, dict(_CURRENT_STATE))
@@ -278,18 +265,12 @@ class Client:
         return imdata
 
     def _top_level_dns(self) -> list[str]:
-        """Return the DNs of the MOs hanging directly under uni."""
-
         data = self._fetch(merge.ROOT, dict(_UNI_CHILDREN))
         return mo.top_level_dns(data.get("imdata"))
 
+    # A short response is refused too: the APIC pages a long one rather than failing,
+    # and a comparison cannot tell a page from the whole.
     def _fetch(self, dn: str, params: dict[str, str], *, kind: query.Kind = "mo") -> Any:
-        """GET one subtree, saying which one if the APIC refuses it.
-
-        A short response is refused too: the APIC pages a long one rather than
-        failing, and a comparison cannot tell a page from the whole.
-        """
-
         try:
             data = self._transport.get(dn, kind, params, None)
         except ApicError as exc:
@@ -453,18 +434,12 @@ class AsyncClient:
 
     # -- internals --------------------------------------------------------
 
+    # One request at a time, as Client._fetch_uni makes them: the load a fabric sees is
+    # then the load the CLI puts on it, whoever is asking.
     async def _fetch_uni(self) -> list[Any]:
-        """Fetch every MO under uni, one top-level subtree per request.
-
-        One request at a time, as :meth:`Client._fetch_uni` makes them: the load
-        a fabric sees is then the load the CLI puts on it, whoever is asking.
-        """
-
         return await self._fetch_subtrees(await self._top_level_dns())
 
     async def _fetch_subtrees(self, dns: Sequence[str]) -> list[Any]:
-        """Fetch one subtree per DN and concatenate what comes back."""
-
         imdata: list[Any] = []
         for dn in dns:
             data = await self._fetch(dn, dict(_CURRENT_STATE))
@@ -472,17 +447,10 @@ class AsyncClient:
         return imdata
 
     async def _top_level_dns(self) -> list[str]:
-        """Return the DNs of the MOs hanging directly under uni."""
-
         data = await self._fetch(merge.ROOT, dict(_UNI_CHILDREN))
         return mo.top_level_dns(data.get("imdata"))
 
     async def _fetch(self, dn: str, params: dict[str, str], *, kind: query.Kind = "mo") -> Any:
-        """GET one subtree, saying which one if the APIC refuses it.
-
-        See :meth:`Client._fetch` for why a short response is refused too.
-        """
-
         try:
             data = await self._transport.get(dn, kind, params, None)
         except ApicError as exc:
@@ -496,14 +464,9 @@ class AsyncClient:
         return self._session
 
 
+# totalCount counts what the query matched, so for a subtree GET it counts the MO at its
+# root alone: this catches a truncated list of children and not a truncated subtree.
 def _check_complete(dn: str, data: Any) -> None:
-    """Raise when the APIC returned fewer MOs than it says the query has.
-
-    ``totalCount`` counts what the query matched, so for a subtree GET it counts
-    the MO at its root alone: this catches a truncated list of children and not a
-    truncated subtree. A response carrying no count at all is left alone.
-    """
-
     if not isinstance(data, Mapping):
         return
     try:

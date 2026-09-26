@@ -1,12 +1,3 @@
-"""APIC HTTP session.
-
-Holds the authentication token in memory only and refreshes it on demand once
-half its lifetime has elapsed. :class:`Session` sends its requests and
-:class:`AsyncSession` awaits them; what an authentication *is*, apart from the
-sending, lives in :class:`_SessionBase` so the two cannot come to answer the
-same question differently.
-"""
-
 from __future__ import annotations
 
 import os
@@ -57,22 +48,16 @@ ClientT = TypeVar("ClientT", httpx2.Client, httpx2.AsyncClient)
 
 
 def normalize_base_url(host: str) -> str:
-    """Normalize a user-supplied host into an ``https://host`` base URL."""
-
     host = host.strip()
     if not host.startswith(("http://", "https://")):
         host = "https://" + host
     return host.rstrip("/")
 
 
+# httpx2 still takes a CA bundle path itself, but only by deprecation, and this is the
+# conversion it would do. A directory is an OpenSSL CA path, hashed symlinks rather than
+# one file.
 def _ssl_context(verify: bool | str) -> ssl.SSLContext | bool:
-    """Turn a CA bundle path into an SSL context, passing a bool through.
-
-    httpx2 still takes the path itself, but only by deprecation, and this is the
-    conversion it would do. A directory is an OpenSSL CA path, hashed symlinks
-    rather than one file, so it is loaded as one.
-    """
-
     if not isinstance(verify, str):
         return verify
     if os.path.isdir(verify):
@@ -80,41 +65,27 @@ def _ssl_context(verify: bool | str) -> ssl.SSLContext | bool:
     return ssl.create_default_context(cafile=verify)
 
 
+# None is not accepted, which httpx2 reads as "wait forever": a request that never comes
+# back leaves a command, and the daemon serving it, with no way out.
 def _checked_timeout(timeout: float) -> float:
-    """Return ``timeout`` if it can bound a request, else raise :class:`ValueError`.
-
-    Nothing here accepts None, which httpx2 reads as "wait forever": a request
-    that never comes back leaves a command, and the daemon serving it, with no
-    way out.
-    """
-
     if timeout <= 0:
         raise ValueError(f"timeout must be greater than 0, not {timeout}")
     return timeout
 
 
+# The session binds timeout before it holds on to this, so what it calls still has the
+# (base_url, verify) shape a caller-supplied client_factory is written to.
 def _default_client(base_url: str, verify: bool | str, *, timeout: float) -> httpx2.Client:
-    """Build the httpx2 client used for one host.
-
-    The session binds ``timeout`` before it holds on to this, so what it calls
-    still has the ``(base_url, verify)`` shape a caller-supplied
-    ``client_factory`` is written to.
-    """
-
     return httpx2.Client(base_url=base_url, verify=_ssl_context(verify), timeout=timeout)
 
 
 def _default_async_client(
     base_url: str, verify: bool | str, *, timeout: float
 ) -> httpx2.AsyncClient:
-    """Build the awaited httpx2 client used for one host, as :func:`_default_client` does."""
-
     return httpx2.AsyncClient(base_url=base_url, verify=_ssl_context(verify), timeout=timeout)
 
 
 def _extract_error(data: Any) -> tuple[str | None, str | None] | None:
-    """Return ``(code, text)`` if ``data`` is an APIC error envelope, else None."""
-
     if not isinstance(data, dict):
         return None
     imdata = data.get("imdata")
@@ -127,13 +98,9 @@ def _extract_error(data: Any) -> tuple[str | None, str | None] | None:
     return None
 
 
+# What an authentication is, apart from how its requests travel, so Session and
+# AsyncSession cannot come to answer the same question differently.
 class _SessionBase(Generic[ClientT]):
-    """What an authentication is, apart from how its requests travel.
-
-    Everything here is decided without sending anything; :class:`Session` and
-    :class:`AsyncSession` add only the sending.
-    """
-
     # Assigned by the subclass, which is where the client's type is settled.
     _client: ClientT
     _client_factory: Callable[[str, bool | str], ClientT]
@@ -174,18 +141,12 @@ class _SessionBase(Generic[ClientT]):
         return self.logged_in and self.refresh_timeout / 2 <= elapsed < self.refresh_timeout
 
     def expires_at(self) -> float:
-        """Clock value at which the session expires without further activity."""
-
         return self._last_auth + self.refresh_timeout
 
+    # Dropping what an expired session was holding is left to the caller, which catches
+    # the exception to do it: closing an awaited client is itself awaited, and this
+    # decision is not.
     def _refresh_due(self) -> bool:
-        """Say whether a refresh is due, ruling out the two cases where it is not a question.
-
-        Dropping what an expired session was holding is left to the caller, which
-        catches the exception to do it: closing an awaited client is itself
-        awaited, and this decision is not.
-        """
-
         if not self.logged_in:
             raise NotLoggedInError("not logged in")
         if self.is_expired():
@@ -203,8 +164,6 @@ class _SessionBase(Generic[ClientT]):
     # -- the token --------------------------------------------------------
 
     def _forget_token(self) -> None:
-        """Forget the token itself. The node clients holding a copy are the subclass's."""
-
         self._token = None
         self._client.cookies.clear()
 
@@ -216,14 +175,10 @@ class _SessionBase(Generic[ClientT]):
 
     # -- node clients -----------------------------------------------------
 
+    # The token is stamped on every call rather than at refresh time, so a refreshed
+    # token reaches every node without a fan-out. Closing what was evicted is the
+    # caller's, for the reason _refresh_due gives.
     def _take_node_client(self, host: str) -> tuple[ClientT, list[ClientT]]:
-        """Return the client for ``host``, and the ones the LRU has just evicted.
-
-        The token is stamped on every call rather than at refresh time, so a
-        refreshed token reaches every node without a fan-out. Closing what was
-        evicted is the caller's, for the reason :meth:`_refresh_due` gives.
-        """
-
         base_url = normalize_base_url(host)
         client = self._node_clients.get(base_url)
         if client is None:
@@ -264,16 +219,11 @@ class _SessionBase(Generic[ClientT]):
         return data
 
 
+# Login, refresh and expiry are always evaluated against base_url; a request may be
+# directed at a fabric node instead, over a separate client carrying the same APIC-
+# cookie. client and client_factory settle their own timeout, so timeout does not reach
+# them.
 class Session(_SessionBase[httpx2.Client]):
-    """One authentication against an APIC, usable against fabric nodes too.
-
-    Login, refresh and expiry are always evaluated against ``base_url``; a
-    request may be directed at a fabric node instead, over a separate client
-    carrying the same ``APIC-cookie``. ``client`` and ``client_factory`` are the
-    way in for a client this constructor cannot express, and either one settles
-    its own timeout, so ``timeout`` does not reach it.
-    """
-
     def __init__(
         self,
         host: str,
@@ -303,13 +253,9 @@ class Session(_SessionBase[httpx2.Client]):
         resp = self._send(self._client, "GET", "/api/aaaRefresh.json", timeout=timeout)
         self._store_token(self._parse_login(resp))
 
+    # The token is dropped either way, the failure being raised afterwards. An expired
+    # token has nothing left to end, so nothing is sent for one.
     def logout(self) -> None:
-        """End the session on the APIC, then drop the token here.
-
-        The token is dropped either way, the failure being raised afterwards. An
-        expired token has nothing left to end, so nothing is sent for one.
-        """
-
         try:
             if self.logged_in and not self.is_expired():
                 resp = self._send(
@@ -324,8 +270,6 @@ class Session(_SessionBase[httpx2.Client]):
             self._discard()
 
     def _discard(self) -> None:
-        """Forget the token without telling the APIC. See :meth:`logout`."""
-
         self._forget_token()
         self._drop_node_clients()
 
@@ -334,8 +278,6 @@ class Session(_SessionBase[httpx2.Client]):
         self._drop_node_clients()
 
     def ensure_fresh(self, *, timeout: float | None = None) -> None:
-        """Refresh if past half-life, or fail if fully expired."""
-
         try:
             due = self._refresh_due()
         except SessionExpiredError:
@@ -346,6 +288,8 @@ class Session(_SessionBase[httpx2.Client]):
 
     # -- requests ---------------------------------------------------------
 
+    # timeout applies to the refresh and to the GET, each; without it the session's own
+    # applies.
     def get(
         self,
         path: str,
@@ -354,12 +298,6 @@ class Session(_SessionBase[httpx2.Client]):
         host: str | None = None,
         timeout: float | None = None,
     ) -> Any:
-        """GET from the APIC, or from a fabric node when ``host`` is given.
-
-        ``timeout`` bounds this one call, refresh included; without it the
-        session's own applies.
-        """
-
         self.ensure_fresh(timeout=timeout)
         client = self._client if host is None else self._node_client(host)
         resp = self._send(client, "GET", path, params=params, timeout=timeout)
@@ -379,8 +317,6 @@ class Session(_SessionBase[httpx2.Client]):
     # -- internals --------------------------------------------------------
 
     def _node_client(self, host: str) -> httpx2.Client:
-        """Return the client for ``host``, carrying the current APIC token."""
-
         client, evicted = self._take_node_client(host)
         for old in evicted:
             old.close()
@@ -391,6 +327,8 @@ class Session(_SessionBase[httpx2.Client]):
             client.close()
         self._node_clients.clear()
 
+    # A timeout of None is not passed on at all: httpx2 reads that as "wait forever",
+    # where what is meant is the client's own timeout.
     def _send(
         self,
         client: httpx2.Client,
@@ -400,12 +338,6 @@ class Session(_SessionBase[httpx2.Client]):
         timeout: float | None = None,
         **kwargs: Any,
     ) -> httpx2.Response:
-        """Send a request, reporting which host was unreachable on failure.
-
-        A ``timeout`` of None is not passed on at all: httpx2 reads that as "wait
-        forever", where what is meant is the client's own timeout.
-        """
-
         if timeout is not None:
             kwargs["timeout"] = timeout
         try:
@@ -415,12 +347,6 @@ class Session(_SessionBase[httpx2.Client]):
 
 
 class AsyncSession(_SessionBase[httpx2.AsyncClient]):
-    """:class:`Session`, awaited.
-
-    The same authentication against the same APIC, sending the same requests in
-    the same order and raising the same exceptions at the same points.
-    """
-
     def __init__(
         self,
         host: str,
@@ -453,12 +379,6 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
         self._store_token(self._parse_login(resp))
 
     async def logout(self) -> None:
-        """End the session on the APIC, then drop the token here.
-
-        As :meth:`Session.logout`: the token goes whether or not the APIC could
-        be told, and the failure is raised afterwards.
-        """
-
         try:
             if self.logged_in and not self.is_expired():
                 resp = await self._send(
@@ -473,8 +393,6 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
             await self._discard()
 
     async def _discard(self) -> None:
-        """Forget the token without telling the APIC. See :meth:`logout`."""
-
         self._forget_token()
         await self._drop_node_clients()
 
@@ -483,8 +401,6 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
         await self._drop_node_clients()
 
     async def ensure_fresh(self, *, timeout: float | None = None) -> None:
-        """Refresh if past half-life, or fail if fully expired."""
-
         try:
             due = self._refresh_due()
         except SessionExpiredError:
@@ -503,12 +419,6 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
         host: str | None = None,
         timeout: float | None = None,
     ) -> Any:
-        """GET from the APIC, or from a fabric node when ``host`` is given.
-
-        ``timeout`` bounds the whole call, refresh included, as on
-        :meth:`Session.get`.
-        """
-
         await self.ensure_fresh(timeout=timeout)
         client = self._client if host is None else await self._node_client(host)
         resp = await self._send(client, "GET", path, params=params, timeout=timeout)
@@ -528,8 +438,6 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
     # -- internals --------------------------------------------------------
 
     async def _node_client(self, host: str) -> httpx2.AsyncClient:
-        """Return the client for ``host``, carrying the current APIC token."""
-
         client, evicted = self._take_node_client(host)
         for old in evicted:
             await old.aclose()
@@ -549,12 +457,6 @@ class AsyncSession(_SessionBase[httpx2.AsyncClient]):
         timeout: float | None = None,
         **kwargs: Any,
     ) -> httpx2.Response:
-        """Send a request, reporting which host was unreachable on failure.
-
-        A ``timeout`` of None is not passed on at all, for the reason
-        :meth:`Session._send` gives.
-        """
-
         if timeout is not None:
             kwargs["timeout"] = timeout
         try:

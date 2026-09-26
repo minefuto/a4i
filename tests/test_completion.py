@@ -14,8 +14,6 @@ def parser():
 
 
 def _complete(parser, line: str, monkeypatch, shell: str = "zsh") -> str:
-    """Drive complete() the way the shell widget does, returning what it printed."""
-
     monkeypatch.setenv(completion.COMPLETE_VAR, shell)
     if shell in {"zsh", "fish"}:
         monkeypatch.setenv(completion.WORDS_VAR, line)

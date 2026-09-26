@@ -21,8 +21,6 @@ def mo(class_name: str, attributes: dict, children: list | None = None) -> dict:
 
 
 def children(body: dict) -> list[tuple[str, dict]]:
-    """Return the MOs directly under the wrapper as (class name, attributes) pairs."""
-
     return [
         (class_name, mo_body["attributes"])
         for child in body["polUni"]["children"]
@@ -30,14 +28,10 @@ def children(body: dict) -> list[tuple[str, dict]]:
     ]
 
 
+# The DN is rebuilt from the nesting and the "rn" each MO carries, which is the whole of
+# what the output says about where an MO sits. An MO carrying no "rn" is given a "?" for
+# it.
 def walk(body: dict) -> list[tuple[str, str, dict]]:
-    """Return (class name, DN, attributes) of every merged MO, parents first.
-
-    The DN is rebuilt from the nesting and the "rn" each MO carries, which is the
-    whole of what the output says about where an MO sits. An MO carrying no "rn"
-    is given a "?" for it.
-    """
-
     def below(mos, parent: str) -> list[tuple[str, str, dict]]:
         found = []
         for child in mos or []:
@@ -645,14 +639,10 @@ FABRIC = {
 }
 
 
+# Either side could be internally consistent and still disagree here -- an rn read as
+# though it were absolute, say -- with every unit test passing. So one case runs the
+# real pipe.
 def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> None:
-    """The one seam the two sides' own tests cannot see between them.
-
-    Either side could be internally consistent and still disagree here -- an rn
-    read as though it were absolute, say -- with every unit test passing. So one
-    case runs the real pipe.
-    """
-
     _write(tmp_path, "10-base.json", {"fvTenant": {"attributes": {"name": "demo", "descr": "no"}}})
     _write(
         tmp_path,
@@ -681,13 +671,9 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
     assert capsys.readouterr().out.strip() == "no differences"
 
 
+# A flat polUni could not do this: its children each carried a right absolute DN and the
+# APIC still refused the body, an fvBD being no child of polUni.
 def test_what_merge_writes_is_what_a_post_would_place() -> None:
-    """The other seam: the body has to land where the configuration meant it to.
-
-    What a flat polUni could not do: its children each carried a right absolute DN
-    and the APIC still refused the body, an fvBD being no child of polUni.
-    """
-
     from a4i import _dry_run as dry_run
     from a4i._merge import read
 

@@ -122,8 +122,6 @@ def test_logout_without_a_token_sends_nothing() -> None:
 
 
 def test_expired_session_is_not_logged_out_on_the_apic() -> None:
-    """An expired token has nothing left to end, so aaaLogout is not sent for one."""
-
     state: dict = {}
     clock = Clock()
     session = make_session(state, clock)
@@ -146,8 +144,6 @@ def test_expiry_on_a_request_sends_no_logout() -> None:
 
 
 def test_an_expired_session_drops_the_node_clients_it_held() -> None:
-    """Being told the session is over is the last thing that happens: it is dropped first."""
-
     state: dict = {}
     clock = Clock()
     session = make_session(state, clock)
@@ -330,8 +326,6 @@ def test_the_timeout_a_session_is_given_reaches_its_client() -> None:
 
 
 def test_a_node_client_is_built_with_the_same_timeout() -> None:
-    """A switch is reached over a client of its own, and is no faster than the APIC."""
-
     state: dict = {}
     session = Session(APIC_HOST, timeout=120.0, client=make_client(state))
     try:
@@ -350,8 +344,6 @@ def test_a_timeout_that_cannot_bound_a_request_is_refused(timeout: float) -> Non
 
 
 def test_a_client_handed_over_keeps_the_timeout_it_came_with() -> None:
-    """The way in for a client this constructor cannot express settles its own."""
-
     session = Session(APIC_HOST, timeout=120.0, client=make_client({}))
     try:
         assert session._client.timeout == httpx2.Client().timeout
@@ -359,9 +351,8 @@ def test_a_client_handed_over_keeps_the_timeout_it_came_with() -> None:
         session.close()
 
 
+# Ending a session is the last thing a command does, and waits its own 5s.
 def test_logout_is_not_held_up_by_a_long_timeout() -> None:
-    """Ending a session is the last thing a command does, and waits its own 5s."""
-
     state: dict = {}
     session = Session(APIC_HOST, timeout=120.0, client=make_client(state))
     try:
@@ -395,8 +386,6 @@ def test_get_timeout_applies_to_the_call() -> None:
 
 
 def test_get_timeout_bounds_the_refresh_too() -> None:
-    """A caller who cannot wait must not be made to wait on aaaRefresh either."""
-
     state: dict = {}
     clock = Clock()
     session = make_session(state, clock)

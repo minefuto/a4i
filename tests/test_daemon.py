@@ -154,9 +154,8 @@ def test_a_login_that_asks_for_no_timeout_gets_the_default_one(daemon) -> None:
     assert _login()["timeout"] == DEFAULT_TIMEOUT
 
 
+# The session is rebuilt per login, which is the only way to change this.
 def test_a_second_login_replaces_the_timeout(daemon) -> None:
-    """The session is rebuilt per login, which is the only way to change this."""
-
     ipc.login("apic.test", "admin", "pw", verify=False, timeout=120.0)
     ipc.login("apic.test", "admin", "pw", verify=False, timeout=5.0)
     status = ipc.status()
@@ -249,9 +248,8 @@ def test_a_post_drops_the_fabric(daemon) -> None:
         ipc.fabric()
 
 
+# One POST is one transaction there: a refusal changed nothing.
 def test_a_post_the_apic_refused_leaves_the_fabric_standing(daemon) -> None:
-    """One POST is one transaction there: a refusal changed nothing."""
-
     state, _ = daemon
     _login()
     ipc.fetch()
@@ -278,8 +276,6 @@ def test_a_logout_drops_the_fabric(daemon) -> None:
 
 
 def test_an_expired_session_drops_the_fabric(daemon) -> None:
-    """Sooner than the idle tick would: a request in between must not have it."""
-
     _, clock = daemon
     _login()
     ipc.fetch()
@@ -304,8 +300,6 @@ def test_status_says_what_is_held_and_how_old_it_is(daemon) -> None:
 
 
 def test_daemon_refuses_an_unsafe_socket_dir(capsys) -> None:
-    """A directory another user could write to must not host the socket."""
-
     sock_dir = Path(tempfile.gettempdir()) / f"a4i-t-{uuid.uuid4().hex[:8]}"
     sock_dir.mkdir()
     os.chmod(sock_dir, 0o777)

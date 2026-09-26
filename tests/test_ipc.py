@@ -17,13 +17,9 @@ from a4i._errors import DaemonError, NoFabricError, UnusableSocketError
 SOCK = "daemon.sock"
 
 
+# pytest's tmp_path is itself over the sun_path limit on macOS.
 @pytest.fixture
 def short_dir():
-    """An existing 0700 directory short enough to hold an AF_UNIX socket path.
-
-    pytest's ``tmp_path`` is itself over the sun_path limit on macOS.
-    """
-
     path = Path(tempfile.gettempdir()) / f"a4i-t-{uuid.uuid4().hex[:8]}"
     path.mkdir(mode=0o700)
     yield path
@@ -144,8 +140,6 @@ def test_create_socket_dir_rejects_a_squatted_dir(short_dir) -> None:
 
 
 def test_request_refuses_a_socket_in_a_squatted_dir(monkeypatch, short_dir) -> None:
-    """A client must not hand its password to a socket in someone else's dir."""
-
     squatted = short_dir / "squatted"
     squatted.mkdir()
     os.chmod(squatted, 0o777)
@@ -179,8 +173,6 @@ def test_an_op_reports_too_long_path_as_an_unusable_socket(monkeypatch, short_di
 
 
 def test_no_daemon_reads_as_no_fabric(monkeypatch, short_dir) -> None:
-    """A daemon that is not there holds no fabric, and the next move is a fetch either way."""
-
     monkeypatch.setattr(ipc, "socket_path", lambda: short_dir / SOCK)
     with pytest.raises(NoFabricError, match="run 'a4i fetch' first"):
         ipc.fabric()

@@ -1,14 +1,9 @@
-"""What awaiting adds, and nothing else.
-
-tests/test_awaited.py checks that :class:`~a4i._client.AsyncClient` is
-:class:`~a4i._client.Client` with the sending awaited, statement for statement, so
-what tests/test_client.py covers is not covered again here.
-
-What is left is what that check cannot see: the constructor it exempts, the
-asynchronous context manager (which is also where "aclose" is shown to be what
-httpx2 really calls it), and the awaited stack underneath carrying a request out
-and an answer back.
-"""
+# tests/test_awaited.py checks that AsyncClient is Client with the sending awaited,
+# statement for statement, so what tests/test_client.py covers is not covered again
+# here. What is left is what that check cannot see: the constructor it exempts, the
+# asynchronous context manager (which is also where "aclose" is shown to be what httpx2
+# really calls it), and the awaited stack underneath carrying a request out and an
+# answer back.
 
 from __future__ import annotations
 
@@ -26,8 +21,6 @@ def state() -> dict:
 
 @pytest.fixture
 async def client(state):
-    """A logged-in client talking to the mocked APIC."""
-
     client = AsyncClient(_transport=AsyncDirectTransport(make_async_session(state, Clock())))
     await client.login("admin", "pw")
     yield client
@@ -89,13 +82,9 @@ async def test_a_client_without_a_session_of_its_own_cannot_log_in() -> None:
 # -- the asynchronous context manager ---------------------------------------
 
 
+# Also where httpx2's "aclose" is paid for: test_awaited.py takes that name for granted
+# when it compares the two classes.
 async def test_the_context_manager_closes_the_session(state) -> None:
-    """``async with`` reaches __aenter__ and __aexit__, and the close lands.
-
-    Also where httpx2's "aclose" is paid for: test_awaited.py takes that name for
-    granted when it compares the two classes.
-    """
-
     session = make_async_session(state, Clock())
     async with AsyncClient(_transport=AsyncDirectTransport(session)) as client:
         await client.login("admin", "pw")

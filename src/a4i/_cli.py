@@ -1,9 +1,6 @@
-"""argparse command-line interface for the ACI REST API.
-
-Typer is deliberately not used: shell completion spawns a whole new process on
-every tab press, and importing Typer cost more than the lookup it enabled.
-argparse also doubles as the parser :mod:`a4i._completion` walks.
-"""
+# Typer is deliberately not used: shell completion spawns a whole new process on every
+# tab press, and importing Typer cost more than the lookup it enabled. argparse also
+# doubles as the parser a4i._completion walks.
 
 from __future__ import annotations
 
@@ -37,13 +34,9 @@ if TYPE_CHECKING:
 # list.
 
 
+# choices cannot do this: it would match the whole comma-separated string against a
+# single value.
 def _csv_choices(enum: type[StrEnum]) -> Callable[[str], str]:
-    """Return an argparse type validating a comma-separated list of enum values.
-
-    ``choices`` cannot do this: it would match the whole comma-separated string
-    against a single value.
-    """
-
     allowed = query.values(enum)
 
     def parse(value: str) -> str:
@@ -59,8 +52,6 @@ def _csv_choices(enum: type[StrEnum]) -> Callable[[str], str]:
 
 
 def _bounded_int(minimum: int) -> Callable[[str], int]:
-    """Return an argparse type accepting an integer no smaller than ``minimum``."""
-
     def parse(value: str) -> int:
         try:
             number = int(value)
@@ -73,13 +64,9 @@ def _bounded_int(minimum: int) -> Callable[[str], int]:
     return parse
 
 
+# Zero and below are refused here rather than left to the session, which would only
+# reject them after a daemon had been started to hear it.
 def _positive_float(value: str) -> float:
-    """Return ``value`` as a number of seconds a request can be given.
-
-    Zero and below are refused here rather than left to the session, which would
-    only reject them after a daemon had been started to hear it.
-    """
-
     try:
         number = float(value)
     except ValueError:
@@ -89,14 +76,10 @@ def _positive_float(value: str) -> float:
     return number
 
 
+# argparse's own version action wants the string when the parser is built, and the
+# parser is built on every tab press; resolving it there would pay for
+# importlib.metadata on a completion that never shows a version.
 class _VersionAction(argparse.Action):
-    """Print the version and exit, reading it only when the flag is given.
-
-    argparse's own ``version`` action wants the string when the parser is built,
-    and the parser is built on every tab press; resolving it there would pay for
-    importlib.metadata on a completion that never shows a version.
-    """
-
     def __init__(
         self, option_strings: list[str], dest: str = argparse.SUPPRESS, help: str | None = None
     ) -> None:
@@ -110,8 +93,6 @@ class _VersionAction(argparse.Action):
 
 
 def _fail(exc: A4iError) -> int:
-    """Report a failed request and return the exit code for it."""
-
     from a4i._output import print_error
 
     hint = " (run 'a4i login')" if isinstance(exc, SessionExpiredError | NotLoggedInError) else ""
@@ -120,12 +101,6 @@ def _fail(exc: A4iError) -> int:
 
 
 def _warn_apic(info: ipc.EndReply) -> None:
-    """Report an APIC that could not be told the session had ended.
-
-    The token is gone from the daemon either way, so this is a warning over a
-    logout that succeeded: only the APIC's own copy is left to expire.
-    """
-
     message = info.get("apic_error")
     if message:
         from a4i._output import print_warning
@@ -134,11 +109,6 @@ def _warn_apic(info: ipc.EndReply) -> None:
 
 
 def _client() -> Client:
-    """Build the client a get, a post or a diff runs on, talking through the daemon.
-
-    The very same client a library caller builds, the transport alone differing.
-    """
-
     # Imported here rather than at module scope: shell completion reaches this
     # module on every tab press but never issues a request.
     from a4i._client import Client
@@ -258,16 +228,11 @@ def _cmd_post(args: argparse.Namespace) -> int:
     return 0
 
 
+# A fetch left in the daemon covers the whole of uni, so it answers for any body a POST
+# could carry and nothing goes out; nothing fetched means reading the subtrees this body
+# stands at. Unlike diff and plan this does not stop for want of a fetch, and which of
+# the two it was is printed either way.
 def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
-    """Show what the POST would change, without sending it.
-
-    A fetch left in the daemon covers the whole of uni, so it answers for any
-    body a POST could carry and nothing goes out; nothing fetched means reading
-    the subtrees this body stands at. Unlike diff and plan this does not stop for
-    want of a fetch, having the body's own DNs to read, and which of the two it
-    was is printed either way. This path never reaches the post op.
-    """
-
     from a4i import _dry_run as dry_run
     from a4i._output import print_note, render_dry_run
 
@@ -303,15 +268,8 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     stop, rather than comparing against a fabric nobody read.
     """
 
-    from a4i._output import print_error
-
     try:
         held = ipc.fetch()
-    except ValueError as exc:
-        # An MO no single body posted at uni could carry. Nothing is held, and
-        # nothing is printed: half a fabric is worse than none.
-        print_error(str(exc))
-        return 1
     except A4iError as exc:
         return _fail(exc)
     print(
@@ -342,8 +300,8 @@ def _cmd_diff(args: argparse.Namespace) -> int:
             exclude=args.exclude,
         )
     except ValueError as exc:
-        # An MO in the input whose DN cannot be worked out, or an --exclude that
-        # is empty or holds "**". Nothing is printed: comparing the rest would
+        # A configuration that is malformed, empty or names no single MO, or an
+        # --exclude that is refused. Nothing is printed: comparing the rest would
         # report a fabric that matches on the strength of MOs never looked at.
         print_error(str(exc))
         return 1
@@ -579,8 +537,6 @@ def _cmd_daemon_status(args: argparse.Namespace) -> int:
 
 
 def _print_fabric(held: ipc.FabricHeld | None) -> None:
-    """Say what fetch left behind: how old it is, rather than when it was read."""
-
     if held is None:
         print("fabric cache  none (run 'a4i fetch')")
         return
@@ -636,8 +592,6 @@ def _cmd_generate_shell_completion(args: argparse.Namespace) -> int:
 
 
 def _add_query_options(parser: argparse.ArgumentParser) -> None:
-    """Add the query options to a ``get`` subcommand, both taking the same set."""
-
     # Scoping filters: what the query walks over.
     parser.add_argument(
         "--query-target",
@@ -699,8 +653,6 @@ def _add_query_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_post_options(parser: argparse.ArgumentParser) -> None:
-    """Add the body and the flags to a ``post`` subcommand."""
-
     parser.add_argument("body", nargs="?", help="JSON body; read from stdin if omitted")
     parser.add_argument(
         "--dry-run",
@@ -714,8 +666,6 @@ def _add_post_options(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI parser, which also serves as the completion spec."""
-
     parser = argparse.ArgumentParser(
         prog="a4i",
         description="CLI for the Cisco ACI (APIC) REST API. Token is held in memory by a daemon.",

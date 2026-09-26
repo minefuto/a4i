@@ -31,13 +31,9 @@ def test_a_leading_or_trailing_slash_is_dropped() -> None:
     ]
 
 
+# The other half of child_dn, which does build one: a response is not an input, so what
+# it does not name outright is left out rather than stood in for.
 def test_only_the_top_level_is_read() -> None:
-    """Nothing is built here, so a child the response nests is not named.
-
-    The other half of child_dn, which does build one: a response is not an input,
-    so what it does not name outright is left out rather than stood in for.
-    """
-
     nested = [
         {
             "fvTenant": {

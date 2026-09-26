@@ -1,13 +1,7 @@
-"""How the bundled model is laid out, at the width it is being read at.
-
-These run against a4i._output directly, over a console opened on a string, which
-is what lets a width be named: a test going through the command line would be
-reading a pipe, which has no width to overflow. They run against the dictionary
-that ships with a4i, whose numbers -- thirty properties, thirty-four children,
-forty parents -- are what the layout exists to cope with.
-
-What the commands do with all this is tests/test_cli.py's.
-"""
+# These run against a4i._output directly, over a console opened on a string, which is
+# what lets a width be named: a test going through the command line would be reading a
+# pipe, which has no width to overflow. They run against the dictionary that ships with
+# a4i, whose sizes are what the layout exists to cope with.
 
 from __future__ import annotations
 
@@ -22,8 +16,6 @@ from a4i import _output as output
 
 
 def _console(width: int | None = None) -> Console:
-    """A console over a string: a terminal of ``width``, or a pipe with none."""
-
     file = io.StringIO()
     if width is None:
         # is_terminal is False, so nothing is cut and nothing is styled.
@@ -85,12 +77,6 @@ def test_a_piped_summary_is_left_whole() -> None:
 
 
 def test_a_terminal_styles_the_class_name_and_raw_takes_it_away() -> None:
-    """The two questions the console is asked, and why they are not one.
-
-    --raw asks for the styling to go, not for the lines to stop fitting the
-    terminal: both of these are cut to sixty, and only one is styled.
-    """
-
     styled = _search("bridge domain", 1, width=60).splitlines()[0]
     plain = _search("bridge domain", 1, width=60, raw=True).splitlines()[0]
     assert "\x1b[" in styled and "\x1b[" not in plain
@@ -188,13 +174,9 @@ def test_a_pipe_is_never_styled_however_raw_is_left(raw) -> None:
     assert "\x1b[" not in _search("bridge domain", 3, raw=raw)
 
 
+# rich wraps to the console's width, which for anything but a terminal is a default 80,
+# so the plain path writes to the console's file instead.
 def test_json_is_written_past_richs_wrapping() -> None:
-    """A wrapped line is a JSON document broken in half.
-
-    rich wraps to the console's width, which for anything but a terminal is a
-    default 80, so the plain path writes to the console's file instead.
-    """
-
     console = _console()
     long_dn = "uni/tn-" + "x" * 200
     output.render({"imdata": [{"fvTenant": {"attributes": {"dn": long_dn}}}]}, console=console)

@@ -1,10 +1,3 @@
-"""What an exception becomes on the wire, and what it comes back as.
-
-Both directions are read off one dictionary in a4i._errors, and these are the
-tests of that: the round trip is faithful, and no error can be added to one side
-alone.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -64,13 +57,8 @@ def test_an_exception_with_no_tag_of_its_own_travels_as_a_daemon_error() -> None
     assert str(restored) == "something else entirely"
 
 
+# A daemon left running across an upgrade may classify something new.
 def test_a_tag_this_client_does_not_know_keeps_what_the_daemon_said() -> None:
-    """A daemon left running across an upgrade may classify something new.
-
-    What it said is still worth reporting, so an unknown tag is not a failure to
-    handle -- it is a DaemonError carrying the daemon's own message.
-    """
-
     restored = from_payload({"type": "invented_later", "message": "a newer daemon says so"})
     assert type(restored) is DaemonError
     assert str(restored) == "a newer daemon says so"
@@ -83,15 +71,11 @@ def test_an_error_payload_with_nothing_in_it_still_raises_something() -> None:
 # -- nothing added by halves -----------------------------------------------
 
 
+# Checking the round trip does not catch an error wired in one direction only -- a class
+# nobody listed is a class no round trip visits. So this walks the hierarchy instead:
+# every A4iError is either in _WIRE, and therefore crosses the socket both ways, or is
+# one of the client's own and never crosses.
 def test_every_error_either_travels_or_is_the_clients_own() -> None:
-    """The test this whole seam exists for.
-
-    Checking the round trip does not catch an error wired in one direction only --
-    a class nobody listed is a class no round trip visits. So this walks the
-    hierarchy instead: every A4iError is either in _WIRE, and therefore crosses
-    the socket both ways, or is one of the client's own and never crosses.
-    """
-
     for cls in _subclasses(A4iError):
         travels = cls in errors._WIRE.values()
         clients_own = issubclass(cls, DaemonError)

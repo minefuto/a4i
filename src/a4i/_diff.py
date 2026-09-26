@@ -1,14 +1,5 @@
-"""Compare a fabric's whole configuration against the one it is meant to have.
-
-Nothing in this module performs I/O: :func:`compare` takes the configuration and
-the fabric as :meth:`a4i.Client.fetch` read it, reads each into an index with
-:func:`a4i._merge.read`, and returns the differences.
-
-It runs both ways, which is the difference from :mod:`a4i._dry_run`: a POST can
-only add or change, but a fabric can carry what nobody wrote down. The intended
-configuration is therefore taken to describe the whole of ``uni``, and anything
-it leaves out is reported as ``extra`` unless ``exclude`` says otherwise.
-"""
+# It runs both ways, which is the difference from a4i._dry_run: a POST can only add or
+# change, but a fabric can carry what nobody wrote down.
 
 from __future__ import annotations
 
@@ -36,7 +27,7 @@ def compare(
 
     ``config`` is one ACI body -- one MO, a list of them, or the same as JSON
     text -- describing the whole of ``uni``; several are folded into one
-    beforehand by :func:`a4i._merge.merge`. ``fabric`` is what
+    beforehand by :func:`a4i.merge`. ``fabric`` is what
     :meth:`a4i.Client.fetch` returns, and is keyword-only so that every call says
     the word, a comparison being worth only as much as the reader knows of where
     its other side came from. Without ``expand``, a subtree that is wholly
@@ -82,23 +73,13 @@ def compare(
 # -- what is left out ------------------------------------------------------
 
 
+# A single string is one name and is never split: an ACI naming value can hold a comma,
+# which is also why one name takes one condition and not several.
+#
+# Three spellings are refused because each would otherwise quietly exclude nothing: an
+# empty DN, which is what an unset shell variable expands to; a "**", which a reader of
+# gitignore would write for what a "*" here does not do; and nothing but "!" exceptions.
 def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
-    """Return what to leave out, each name read the way any other DN is read.
-
-    A single string is one name and is never split: an ACI naming value can hold
-    a comma, which is also why one name takes one condition and not several.
-
-    Three things are refused rather than read, each of them a spelling that would
-    otherwise quietly exclude nothing: an empty DN, which is what an unset shell
-    variable expands to; a "**", which a reader of gitignore would write for what
-    a "*" here does not do; and nothing but "!" exceptions, which excludes what
-    the comparison already compares.
-
-    The condition is cut off first, so everything above is judged on the DN
-    alone. Its value is a "*" pattern as an RN is, and needs no "**" rule: an
-    attribute value has no "/" to cross.
-    """
-
     if exclude is None:
         return Exclusions()
     given = [exclude] if isinstance(exclude, str) else list(exclude)
@@ -131,14 +112,9 @@ def _exclusions(exclude: str | Sequence[str] | None) -> Exclusions:
     return Exclusions(dns)
 
 
+# Pruning the index rather than filtering the report is what keeps child_count honest,
+# being read off these same dicts.
 def _prune(index: dict[str, Any], excluded: Exclusions) -> None:
-    """Drop the excluded MOs from one side's index, in place.
-
-    Both sides are pruned, excluding something being saying nothing about it at
-    all. Pruning the index rather than filtering the report is what keeps
-    ``child_count`` honest, being read off these same dicts.
-    """
-
     if not excluded:
         return
     for dn in [dn for dn in index if excluded.covers(dn)]:
@@ -190,34 +166,23 @@ def _extra(intended: Intended, actual: Intended, *, expand: bool) -> list[Change
     return changes
 
 
+# Only the parent is looked at: a missing grandparent rolls the parent up in turn, so
+# the whole subtree collapses onto its top MO.
 def _under_a_missing_parent(dn: str, intended: Intended, actual: Intended) -> bool:
-    """True when this MO's parent is missing too, so it goes with the parent.
-
-    Only the parent is looked at: a missing grandparent rolls the parent up in
-    turn, so the whole subtree collapses onto its top MO.
-    """
-
     parent = parent_dn(dn)
     return parent is not None and parent in intended.index and parent not in actual.index
 
 
 def _under_an_extra_parent(dn: str, intended: Intended, actual: Intended) -> bool:
-    """True when this MO's parent is extra too, so it goes with the parent."""
-
     parent = parent_dn(dn)
     return parent is not None and parent in actual.index and parent not in intended.index
 
 
+# The APIC returns an unset attribute as an empty string, which is a value the
+# configuration does not account for either.
 def _compare(
     intended: dict[str, str], actual: dict[str, str]
 ) -> dict[str, tuple[str | None, str | None]]:
-    """Diff one MO's attributes both ways.
-
-    An attribute the fabric carries and the configuration does not is reported
-    with nothing on the right. The APIC returns an unset attribute as an empty
-    string, which is a value the configuration does not account for either.
-    """
-
     changed: dict[str, tuple[str | None, str | None]] = {}
     for key, value in intended.items():
         if key in _INSTRUCTION:

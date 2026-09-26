@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from a4i._validate import check, problems
+from a4i._validate import problems, refuse
 
 
 def mo(class_name: str, attributes: dict, children: list | None = None) -> dict:
@@ -13,8 +13,6 @@ def mo(class_name: str, attributes: dict, children: list | None = None) -> dict:
 
 
 def only(config, source: str | None = None) -> str:
-    """Return the one problem the config has, failing if it has any other number."""
-
     (found,) = problems(config, source)
     return found
 
@@ -170,7 +168,6 @@ def test_a_problem_deeper_down_carries_the_dn_of_its_parent() -> None:
 def test_a_well_formed_configuration_has_nothing_to_report() -> None:
     config = [mo("fvTenant", {"name": "t"}, [mo("fvBD", {"name": "b", "mtu": "9000"})])]
     assert problems(config) == []
-    check(config)
 
 
 @pytest.mark.parametrize("nothing", [[], {}])
@@ -182,7 +179,7 @@ def test_an_input_describing_nothing_is_well_formed(nothing) -> None:
 
 def test_the_first_few_problems_are_spelled_out_and_the_rest_counted() -> None:
     with pytest.raises(ValueError) as exc:
-        check(["a", "b", "c", "d", "e"])
+        refuse(problems(["a", "b", "c", "d", "e"]))
     message = str(exc.value)
     assert "in 5 places" in message
     assert message.count("not an MO") == 3
@@ -191,7 +188,7 @@ def test_the_first_few_problems_are_spelled_out_and_the_rest_counted() -> None:
 
 def test_one_problem_is_reported_without_a_count() -> None:
     with pytest.raises(ValueError) as exc:
-        check(["a"])
+        refuse(problems(["a"]))
     assert "places" not in str(exc.value)
 
 

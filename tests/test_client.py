@@ -1,5 +1,3 @@
-"""The library entry point: the same requests the CLI makes, without a daemon."""
-
 from __future__ import annotations
 
 import json
@@ -24,8 +22,6 @@ def state() -> dict:
 
 @pytest.fixture
 def client(state) -> Client:
-    """A logged-in client talking to the mocked APIC."""
-
     client = Client(_transport=DirectTransport(make_session(state, Clock())))
     client.login("admin", "pw")
     return client
@@ -179,13 +175,9 @@ def test_list_children_returns_the_dns_bare_and_sorted(client) -> None:
     ]
 
 
+# The one place list_children and the diff walk differ on purpose: the walk narrows to
+# config-only because it decides what gets compared.
 def test_list_children_leaves_nothing_out(client) -> None:
-    """A browse shows the runtime containers a comparison walks past.
-
-    The one place list_children and the diff walk differ on purpose: the walk
-    narrows to config-only because it decides what gets compared.
-    """
-
     assert "uni/epp" in client.list_children("uni")
 
 
@@ -257,13 +249,9 @@ def test_dry_run_reports_a_new_child(client) -> None:
     assert changes[0].class_name == "fvBD"
 
 
+# Two roots at the same DN are one MO the POST would write once. Fetching it twice and
+# reporting it twice would be the body's shape leaking into the report.
 def test_dry_run_folds_two_roots_naming_one_mo_into_one_comparison(client, state) -> None:
-    """Both sides are read into an index keyed by DN, so one MO is one entry.
-
-    Two roots at the same DN are one MO the POST would write once. Fetching it
-    twice and reporting it twice would be the body's shape leaking into the report.
-    """
-
     changes = client.dry_run(
         "uni",
         [
@@ -314,14 +302,9 @@ def test_dry_run_compares_a_wrapped_child_against_its_own_subtree(client) -> Non
     assert changes[0].attributes == {"descr": (None, "x")}
 
 
+# The MO the body meant may well be on the fabric, so reporting a made-up DN as created
+# would be the report talking about an MO nobody named.
 def test_dry_run_refuses_a_child_it_cannot_name_before_asking_the_apic(client, state) -> None:
-    """No name, so no RN: the body names no one MO, and merge.read refuses it.
-
-    The MO the body meant may well be on the fabric, so reporting a made-up DN as
-    created would be the report talking about an MO nobody named. Nothing is asked
-    of the APIC on the strength of it either.
-    """
-
     with pytest.raises(ValueError) as exc:
         client.dry_run(
             "uni",
@@ -407,8 +390,6 @@ def test_plan_carries_the_changes_and_the_mos_they_hang_under(client) -> None:
 
 
 def test_plan_asks_the_fabric_for_nothing(client, state) -> None:
-    """Every request a plan rests on was the fetch's, and is already paid for."""
-
     fabric = client.fetch()
     state["mo_requests"].clear()
     plan_.create(
@@ -469,13 +450,9 @@ def test_fetch_returns_a_body_shaped_as_merge_shapes_one(client) -> None:
     assert [next(iter(child)) for child in common["children"]] == ["fvBD", "fvAp"]
 
 
+# If merge, diff and fetch ever drift apart on what a body means, the fabric starts
+# differing from itself.
 def test_fetch_then_diff_finds_no_difference(client) -> None:
-    """The round trip: what fetch writes is what diff compares against.
-
-    If merge, diff and this ever drift apart on what a body means, the fabric
-    starts differing from itself.
-    """
-
     fabric = client.fetch()
     assert diff.compare(fabric, fabric=fabric) == []
 
@@ -592,8 +569,6 @@ def test_a_client_without_a_session_of_its_own_cannot_log_in() -> None:
 
 
 def test_a_transport_of_ones_own_settles_the_timeout_itself(state) -> None:
-    """As verify: what describes a session this client did not build is not its say."""
-
     session = make_session(state, Clock())
     client = Client(timeout=120.0, _transport=DirectTransport(session))
     assert client._session is session

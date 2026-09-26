@@ -1,12 +1,9 @@
-"""The exceptions every entry point raises, and how one crosses the socket.
-
-A module of their own because both ends of the socket need them, and importing
-them from :mod:`a4i._session` would drag httpx2 into every ``a4i get``.
-
-Not every exception here travels: :class:`DaemonError` and the two below it are
-raised by the client before any daemon has answered, so they carry no tag and
-never appear in ``_WIRE``.
-"""
+# A module of their own because both ends of the socket need them, and importing
+# them from a4i._session would drag httpx2 into every `a4i get`.
+#
+# Not every exception here travels: DaemonError and the two below it are raised
+# by the client before any daemon has answered, so they carry no tag and never
+# appear in _WIRE.
 
 from __future__ import annotations
 
@@ -31,7 +28,7 @@ class NotLoggedInError(A4iError):
 
 
 class NoFabricError(A4iError):
-    """Raised when a comparison is asked for and no fabric has been fetched."""
+    pass
 
 
 # What that error says, here rather than beside either raiser: the daemon raises
@@ -43,37 +40,31 @@ NO_FABRIC_MESSAGE = (
 )
 
 
+# The daemon holds the read-only flag, so this is the answer to every writer
+# sharing that session rather than a rule either entry point applies for itself.
 class ReadOnlyError(A4iError):
-    """Raised when a POST is attempted on a session logged in read-only.
-
-    The daemon holds the flag, so this is the answer to every writer sharing that
-    session rather than a rule either entry point applies for itself.
-    """
+    pass
 
 
 class SessionExpiredError(A4iError):
     """Raised when the token lifetime elapsed and a re-login is required."""
 
 
+# A failure no daemon reported: a connection lost mid-request, an empty reply, a
+# daemon that would not start. What the daemon itself caught arrives rebuilt by
+# from_payload.
 class DaemonError(A4iError):
-    """Raised when a request to the daemon fails for a reason no daemon reported.
-
-    A connection lost mid-request, an empty reply, a daemon that would not start.
-    What the daemon itself caught arrives rebuilt by :func:`from_payload`.
-    """
+    pass
 
 
+# A class of its own because a command that reads a failed request as "no daemon
+# is running" must still report this one.
 class UnusableSocketError(DaemonError):
-    """Raised for a socket path this client refuses to use.
-
-    Nothing was sent: the directory holding it is not a private one of ours, or
-    the path cannot host a socket at all. A class of its own because a command
-    that reads a failed request as "no daemon is running" must still report this.
-    """
+    pass
 
 
 class NoDaemonError(DaemonError):
-    """Raised when nothing is listening on a usable socket, and none was started."""
+    pass
 
 
 # The tag each exception travels as. One dictionary, read in both directions
@@ -93,8 +84,6 @@ _UNTAGGED = "error"
 
 
 def to_payload(exc: Exception) -> dict[str, Any]:
-    """Flatten an exception into the error payload a daemon replies with."""
-
     payload: dict[str, Any] = {"type": _TAGS.get(type(exc), _UNTAGGED), "message": str(exc)}
     if isinstance(exc, ApicError):
         # The only detail that survives the crossing: a caller acts on the APIC's
@@ -104,13 +93,8 @@ def to_payload(exc: Exception) -> dict[str, Any]:
 
 
 def from_payload(payload: dict[str, Any]) -> A4iError:
-    """Build back the exception an error payload describes.
-
-    A tag this client does not know comes back as a plain :class:`DaemonError`
-    carrying the message the daemon wrote: a daemon left running across an
-    upgrade may classify something this command has never heard of.
-    """
-
+    # An unknown tag comes back as a plain DaemonError: a daemon left running
+    # across an upgrade may classify something this command has never heard of.
     message = str(payload.get("message") or "unknown daemon error")
     cls = _WIRE.get(str(payload.get("type", "")))
     if cls is None:

@@ -1,14 +1,6 @@
-"""Narrow a merged body down to the MOs a POST of it would actually change.
-
-:func:`create` runs the comparison ``post --dry-run`` reports and writes it back
-out as a body, so that what is posted is what that comparison found and nothing
-besides. Nothing here performs I/O, and nothing here reports: the report is
-``post --dry-run``'s, run against the same fetched fabric.
-
-The guarantee is one-way, and that is the point: a change the comparison misses
-leaves the fabric as it is, to be reported again next run, where a body wide
-enough to be safe against a missed comparison would be the whole configuration.
-"""
+# The guarantee is one-way, and that is the point: a change the comparison misses leaves
+# the fabric as it is, to be reported again next run, where a body wide enough to be
+# safe against a missed comparison would be the whole configuration.
 
 from __future__ import annotations
 
@@ -40,14 +32,14 @@ _LOST = (
 def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     """Return ``config`` narrowed to the MOs posting it at uni would change.
 
-    ``config`` is one ACI body, as :func:`a4i._diff.compare` takes one: several
-    configurations are folded into it beforehand with :func:`a4i._merge.merge`,
+    ``config`` is one ACI body, as :func:`a4i.diff` takes one: several
+    configurations are folded into it beforehand with :func:`a4i.merge`,
     which this runs it through in any case -- merging is idempotent, so a body
     that has been through it already comes out unchanged.
 
     ``fabric`` is what the POST would land on, as :meth:`a4i.Client.fetch`
-    returns it, and is keyword-only for the reason :func:`a4i._diff.compare`
-    gives. The comparison itself is :func:`a4i._dry_run.check`, the one
+    returns it, and is keyword-only for the reason :func:`a4i.diff`
+    gives. The comparison itself is :func:`a4i.dry_run`, the one
     ``post --dry-run`` reports, run over the merged body at uni.
 
     Posting the result at uni does what that comparison found and touches
@@ -64,37 +56,14 @@ def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     return _body(merged, dry_run.check(ROOT, merged, kind="mo", fabric=fabric))
 
 
-def count(plan: dict[str, Any]) -> int:
-    """Return how many MOs a plan carries, the wrapper aside."""
-
-    def below(children: Any) -> int:
-        total = 0
-        for child in children if isinstance(children, list) else []:
-            parsed = split_mo(child)
-            if parsed is None:
-                continue
-            total += 1 + below(parsed[1].get("children"))
-        return total
-
-    return below((plan.get(WRAPPER) or {}).get("children"))
-
-
 # -- walking the merged body -----------------------------------------------
 
 
+# Every MO carries the status the change says it is, and the status the input wrote is
+# not carried over: that said what the configuration meant in general, where this
+# asserts what one read of one fabric found. Where the assertion is wrong the APIC
+# refuses the POST, which is the failure this is meant to have.
 def _body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:
-    """Return the body posting only ``changes`` takes, wrapped for uni.
-
-    Shaped exactly as the merged body it was made from, so the two can be read
-    side by side; what differs is what is in it.
-
-    Every MO carries the ``status`` the change says it is, and the status the
-    input wrote is not carried over: that said what the configuration meant in
-    general, where this asserts what one read of one fabric found. Where the
-    assertion is wrong the APIC refuses the POST, which is the failure this is
-    meant to have.
-    """
-
     warnings = sum(1 for change in changes if change.kind == "warning")
     if warnings:
         raise ValueError(_WARNED.format(count=plural(warnings, "warning")))
@@ -105,14 +74,10 @@ def _body(merged: dict[str, Any], changes: list[Change]) -> dict[str, Any]:
     return {WRAPPER: {"attributes": {"dn": ROOT}, "children": children}}
 
 
+# wanted is emptied as it goes, so that a change left in it at the end is one this walk
+# never reached -- a change that would otherwise be posted by nobody while the
+# comparison said it would be.
 def _children(dn: str, body_of: dict[str, Any], wanted: dict[str, Change]) -> list[dict[str, Any]]:
-    """Return the MOs under ``dn`` that belong in the plan, in the merged order.
-
-    ``wanted`` is emptied as it goes, so that a change left in it at the end is
-    one this walk never reached -- a change that would otherwise be posted by
-    nobody while the comparison said it would be.
-    """
-
     kept: list[dict[str, Any]] = []
     for child in body_of.get("children") or []:
         parsed = split_mo(child)
@@ -136,8 +101,6 @@ def _children(dn: str, body_of: dict[str, Any], wanted: dict[str, Change]) -> li
 
 
 def _attributes(dn: str, change: Change | None) -> dict[str, Any]:
-    """Return the body of one MO in the plan: its RN, its status, what changes."""
-
     attributes = {"rn": tail_rn(dn)}
     if change is None:
         attributes["status"] = _CONTAINER_STATUS

@@ -1,14 +1,7 @@
-"""The tools the MCP server offers, and what each one does.
-
-Every tool is a thin wrapper over the very same :class:`~a4i._client.Client` the
-command line drives, so a model and a person send the identical request. What is
-added is the part a model needs and a person does not: a schema, a size limit so
-that one query cannot fill a context window, and errors phrased as instructions.
-
-The argument names are the ACI query parameter names themselves, so a model that
-has read the APIC documentation needs nothing a4i-specific. ``post`` is the only
-tool whose availability varies: see :func:`tool_definitions`.
-"""
+# Every tool is a thin wrapper over the same a4i._client.Client the command line drives,
+# so a model and a person send the identical request. What is added is the part a model
+# needs and a person does not: a schema, a size limit so that one query cannot fill a
+# context window, and errors phrased as instructions.
 
 from __future__ import annotations
 
@@ -43,8 +36,6 @@ NO_SESSION = (
 
 
 def max_bytes() -> int:
-    """Return the response size limit, from the environment or the default."""
-
     raw = os.environ.get(MAX_BYTES_VAR)
     if not raw:
         return DEFAULT_MAX_BYTES
@@ -414,14 +405,10 @@ ALL_TOOLS = [SEARCH, DESCRIBE, LIST, GET, DRY_RUN, POST, MERGE, FETCH, PLAN, DIF
 WRITE_TOOLS = frozenset({"post"})
 
 
+# A tool that is offered and then refuses costs a call to find out. Leaving it out says
+# the same thing before anything is spent -- and the instructions say what its absence
+# means, so it does not read as an oversight.
 def tool_definitions(*, read_only: bool) -> list[dict]:
-    """Return the tools to offer, leaving out what a read-only session cannot do.
-
-    A tool that is offered and then refuses costs a call to find out. Leaving it
-    out says the same thing before anything is spent -- and the instructions say
-    what its absence means, so it does not read as an oversight.
-    """
-
     if not read_only:
         return list(ALL_TOOLS)
     return [tool for tool in ALL_TOOLS if tool["name"] not in WRITE_TOOLS]
@@ -431,8 +418,6 @@ def tool_definitions(*, read_only: bool) -> list[dict]:
 
 
 def _client():
-    """Build a client that talks through the daemon, never starting one."""
-
     from a4i._client import Client
     from a4i._transport import DaemonTransport
 
@@ -444,8 +429,6 @@ def _json(data: Any) -> str:
 
 
 def _too_large(data: Any, text: str) -> str:
-    """Return the refusal for a response too big to hand over, and how to narrow it."""
-
     total = data.get("totalCount") if isinstance(data, dict) else None
     counted = f"{total} objects" if total is not None else "the response"
     return (
@@ -476,12 +459,9 @@ def _post(arguments: dict[str, Any]) -> str:
     return _json(data)
 
 
+# The report says which fabric it compared against, for the reason post --dry-run prints
+# it.
 def _dry_run(arguments: dict[str, Any]) -> str:
-    """Compare against the fetched fabric if there is one, and read for itself if not.
-
-    The report says which, for the reason 'a4i post --dry-run' prints it.
-    """
-
     from a4i import _dry_run as dry_run
     from a4i import _ipc as ipc
     from a4i._output import dry_run_report
@@ -559,12 +539,6 @@ def _fetch(arguments: dict[str, Any]) -> str:
 
 
 def _one_body(arguments: dict[str, Any], tool: str) -> Any:
-    """Return the one body a tool was given, whether inline or as a path.
-
-    Named after what it enforces: these tools compare one configuration, the way
-    a post takes one body, and a directory is said to be merge's.
-    """
-
     from pathlib import Path
 
     body = arguments.get("body")
@@ -589,8 +563,8 @@ def _plan(arguments: dict[str, Any]) -> str:
     from a4i import _config as config
     from a4i import _ipc as ipc
     from a4i import _plan as plan_
+    from a4i._merge import count
     from a4i._output import plural
-    from a4i._plan import count
 
     body = _one_body(arguments, "plan")
     try:
@@ -677,16 +651,10 @@ _HANDLERS = {
 
 
 class ToolError(Exception):
-    """A tool call that failed for a reason the model can act on."""
+    pass
 
 
 def call(name: str, arguments: dict[str, Any]) -> str:
-    """Run one tool and return its text result.
-
-    Every failure arrives as a :class:`ToolError` saying what to do about it,
-    the APIC's own included.
-    """
-
     handler = _HANDLERS.get(name)
     if handler is None:
         raise ToolError(f"unknown tool: {name}")

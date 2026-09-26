@@ -1,11 +1,9 @@
-"""Narrowing a merged body to the MOs a POST of it would change."""
-
 from __future__ import annotations
 
 import pytest
 
 from a4i import _plan as plan
-from a4i._merge import merge
+from a4i._merge import count, merge
 from a4i._mo import Change
 
 CURRENT = [
@@ -21,8 +19,6 @@ CURRENT = [
 
 
 def _plan(config, imdata=CURRENT) -> dict:
-    """Merge a configuration, compare it against a fabric, and narrow it."""
-
     return plan.create(config, fabric=imdata)
 
 
@@ -185,7 +181,7 @@ def test_counting_leaves_the_wrapper_out() -> None:
             }
         }
     )
-    assert plan.count(built) == 2
+    assert count(built) == 2
 
 
 def test_a_configuration_may_arrive_as_json_text() -> None:

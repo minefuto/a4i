@@ -1,11 +1,5 @@
-"""Build APIC request paths and query parameters.
-
-What a target names is never inferred: :func:`build_path` is told, as ``kind``,
-whether it is a class name or a DN, and the caller always knows which it has.
-:func:`build_get_params` is the one place an option is mapped to the ACI query
-parameter it sets, shared by the CLI and the library. The query string itself is
-httpx2's to encode.
-"""
+# What a target names is never inferred: build_path is told, as kind, whether it is a
+# class name or a DN, and the caller always knows which it has.
 
 from __future__ import annotations
 
@@ -36,8 +30,6 @@ class RspSubtree(StrEnum):
 
 
 class RspSubtreeInclude(StrEnum):
-    """Subtree categories, plus the modifiers ACI allows alongside them."""
-
     audit_logs = "audit-logs"
     event_logs = "event-logs"
     faults = "faults"
@@ -60,18 +52,10 @@ class RspPropInclude(StrEnum):
 
 
 def values(enum: type[StrEnum]) -> list[str]:
-    """Return an enum's values, in declaration order."""
-
     return [member.value for member in enum]
 
 
 def build_path(target: str, kind: str) -> str:
-    """Return the ``/api/...`` path for ``target``, read as ``kind``.
-
-    A DN typed with a leading ``/`` out of old habit is accepted: the slash no
-    longer marks anything, so it is simply dropped along with the trailing one.
-    """
-
     target = target.strip().strip("/")
     if kind == "class":
         return f"/api/class/{target}.json"
@@ -80,6 +64,8 @@ def build_path(target: str, kind: str) -> str:
     raise ValueError(f"invalid kind: {kind!r} (choose from {', '.join(KINDS)})")
 
 
+# params is an escape hatch for a parameter this dictionary does not know: merged last,
+# unvalidated, and overriding anything named above it.
 def build_get_params(
     *,
     query_target: str | None = None,
@@ -95,13 +81,6 @@ def build_get_params(
     page_size: int | None = None,
     params: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
-    """Map the query options to the ACI query parameters they set.
-
-    Raises :class:`ValueError` on a value ACI does not define. ``params`` is an
-    escape hatch for a parameter this dictionary does not know: it is merged
-    last, unvalidated, and overrides anything named above it.
-    """
-
     if (page is None) != (page_size is None):
         # ACI paginates on the pair; one without the other has no defined meaning.
         raise ValueError("page and page_size must be given together")
@@ -141,21 +120,15 @@ def _one_of(name: str, value: str | None, enum: type[StrEnum]) -> str | None:
     return value
 
 
+# Class names are never held against the bundled dictionary, which may be older than the
+# fabric.
 def _joined(value: str | Sequence[str] | None) -> str | None:
-    """Accept a comma-separated string or a sequence, and return the string.
-
-    Class names are never held against the bundled dictionary, which may be older
-    than the fabric.
-    """
-
     if value is None or isinstance(value, str):
         return value
     return ",".join(value)
 
 
 def _csv(name: str, value: str | Sequence[str] | None, enum: type[StrEnum]) -> str | None:
-    """Validate every element of a comma-separated list against ``enum``."""
-
     joined = _joined(value)
     if joined is None:
         return None

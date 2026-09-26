@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Regenerate every bundled dictionary in ``src/a4i/_metadata`` from the MIM Reference.
 
-Four artifacts come out:
+What comes out:
 
 ``classes.txt``
-    Concrete class names, one per line.
+    Concrete, non-deprecated class names, one per line.
 
 ``rn_formats.txt``
     ``class<TAB>rnFormat`` for every configurable class.
@@ -65,13 +65,9 @@ _PKG = re.compile(r"^([a-z0-9]+)([A-Z].*)$")
 # -- fetching --------------------------------------------------------------
 
 
+# The package is the leading lowercase run of the name, so fvnsEncapBlk lives at
+# fvns/EncapBlk.json.
 def url_for(class_name: str) -> str | None:
-    """Return the URL of ``class_name``'s JSON, or None if it is not a class name.
-
-    The package is the leading lowercase run of the name, so ``fvnsEncapBlk``
-    lives at ``fvns/EncapBlk.json``.
-    """
-
     match = _PKG.match(class_name)
     if match is None:
         return None
@@ -79,19 +75,13 @@ def url_for(class_name: str) -> str | None:
 
 
 def normalize(ref: str) -> str:
-    """Turn a reference the source writes as ``fv:BD`` into the name a4i uses."""
-
     return ref.replace(":", "", 1)
 
 
+# The cache keeps what the server sent, compressed, and a 404 as an empty file. A
+# transient failure is retried rather than allowed to end the run, the run being what
+# holds the frontier.
 def fetch_one(class_name: str, cache: Path, attempts: int = 4) -> bytes | None:
-    """Return ``class_name``'s JSON, from the cache when it is already there.
-
-    The cache keeps what the server sent, compressed, and a 404 as an empty file.
-    A transient failure is retried rather than allowed to end the run, the run
-    being what holds the frontier.
-    """
-
     path = cache / f"{class_name}.json.gz"
     if path.exists():
         raw = path.read_bytes()
@@ -129,13 +119,9 @@ def fetch_one(class_name: str, cache: Path, attempts: int = 4) -> bytes | None:
     return None
 
 
+# Inheritance and relations are followed as well as containment: an abstract superclass
+# is contained by nothing.
 def references(meta: dict[str, Any]) -> set[str]:
-    """Return every class this one names, in any capacity.
-
-    Inheritance and relations are followed as well as containment: an abstract
-    superclass is contained by nothing.
-    """
-
     found: set[str] = set()
     for key in ("contains", "containedBy", "subClasses", "relationTo", "relationFrom"):
         value = meta.get(key)
@@ -148,8 +134,6 @@ def references(meta: dict[str, Any]) -> set[str]:
 
 
 def crawl(seeds: Iterable[str], cache: Path, jobs: int) -> dict[str, dict[str, Any]]:
-    """Fetch every class reachable from ``seeds`` and return them by class name."""
-
     cache.mkdir(parents=True, exist_ok=True)
     found: dict[str, dict[str, Any]] = {}
     seen: set[str] = set()
@@ -185,12 +169,6 @@ def crawl(seeds: Iterable[str], cache: Path, jobs: int) -> dict[str, dict[str, A
 
 
 def summary(comment: Any) -> str:
-    """Return a one-line summary of a class or property comment.
-
-    The source writes a comment as a list of paragraphs; only the first sentence
-    of the first one is kept for the search index.
-    """
-
     text = " ".join(comment) if isinstance(comment, list) else str(comment or "")
     text = " ".join(text.split())
     sentence = text.split(". ")[0].rstrip(".")
@@ -200,20 +178,14 @@ def summary(comment: Any) -> str:
 
 
 def description(comment: Any) -> str:
-    """Return a class or property comment as one string."""
-
     text = " ".join(comment) if isinstance(comment, list) else str(comment or "")
     return " ".join(text.split())
 
 
+# A property an LLM cannot set is reduced to its meaning and its type, which is what
+# reading a GET response takes. A settable one carries everything needed to write a
+# valid value without a round trip.
 def distill_property(prop: dict[str, Any]) -> dict[str, Any]:
-    """Return what an LLM needs of one property, and nothing else.
-
-    A property it cannot set is reduced to its meaning and its type, which is
-    what reading a GET response takes. A settable one carries everything needed
-    to write a valid value without a round trip.
-    """
-
     entry: dict[str, Any] = {
         "desc": description(prop.get("comment")),
         "type": prop.get("baseType") or "",
@@ -250,15 +222,9 @@ def distill_property(prop: dict[str, Any]) -> dict[str, Any]:
     return entry
 
 
+# A class that can only be read carries what it takes to make sense of a GET response
+# and no more: listing its runtime children would be the larger half of the corpus.
 def distill(class_name: str, meta: dict[str, Any], configurable: set[str]) -> dict[str, Any]:
-    """Return the record ``describe`` serves for one class.
-
-    A configurable class carries what it takes to build a POST body for it. A
-    class that can only be read carries what it takes to make sense of a GET
-    response and no more: listing its runtime children would be the larger half
-    of the corpus.
-    """
-
     properties = {
         name: prop
         for name, prop in sorted((meta.get("properties") or {}).items())
@@ -306,13 +272,9 @@ def distill(class_name: str, meta: dict[str, Any], configurable: set[str]) -> di
 _RELATION = re.compile(r"^[a-z0-9]+R[st][A-Z]")
 
 
+# Dozens of classes share a label: "Bridge Domain" is fvBD, but also every relation
+# pointing at one and the abstract policy it inherits from.
 def rank(class_name: str, meta: dict[str, Any]) -> int:
-    """Return how likely this class is to be the one somebody searching means.
-
-    Dozens of classes share a label: "Bridge Domain" is ``fvBD``, but also every
-    relation pointing at one and the abstract policy it inherits from.
-    """
-
     if meta.get("isAbstract"):
         return 3
     if not meta.get("isConfigurable"):
@@ -328,14 +290,10 @@ def write_lines(path: Path, lines: Iterable[str]) -> int:
     return len(text.encode())
 
 
+# Refuses rather than ship a dictionary that has lost a class the one already there
+# carries: a single 502 in a crawl of eighteen thousand requests is an ordinary event,
+# and rerunning uses the cache.
 def build(found: dict[str, dict[str, Any]], out: Path) -> None:
-    """Write every dictionary from the crawled metadata.
-
-    Raises :class:`SystemExit` rather than shipping a dictionary smaller than the
-    one already there: a single 502 in a crawl of eighteen thousand requests is
-    an ordinary event, and rerunning uses the cache.
-    """
-
     out.mkdir(parents=True, exist_ok=True)
 
     concrete = sorted(
@@ -397,8 +355,6 @@ def build(found: dict[str, dict[str, Any]], out: Path) -> None:
 
 
 def seeds_from(out: Path) -> set[str]:
-    """Return the class names a4i already ships, so a rebuild cannot lose one."""
-
     path = out / "classes.txt"
     if not path.exists():
         return set()

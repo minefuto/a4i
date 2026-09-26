@@ -1,12 +1,6 @@
-"""Client side of the CLI <-> daemon IPC: the daemon, as a caller sees it.
-
-One function per operation the daemon serves, each answering in the terms a
-caller thinks in: a typed reply, or the very exception the daemon caught, so
-nobody outside handles a tag. Whether a missing daemon is started is settled
-here rather than asked of the caller, except where the right answer differs by
-caller: a command is something a person just typed, where the MCP server is
-launched by whatever started the editor.
-"""
+# Whether a missing daemon is started is settled here rather than asked of the caller,
+# except where the right answer differs by caller: a command is something a person just
+# typed, where the MCP server is launched by whatever started the editor.
 
 from __future__ import annotations
 
@@ -39,8 +33,6 @@ _DIR_MODE = 0o700
 
 
 class LoginReply(TypedDict):
-    """What the daemon holds once a login has landed."""
-
     user: str
     host: str
     refresh_timeout: float
@@ -52,19 +44,13 @@ class LoginReply(TypedDict):
     read_only: bool
 
 
+# The token is gone from the daemon either way, so apic_error is a warning over a logout
+# that succeeded rather than a failure to report.
 class EndReply(TypedDict):
-    """What ending a session answers: whether the APIC could be told.
-
-    The token is gone from the daemon either way, so this is a warning over a
-    logout that succeeded rather than a failure to report.
-    """
-
     apic_error: str | None
 
 
 class FabricHeld(TypedDict):
-    """The fetched fabric a daemon is holding, if it is holding one."""
-
     count: int
     # Elapsed rather than a timestamp: the daemon measures on a monotonic clock,
     # which has no meaning in another process, and what a reader wants is how old
@@ -73,16 +59,12 @@ class FabricHeld(TypedDict):
 
 
 class LoggedOut(TypedDict):
-    """A daemon running with no session in it."""
-
     logged_in: Literal[False]
     read_only: bool
     fabric: FabricHeld | None
 
 
 class LoggedIn(TypedDict):
-    """A daemon holding a session, and what it is holding."""
-
     logged_in: Literal[True]
     user: str
     host: str
@@ -97,15 +79,9 @@ class LoggedIn(TypedDict):
 Status = LoggedIn | LoggedOut
 
 
+# XDG_RUNTIME_DIR is preferred, but falls back to /tmp when it is unset, is not a
+# directory, or would yield a path that does not fit in a sockaddr_un.
 def socket_path() -> Path:
-    """Return the per-user daemon socket path (0600, in a 0700 directory).
-
-    ``XDG_RUNTIME_DIR`` is preferred, but falls back to ``/tmp`` when it is
-    unset, is not a directory, or would yield a path that does not fit in a
-    ``sockaddr_un``. The fallback path is always short enough, so this never
-    fails.
-    """
-
     name = f"a4i-{os.getuid()}"
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     if runtime:
@@ -115,17 +91,11 @@ def socket_path() -> Path:
     return Path(_FALLBACK_RUNTIME_DIR) / name / _SOCKET_NAME
 
 
+# The socket may sit under a world-writable /tmp, where its name is predictable from the
+# uid: another user cannot delete it (the sticky bit forbids it) but can create the path
+# first, and a client that then connected would hand its APIC password to whoever is
+# listening. Both sides check. A missing directory only means no daemon has started yet.
 def check_socket_dir(directory: str | Path) -> None:
-    """Raise :class:`DaemonError` unless *directory* is private and ours.
-
-    The socket may sit under a world-writable ``/tmp``, where its name is
-    predictable from the uid: another user cannot delete it (the sticky bit
-    forbids it) but can create the path first, and a client that then connected
-    would hand its APIC password to whoever is listening. Both sides check.
-
-    A missing directory is not an error: it only means no daemon has started yet.
-    """
-
     try:
         info = os.lstat(directory)
     except FileNotFoundError:
@@ -141,8 +111,6 @@ def check_socket_dir(directory: str | Path) -> None:
 
 
 def create_socket_dir(directory: str | Path) -> None:
-    """Create the socket directory if needed, refusing one we do not own."""
-
     try:
         # Creating and then checking is race-free; checking and then creating is
         # not, because the loser of the race would adopt the winner's directory.
@@ -169,8 +137,6 @@ def _connect(path: Path) -> socket.socket | None:
 
 
 def _spawn_daemon(path: Path) -> None:
-    """Start the daemon detached from this process and wait for it to listen."""
-
     # Imported here rather than at module scope: shell completion reaches this
     # module on every tab press but never spawns a daemon, and importing
     # subprocess costs more than the completion lookup it would pay for.
@@ -221,16 +187,9 @@ def _exchange(sock: socket.socket, payload: bytes) -> bytes:
         sock.close()
 
 
+# If the daemon shuts down between connect and send (an idle-timeout race), the request
+# is retried once with a freshly started daemon.
 def _request(op: str, args: dict[str, Any], *, autostart: bool) -> Any:
-    """Send one request to the daemon and return its ``data`` payload.
-
-    Raises whatever the daemon caught, rebuilt by
-    :func:`a4i._errors.from_payload`, or a :class:`DaemonError` for a failure no
-    daemon reported. If the daemon shuts down between connect and send (e.g. an
-    idle-timeout race), the request is retried once with a freshly (auto)started
-    daemon.
-    """
-
     path = socket_path()
     payload = (json.dumps({"op": op, "args": args}) + "\n").encode()
     line = b""
@@ -255,6 +214,9 @@ def _request(op: str, args: dict[str, Any], *, autostart: bool) -> Any:
 # -- the operations --------------------------------------------------------
 
 
+# timeout is left out of the message when None, so that this module needs no copy of the
+# default -- importing the one it would copy costs httpx2 on every command that goes
+# through here.
 def login(
     host: str,
     user: str,
@@ -264,17 +226,6 @@ def login(
     timeout: float | None = None,
     read_only: bool = False,
 ) -> LoginReply:
-    """Log in to ``host`` and leave the token in the daemon's memory.
-
-    A daemon is started if none is running: a login with nowhere to put the
-    token would be no login at all.
-
-    ``timeout`` bounds every request the daemon will then send, in seconds, and
-    is left out of the message entirely when None, so that this module needs no
-    copy of the default -- importing the one it would copy costs httpx2 on every
-    command that goes through here.
-    """
-
     args: dict[str, Any] = {
         "host": host,
         "user": user,
@@ -287,25 +238,17 @@ def login(
     return _request("login", args, autostart=True)
 
 
+# Starts nothing: with no daemon there is no session, which is the state this was asked
+# to reach. status and stop likewise.
 def logout() -> EndReply:
-    """End the session on the APIC and drop the token, leaving the daemon running.
-
-    Starts nothing: with no daemon there is no session, which is the state this
-    was asked to reach.
-    """
-
     return _request("logout", {}, autostart=False)
 
 
 def status() -> Status:
-    """Say what the daemon is holding. Starts nothing, as :func:`logout`."""
-
     return _request("status", {}, autostart=False)
 
 
 def stop() -> EndReply:
-    """End the session and the daemon with it. Starts nothing, as :func:`logout`."""
-
     return _request("stop", {}, autostart=False)
 
 
@@ -317,8 +260,6 @@ def get(
     *,
     autostart: bool = True,
 ) -> Any:
-    """GET through the daemon's session, and return the APIC's parsed response."""
-
     return _request(
         "get",
         {"target": target, "kind": kind, "params": params or {}, "node": node},
@@ -327,30 +268,16 @@ def get(
 
 
 def post(target: str, kind: str, body: str, *, autostart: bool = True) -> Any:
-    """POST through the daemon's session, and return the APIC's parsed response."""
-
     return _request("post", {"target": target, "kind": kind, "body": body}, autostart=autostart)
 
 
 def fetch(*, autostart: bool = True) -> dict[str, Any]:
-    """Read the whole of uni into the daemon and return how many MOs that was.
-
-    The body itself stays there: it is what :func:`fabric` hands to the next
-    comparison, and nothing this side does with it would survive the process.
-    """
-
     return _request("fetch", {}, autostart=autostart)
 
 
+# A daemon that is not running is answered as one holding no fabric would answer: the
+# next move is a fetch either way.
 def fabric() -> Any:
-    """Return the fabric a fetch left in the daemon, as one body.
-
-    Starts nothing, and a daemon that is not running is answered as one holding
-    no fabric would answer: the next move is a fetch either way.
-
-    Raises :class:`~a4i._errors.NoFabricError` when nothing has been fetched.
-    """
-
     try:
         return _request("fabric", {}, autostart=False)
     except NoDaemonError:

@@ -1,13 +1,6 @@
-"""What an LLM has to know about ACI before a get or a post of its own is any good.
-
-The bundled dictionary answers questions about one class; these answer the ones
-that come before that, being true of every class and stated by no per-class
-record. Nothing here is generated.
-
-:data:`INSTRUCTIONS` is the summary the server hands over at ``initialize``. It
-repeats the two guides an LLM cannot work without, a resource being offered to
-the client rather than read by the model.
-"""
+# What an LLM has to know about ACI before a get or a post of its own is any good: true
+# of every class and stated by no per-class record. INSTRUCTIONS repeats the essentials
+# of the guides, a resource being offered to the client rather than read by the model.
 
 from __future__ import annotations
 
@@ -30,8 +23,9 @@ Every managed object (MO) is one JSON key -- its class name -- wrapping
 - `kind: "class"`, `target: "fvTenant"` posts to the class endpoint; the body
   then has to carry a `dn` of its own.
 
-The target is the parent the body hangs under. A body posted at `uni/tn-demo`
-whose top MO is `fvBD` creates `uni/tn-demo/BD-bd1`.
+The target is the DN of the body's top MO: an `fvBD` named `bd1` is posted at
+`uni/tn-demo/BD-bd1`, and a `polUni` at `uni`. A `dn` in the top MO's
+`attributes` wins over the target.
 
 ## How a child MO gets its DN
 

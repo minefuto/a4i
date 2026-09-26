@@ -1,11 +1,5 @@
-"""Fold several configurations into the one body they describe together.
-
-:func:`read` absorbs the inputs into an index keyed by DN and :func:`merge`
-writes that index back out. :mod:`a4i._diff` and :mod:`a4i._dry_run` read both of
-their sides through :func:`read`, so what one of the three refuses the other two
-refuse as well. Nothing here performs I/O: a DN follows from the body and the
-bundled RN formats alone.
-"""
+# a4i._diff and a4i._dry_run read both of their sides through read, so what one of the
+# three refuses the other two refuse as well.
 
 from __future__ import annotations
 
@@ -66,19 +60,13 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     return _body(intended)
 
 
+# An empty index is not refused here: what that means differs between a merge, a
+# comparison and a fetch, so each caller says its own.
 def read(
     *configs: Any,
     loose: bool = False,
     excluded: Exclusions | None = None,
 ) -> Intended:
-    """Return the index ``configs`` describe between them, refused or not at all.
-
-    Everything :func:`merge` refuses is refused here. An empty index is not:
-    what that means differs between a merge, a comparison and a fetch, so each
-    caller says its own. ``excluded`` only ever quiets the complaint about an MO
-    that cannot be named under an excluded parent.
-    """
-
     refuse([p for i, config in enumerate(configs) for p in problems(config, f"configs[{i}]")])
     intended = Intended(excluded)
     for config in configs:
@@ -90,19 +78,10 @@ def read(
 
 
 def empty() -> dict[str, Any]:
-    """Return the body that describes no MO at all, which :func:`merge` refuses to."""
-
     return {WRAPPER: {"attributes": {"dn": ROOT}, "children": []}}
 
 
 def _body(intended: Intended) -> dict[str, Any]:
-    """Write the index back out as one body to post at ``uni``.
-
-    A tree, because that is the only shape a POST takes. What cannot be placed
-    has been refused by :func:`read` already, so every DN here has the MO above
-    it to hang on.
-    """
-
     bodies: dict[str, dict[str, Any]] = {}
     roots: list[dict[str, Any]] = []
     # Sorted, so a parent is written before anything under it and is there to
@@ -126,8 +105,6 @@ def _body(intended: Intended) -> dict[str, Any]:
 
 
 def count(body: dict[str, Any]) -> int:
-    """Return how many MOs a merged body carries, the wrapper aside."""
-
     def below(children: Any) -> int:
         total = 0
         for child in children if isinstance(children, list) else []:
@@ -156,18 +133,11 @@ class UndescribedError(ValueError):
         self.count = count
 
 
+# loose lifts the refusal of an undescribed ancestor and no other: an MO outside uni has
+# no ancestor that would bring it in, and one written where it cannot hang is written
+# there whatever its ancestors are. Containment is weighed last, so that what loose
+# filled in is weighed with everything else.
 def _refuse_the_unplaceable(index: dict[str, Mo], *, loose: bool) -> None:
-    """Refuse what no single body posted at ``uni`` could carry.
-
-    ``loose`` lifts the refusal of an undescribed ancestor and no other: an MO
-    outside ``uni`` has no ancestor that would bring it in, and one written where
-    it cannot hang is written there whatever its ancestors are.
-
-    Containment is weighed last, so that what ``loose`` filled in is weighed
-    with everything else: there is nothing to weigh a child against until an MO
-    stands above it.
-    """
-
     outside, undescribed = _unplaceable(index)
     if outside:
         raise ValueError(_outside_message(outside))
@@ -184,8 +154,6 @@ def _refuse_the_unplaceable(index: dict[str, Mo], *, loose: bool) -> None:
 
 
 def _unplaceable(index: dict[str, Mo]) -> tuple[list[tuple[str, str]], dict[str, str]]:
-    """Return the MOs that sit outside ``uni``, and the DNs nothing describes."""
-
     outside: list[tuple[str, str]] = []
     # Each DN nothing describes, against one DN under it: one MO under a gap is
     # enough both to report it and to work out what class stands there.
@@ -208,13 +176,6 @@ def _unplaceable(index: dict[str, Mo]) -> tuple[list[tuple[str, str]], dict[str,
 def _misplaced(
     index: dict[str, Mo], records: dict[str, dict[str, Any]]
 ) -> list[tuple[str, str, str]]:
-    """Return the class, DN and containing class of each MO its container cannot hold.
-
-    Every DN has its whole line of ancestors in the index by the time this runs,
-    which is what the two refusals before it settle, so ``index[parent]`` is
-    there to read.
-    """
-
     misplaced: list[tuple[str, str, str]] = []
     for dn in sorted(index):
         parent = parent_dn(dn)
@@ -224,15 +185,11 @@ def _misplaced(
     return misplaced
 
 
+# Only what the dictionary settles outright. A class it has never heard of, and one it
+# marks unconfigurable, are passed over on either side: a record lists the configurable
+# children alone, so reading an absence there as a refusal would refuse over what the
+# dictionary leaves out.
 def _denies(container: str, class_name: str, records: dict[str, dict[str, Any]]) -> bool:
-    """True where the dictionary says an MO of ``container`` cannot hold ``class_name``.
-
-    Only what it settles outright. A class the dictionary has never heard of, and
-    one it marks unconfigurable, are passed over on either side: a record lists
-    the configurable children alone, so reading an absence there as a refusal
-    would refuse over what the dictionary leaves out.
-    """
-
     if not _configurable(class_name, records) or not _configurable(container, records):
         return False
     return not _holds(container, class_name, records)
@@ -241,15 +198,10 @@ def _denies(container: str, class_name: str, records: dict[str, dict[str, Any]])
 # -- filling in what nothing describes -------------------------------------
 
 
+# A gap the dictionary does not settle outright is handed back rather than guessed at.
+# Deepest first, so a gap two levels up is read off the MO that was just filled in below
+# it.
 def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> dict[str, str]:
-    """Put an MO in the index at each DN nothing describes, and return what is left.
-
-    The class is read off the RN of the gap and the MOs that hang under it, and
-    a gap the dictionary does not settle outright is handed back rather than
-    guessed at. Deepest first, so a gap two levels up is read off the MO that
-    was just filled in below it.
-    """
-
     below: dict[str, list[str]] = {}
     for dn, node in index.items():
         parent = parent_dn(dn)
@@ -269,15 +221,10 @@ def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> 
     return left
 
 
+# Narrowed by what a class may hold and never by what a record says it hangs under: a
+# record's parents are truncated examples, so reading them here would leave a class like
+# tagAnnotation, with its 2,866 of them, unable to narrow anything.
 def _class_at(rn: str, below: Iterable[str], records: dict[str, dict[str, Any]]) -> str | None:
-    """Return the one class that can be named ``rn`` and hold all of ``below``.
-
-    Narrowed by what a class may hold and never by what a record says it hangs
-    under: a record's parents are truncated examples, so reading them here would
-    leave a class like ``tagAnnotation``, with its 2,866 of them, unable to narrow
-    anything. None where the dictionary leaves more than one candidate standing.
-    """
-
     candidates = [name for name, fmt in load_rn_formats().items() if matches_rn(fmt, rn)]
     for class_name in below:
         # Narrows nothing, for the reason _denies passes the same two over.
@@ -297,13 +244,9 @@ def _holds(class_name: str, child: str, records: dict[str, dict[str, Any]]) -> b
     return child in (_record(class_name, records).get("children") or ())
 
 
+# a4i._metadata.describe is a seek and a parse, and one class is asked about once per
+# gap it is weighed against.
 def _record(class_name: str, records: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Return ``class_name``'s dictionary record, read once each.
-
-    :func:`a4i._metadata.describe` is a seek and a parse, and one class is asked
-    about once per gap it is weighed against.
-    """
-
     known = records.get(class_name)
     if known is None:
         known = records[class_name] = describe(class_name) or {}
@@ -356,13 +299,9 @@ def _unfillable_message(left: dict[str, str], index: dict[str, Mo]) -> str:
     )
 
 
+# A count of the rest, not a promise that the list is all of them: a record's parents
+# are truncated.
 def _hangs_under(class_name: str, records: dict[str, dict[str, Any]]) -> str:
-    """Say where the dictionary has ``class_name`` hanging, or "" where it does not.
-
-    A count of the rest, not a promise that the list is all of them: a record's
-    parents are truncated.
-    """
-
     record = _record(class_name, records)
     parents = list(record.get("parents") or ())
     if not parents:
@@ -397,8 +336,6 @@ def _misplaced_message(
 
 @dataclass
 class Mo:
-    """An MO the configuration asks for, merged across every input naming it."""
-
     class_name: str
     dn: str
     attributes: dict[str, str] = field(default_factory=dict)
@@ -419,14 +356,9 @@ def _names_its_own_rn(class_name: str, body: dict[str, Any]) -> bool:
     return rn_format(class_name) is not None
 
 
+# excluded is for a4i._diff alone. merge excludes nothing: dropping an MO from a body
+# would be dropping configuration.
 class Intended:
-    """The configurations merged into one tree, keyed by DN as the fabric's is.
-
-    ``excluded`` is for :mod:`a4i._diff` alone, and only ever quiets the
-    complaint about an MO that cannot be identified. :func:`merge` excludes
-    nothing: dropping an MO from a body would be dropping configuration.
-    """
-
     def __init__(self, excluded: Exclusions | None = None) -> None:
         self._excluded = Exclusions() if excluded is None else excluded
         self.index: dict[str, Mo] = {}
@@ -436,8 +368,6 @@ class Intended:
         self.unidentified: list[tuple[str, str, str]] = []
 
     def absorb(self, config: Any) -> None:
-        """Merge one configuration in, its values winning over what is there."""
-
         for root in config if isinstance(config, list) else [config]:
             parsed = split_mo(root)
             if parsed is None:
@@ -482,13 +412,9 @@ class Intended:
                 continue
             self._absorb(child_class, child_body, dn_of_child)
 
+    # Its children are not walked either: their keys hang off this one, so naming them
+    # would only repeat this.
     def _unidentified(self, class_name: str, parent: str, identified: bool) -> bool:
-        """Record an MO the input does not name one of, and say so.
-
-        Its children are not walked either: their keys hang off this one, so
-        naming them would only repeat this.
-        """
-
         if identified:
             return False
         if not self._excluded.covers(parent):

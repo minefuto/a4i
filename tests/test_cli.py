@@ -26,8 +26,6 @@ from a4i._session import DEFAULT_TIMEOUT
 
 
 def _raise_session_op(monkeypatch, exc: BaseException) -> None:
-    """Make every session op fail the same way, whichever command asks."""
-
     def fail(*args, **kwargs):
         raise exc
 
@@ -36,8 +34,6 @@ def _raise_session_op(monkeypatch, exc: BaseException) -> None:
 
 
 def _raise_request(monkeypatch, exc: BaseException) -> None:
-    """Make the get and post ops fail, for the commands that issue them."""
-
     def fail(*args, **kwargs):
         raise exc
 
@@ -45,12 +41,8 @@ def _raise_request(monkeypatch, exc: BaseException) -> None:
     monkeypatch.setattr(ipc, "post", fail)
 
 
+# reply is the answer, or a callable taking the target and returning one.
 def _record(monkeypatch, sent: list[dict], reply) -> None:
-    """Stand in for the daemon: record what each op was asked, and answer it.
-
-    ``reply`` is the answer, or a callable taking the target and returning one.
-    """
-
     def get(target, kind, params, node, *, autostart=True):
         sent.append(
             {"op": "get", "target": target, "kind": kind, "params": params or {}, "node": node}
@@ -66,15 +58,11 @@ def _record(monkeypatch, sent: list[dict], reply) -> None:
 
 
 def _hold(monkeypatch, response) -> None:
-    """Stand in for the daemon holding what a fetch read, built from a mocked response."""
-
     body = merge(response["imdata"])
     monkeypatch.setattr(ipc, "fabric", lambda: body)
 
 
 def _hold_nothing(monkeypatch) -> None:
-    """Stand in for a daemon that has not been fetched into."""
-
     def fabric():
         raise NoFabricError(NO_FABRIC_MESSAGE)
 
@@ -152,8 +140,6 @@ def test_a_notified_apic_warns_about_nothing(monkeypatch, capsys, args, command)
 
 
 def _record_login(monkeypatch) -> list[dict]:
-    """Stand in for the daemon's login, recording what it was asked for."""
-
     sent: list[dict] = []
 
     def login(host, user, password, *, verify=True, timeout=None, read_only=False):
@@ -185,13 +171,9 @@ def test_login_without_a_timeout_asks_for_the_session_default(monkeypatch, capsy
     assert sent[0]["timeout"] == DEFAULT_TIMEOUT
 
 
+# The parser cannot read DEFAULT_TIMEOUT for itself: reaching it costs httpx2, and the
+# parser is built on every tab press.
 def test_the_help_says_the_default_the_session_actually_uses(capsys) -> None:
-    """The one place the number is written twice, and what keeps the copy true.
-
-    The parser cannot read DEFAULT_TIMEOUT for itself: reaching it costs httpx2,
-    and the parser is built on every tab press.
-    """
-
     with pytest.raises(SystemExit):
         cli.main(["login", "--help"])
     assert f"(default: {DEFAULT_TIMEOUT:g})" in capsys.readouterr().out
@@ -208,8 +190,6 @@ def test_a_timeout_that_cannot_bound_a_request_is_refused(monkeypatch, capsys, v
 
 
 def test_daemon_status_tells_the_two_kinds_of_seconds_apart(monkeypatch, capsys, args) -> None:
-    """The "expires in" is the token's lifetime; the timeout bounds one request."""
-
     monkeypatch.setattr(
         ipc,
         "status",
@@ -232,8 +212,6 @@ def test_daemon_status_tells_the_two_kinds_of_seconds_apart(monkeypatch, capsys,
 
 
 def _run_get(monkeypatch, argv: list[str]) -> dict:
-    """Parse a get command line and return the kwargs it sends to the daemon."""
-
     sent: list[dict] = []
     _record(monkeypatch, sent, {"imdata": []})
     assert cli.main(argv) == 0
@@ -367,13 +345,9 @@ TENANT = {
 }
 
 
+# The daemon holding nothing is said rather than left to the machine the tests run on,
+# where a real fetch would send the dry run down the other path.
 def _run_dry_run(monkeypatch, argv: list[str], response=None) -> tuple[int, list[dict]]:
-    """Run a dry run with nothing fetched, so it reads the fabric for itself.
-
-    The daemon holding nothing is said rather than left to the machine the tests
-    run on, where a real fetch would send the dry run down the other path.
-    """
-
     sent: list[dict] = []
 
     _record(monkeypatch, sent, TENANT if response is None else response)
@@ -381,13 +355,9 @@ def _run_dry_run(monkeypatch, argv: list[str], response=None) -> tuple[int, list
     return cli.main(argv), sent
 
 
+# The requests are still recorded, and a plan should make none of them: what it compares
+# against was read by the fetch before it.
 def _run_plan(monkeypatch, argv: list[str], response=None) -> tuple[int, list[dict]]:
-    """Run a plan command line against a fabric already fetched.
-
-    The requests are still recorded, and a plan should make none of them: what
-    it compares against was read by the fetch before it.
-    """
-
     sent: list[dict] = []
     held = TENANT if response is None else response
     _record(monkeypatch, sent, held)
@@ -683,8 +653,6 @@ INTENDED = {
 
 
 def _run_fetch(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
-    """Run a fetch command line and return its exit code and the requests made."""
-
     sent: list[dict] = []
 
     _record(monkeypatch, sent, lambda target: FABRIC.get(target, {"imdata": []}))
@@ -693,8 +661,6 @@ def _run_fetch(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
 
 
 def _fetch_through_daemon() -> dict:
-    """What the daemon's fetch op does: read uni with the client, count what it read."""
-
     from a4i._client import Client
     from a4i._merge import count
     from a4i._transport import DaemonTransport
@@ -716,20 +682,14 @@ def test_fetch_reads_uni_and_says_what_it_held(monkeypatch, capsys) -> None:
 
 
 def test_fetch_takes_no_arguments(capsys) -> None:
-    """The targets are gone with the body: this reads uni, because diff compares it."""
-
     with pytest.raises(SystemExit) as exit:
         cli.main(["fetch", "mo", "uni/tn-demo"])
     assert exit.value.code == 2
 
 
+# The fetch is run first, through the same mocked daemon, so the requests recorded are
+# its: a diff makes none of its own.
 def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
-    """Run a diff command line against a fabric already fetched.
-
-    The fetch is run first, through the same mocked daemon, so the requests
-    recorded are its: a diff makes none of its own.
-    """
-
     sent: list[dict] = []
 
     _record(monkeypatch, sent, lambda target: FABRIC.get(target, {"imdata": []}))
@@ -743,8 +703,6 @@ def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
 
 
 def test_diff_asks_the_fabric_for_nothing(monkeypatch) -> None:
-    """Every request it rests on was the fetch's, and is already paid for."""
-
     _, sent = _run_diff(monkeypatch, ["diff", json.dumps(INTENDED)])
     assert sent == []
 

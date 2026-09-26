@@ -56,13 +56,9 @@ INTENDED = [
 ]
 
 
+# diff takes a single body and a list of MOs is one, so the arguments here are flattened
+# into that list rather than passed as several inputs.
 def compare(*mos, imdata: list | None = None, expand: bool = False, exclude=None) -> list:
-    """Compare one configuration made of the MOs given, against FABRIC.
-
-    diff takes a single body and a list of MOs is one, so the arguments here are
-    flattened into that list rather than passed as several inputs.
-    """
-
     config = [one for arg in mos for one in (arg if isinstance(arg, list) else [arg])]
     return diff.compare(
         config,
@@ -307,8 +303,6 @@ def test_a_root_mo_of_a_class_the_fabric_lacks_is_reported_missing() -> None:
 
 
 def test_a_root_mo_the_dictionary_says_hangs_elsewhere_is_refused() -> None:
-    """Both sides come through merge.read now, so what merge refuses, this refuses."""
-
     # vzBrCP hangs under fvTenant, so no body posted at uni could carry this one.
     with pytest.raises(ValueError) as exc:
         compare(*INTENDED, mo("vzBrCP", {"name": "c1"}))

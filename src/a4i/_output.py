@@ -1,13 +1,6 @@
-"""Render APIC responses, the bundled model, and errors for the terminal.
-
-The one module that touches ``rich``. What the terminal is arrives as a
-``console`` rather than being looked up, so a test can name one over a string
-and read back exactly what a terminal of that width would have shown.
-
-``rich`` is imported lazily: shell completion goes through ``cli`` but never
-renders anything, and importing ``rich.console`` there costs more than the
-completion lookup itself.
-"""
+# rich is imported lazily: shell completion goes through a4i._cli but never renders
+# anything, and importing rich.console there costs more than the completion lookup
+# itself.
 
 from __future__ import annotations
 
@@ -44,33 +37,24 @@ _CHILD_NOTE = {"deleted": "deletes {}", "missing": "missing: {}", "extra": "extr
 
 @cache
 def _console(*, stderr: bool = False) -> Console:
-    """The console a caller gets when it names none, cached per destination."""
-
     from rich.console import Console
 
     return Console(stderr=stderr)
 
 
 def _plain(console: Console, raw: bool) -> bool:
-    """True when the output carries no styling: piped, redirected, or ``--raw``."""
-
     return raw or not console.is_terminal
 
 
+# Written past rich rather than through it: rich wraps to the console's width, which for
+# anything but a terminal is a default 80 -- and a wrapped line is a JSON document
+# broken in half.
 def _write(console: Console, lines: list[str]) -> None:
-    """Write plain lines out, past rich rather than through it.
-
-    rich wraps to the console's width, which for anything but a terminal is a
-    default 80 -- and a wrapped line is a JSON document broken in half.
-    """
-
     for line in lines:
         console.file.write(line + "\n")
 
 
 def render(data: Any, *, raw: bool = False, console: Console | None = None) -> None:
-    """Print ``data`` as JSON: colorized on a TTY, plain otherwise or with raw."""
-
     console = console or _console()
     if _plain(console, raw):
         _write(console, [json.dumps(data, indent=2, ensure_ascii=False)])
@@ -81,28 +65,20 @@ def render(data: Any, *, raw: bool = False, console: Console | None = None) -> N
 def render_dry_run(
     changes: list[Change], *, raw: bool = False, console: Console | None = None
 ) -> None:
-    """Print the changes a POST would cause: colorized on a TTY, plain otherwise."""
-
     _print(_report(changes, _DRY_RUN_KINDS, "no changes"), raw=raw, console=console or _console())
 
 
 def render_diff(
     changes: list[Change], *, raw: bool = False, console: Console | None = None
 ) -> None:
-    """Print how the fabric differs from its intended configuration."""
-
     _print(_report(changes, _DIFF_KINDS, "no differences"), raw=raw, console=console or _console())
 
 
 def dry_run_report(changes: list[Change]) -> str:
-    """Return what :func:`render_dry_run` prints, as one string, for the MCP server."""
-
     return "\n".join(_report(changes, _DRY_RUN_KINDS, "no changes"))
 
 
 def diff_report(changes: list[Change]) -> str:
-    """Return what :func:`render_diff` prints, as one string."""
-
     return "\n".join(_report(changes, _DIFF_KINDS, "no differences"))
 
 
@@ -189,8 +165,6 @@ _MIN_PROSE = 20
 def render_search(
     results: list[tuple[str, str, str]], *, raw: bool = False, console: Console | None = None
 ) -> None:
-    """Print one matching class per line: its name, its label, its summary."""
-
     console = console or _console()
     _print_rich(_search_lines(results, _cut_width(console)), raw=raw, console=console)
 
@@ -203,8 +177,6 @@ def render_describe(
     raw: bool = False,
     console: Console | None = None,
 ) -> None:
-    """Print what one class is for and what a body may set on it."""
-
     console = console or _console()
     _print_rich(
         _describe_lines(record, all_props=all_props, children=children, width=_cut_width(console)),
@@ -213,20 +185,13 @@ def render_describe(
     )
 
 
+# Deliberately not the same question as _plain: --raw asks for the styling to go, not
+# for the lines to stop fitting the terminal they are still being read in.
 def _cut_width(console: Console) -> int | None:
-    """The column to cut a line at, or None when nothing is watching.
-
-    Deliberately not the same question as :func:`_plain`: ``--raw`` asks for the
-    styling to go, not for the lines to stop fitting the terminal they are still
-    being read in.
-    """
-
     return console.width if console.is_terminal else None
 
 
 def _print_rich(lines: list[Any], *, raw: bool, console: Console) -> None:
-    """Print styled lines, dropping the styling when nobody can see it."""
-
     if _plain(console, raw):
         _write(console, [line.plain for line in lines])
         return
@@ -237,8 +202,6 @@ def _print_rich(lines: list[Any], *, raw: bool, console: Console) -> None:
 
 
 def _cut(text: str, width: int | None) -> str:
-    """Return ``text`` cut to ``width``, marking that something was dropped."""
-
     if width is None or len(text) <= width:
         return text
     if width <= 1:
@@ -247,8 +210,6 @@ def _cut(text: str, width: int | None) -> str:
 
 
 def _fits_prose(columns_before: int, width: int | None) -> bool:
-    """True if a prose column starting here has room to be worth printing."""
-
     return width is None or width - columns_before >= _MIN_PROSE
 
 
@@ -309,8 +270,6 @@ def _describe_lines(
 
 
 def _describe_fields(record: dict[str, Any]) -> list[str]:
-    """Return the rn, dn and containment lines, for a class that has them."""
-
     fields = []
     if record.get("rn"):
         fields.append(f"rn  {record['rn']}")
@@ -380,13 +339,9 @@ def _property_rows(props: dict[str, dict[str, Any]], *, width: int | None) -> li
     return rows
 
 
+# The permitted values say more than the type does -- 'no|yes' over 'scalar:Bool' -- so
+# they win the column when there are any.
 def _property_type(prop: dict[str, Any]) -> str:
-    """Return what a property accepts: its values, or its type and its bounds.
-
-    The permitted values say more than the type does -- 'no|yes' over
-    'scalar:Bool' -- so they win the column when there are any.
-    """
-
     values = prop.get("values") or []
     if values:
         text = "|".join(values)
@@ -401,14 +356,10 @@ def _property_type(prop: dict[str, Any]) -> str:
     return f"{text} = {default}" if default is not None else text
 
 
+# A handful of properties in the MIM carry a minimum above their maximum --
+# fvCtx.vrfIndex is 1 to 0 -- which nothing can satisfy, so printing it would send
+# someone looking for the value that fits.
 def _length_limits(prop: dict[str, Any]) -> str:
-    """Return the bounds a value must fall between, when the model gives any.
-
-    A handful of properties in the MIM carry a minimum above their maximum --
-    fvCtx.vrfIndex is 1 to 0 -- which nothing can satisfy, so printing it would
-    send someone looking for the value that fits.
-    """
-
     for validator in prop.get("validators") or []:
         low, high = validator.get("min"), validator.get("max")
         if low is not None and high is not None and low <= high:
@@ -426,31 +377,21 @@ def _children_heading(children: list[str], *, shown: bool) -> Any:
 
 
 def print_error(message: str) -> None:
-    """Print an error message to stderr."""
-
     _label("error: ", "red", message)
 
 
 def print_note(message: str) -> None:
-    """Print a note to stderr, about what the output on stdout leaves out."""
-
     _label("note: ", "dim", message)
 
 
 def print_warning(message: str) -> None:
-    """Print a warning to stderr, for a command that still succeeded."""
-
     _label("warning: ", "yellow", message)
 
 
+# Assembled rather than written as rich markup: a DN such as
+# "annotationKey-[bootx.node.1.cimc]" would have its brackets read as a style and
+# dropped from the very error naming it.
 def _label(label: str, style: str, message: str) -> None:
-    """Write a labelled line to stderr, the message itself carrying no styling.
-
-    Assembled rather than written as rich markup: a DN such as
-    "annotationKey-[bootx.node.1.cimc]" would have its brackets read as a style
-    and dropped from the very error naming it.
-    """
-
     from rich.text import Text
 
     _console(stderr=True).print(Text.assemble((label, style), message))

@@ -1,13 +1,8 @@
-"""What awaiting adds to a session, and nothing else.
-
-tests/test_awaited.py checks that :class:`~a4i._session.AsyncSession` is
-:class:`~a4i._session.Session` with the sending awaited, statement for statement,
-so what tests/test_session.py covers is not covered again here.
-
-What is left is what that check cannot see: the constructor it exempts, the
-awaited close, and the awaited client underneath carrying a request out and an
-answer back.
-"""
+# tests/test_awaited.py checks that AsyncSession is Session with the sending awaited,
+# statement for statement, so what tests/test_session.py covers is not covered again
+# here. What is left is what that check cannot see: the constructor it exempts, the
+# awaited close, and the awaited client underneath carrying a request out and an answer
+# back.
 
 from __future__ import annotations
 
@@ -20,13 +15,9 @@ from apic_mock import Clock, make_async_session
 # -- the constructor, which test_awaited.py exempts -------------------------
 
 
+# _default_async_client exists to agree with _default_client on everything but the
+# awaiting, and nothing else would notice if it stopped.
 async def test_a_session_built_without_a_client_gets_an_awaited_one() -> None:
-    """The one line the two sessions cannot share.
-
-    _default_async_client exists to agree with _default_client on everything but
-    the awaiting, and nothing else would notice if it stopped.
-    """
-
     session = AsyncSession("apic1.example.com", verify=False)
     synchronous = Session("apic1.example.com", verify=False)
     try:
@@ -39,8 +30,6 @@ async def test_a_session_built_without_a_client_gets_an_awaited_one() -> None:
 
 
 async def test_an_awaited_session_takes_the_timeout_the_same_way() -> None:
-    """A timeout given to either reaches the client the same, for the same reason."""
-
     session = AsyncSession("apic1.example.com", verify=False, timeout=120.0)
     synchronous = Session("apic1.example.com", verify=False, timeout=120.0)
     try:
@@ -84,13 +73,10 @@ async def test_an_awaited_post_sends_the_body_as_given() -> None:
 # -- the awaited close ------------------------------------------------------
 
 
+# An awaited client left unclosed is a warning at collection time, and a leak. Also
+# where httpx2's "aclose" is paid for: test_awaited.py normalises that name away when it
+# compares the two sessions.
 async def test_close_leaves_no_client_open() -> None:
-    """An awaited client left unclosed is a warning at collection time, and a leak.
-
-    Also where httpx2's "aclose" is paid for: test_awaited.py normalises that name
-    away when it compares the two sessions.
-    """
-
     session = make_async_session({}, Clock())
     await session.login("admin", "pw")
     await session.get("/api/class/l1PhysIf.json", host="leaf101.test")

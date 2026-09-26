@@ -1,11 +1,6 @@
-"""Work out what a POST body would change, given the fabric as it stands.
-
-The APIC has no server-side dry run, so ``post --dry-run`` compares here.
-Nothing in this module performs I/O: :func:`check` takes the body and the fabric
-it would land on, both already in hand, and cannot tell which caller read that
-fabric. The comparison runs one way on purpose, a POST leaving alone everything
-the body does not mention; comparing both ways is :mod:`a4i._diff`.
-"""
+# The APIC has no server-side dry run, so post --dry-run compares here. The comparison
+# runs one way on purpose, a POST leaving alone everything the body does not mention;
+# comparing both ways is a4i._diff.
 
 from __future__ import annotations
 
@@ -25,14 +20,10 @@ _NO_TARGET_DN = (
 )
 
 
+# The dn attribute wins over the target, which is a common way to write ACI
+# configuration. Failing that, only an MO target names one -- a class target says what
+# the body is, not where it goes.
 def root_dn(target: str, kind: str, mo: Any) -> str | None:
-    """Return the absolute DN the body's root MO refers to, or None.
-
-    The ``dn`` attribute wins over the target, which is a common way to write
-    ACI configuration. Failing that, only an MO target names one -- a class
-    target says what the body is, not where it goes.
-    """
-
     parsed = split_mo(mo)
     if parsed is None:
         return None
@@ -45,21 +36,10 @@ def root_dn(target: str, kind: str, mo: Any) -> str | None:
     return None
 
 
+# a4i._merge.read reads a body down from uni, so a root that does not say where it sits
+# would be placed directly under uni rather than under the target. A polUni, and
+# anything that is not an MO at all, is left for a4i._merge.read to judge.
 def rooted(target: str, kind: str, body: Any) -> list[Any]:
-    """Return ``body``'s root MOs, each naming the DN it stands at.
-
-    :func:`a4i._merge.read` reads a body down from uni, so a root that does not
-    say where it sits would be placed directly under uni rather than under the
-    target. Writing the target in as the root's ``dn`` is the whole of the
-    difference: what comes out is indistinguishable from a body that said so
-    itself.
-
-    A ``polUni`` is left as it is, and so is anything that is not an MO at all,
-    so that :func:`a4i._merge.read` is the one that says so.
-
-    Raises ``ValueError`` if a root names no DN and the target gives none.
-    """
-
     given = body if isinstance(body, list) else [body]
     found: list[Any] = []
     for root in given:
@@ -80,12 +60,6 @@ def rooted(target: str, kind: str, body: Any) -> list[Any]:
 
 
 def roots(index: dict[str, Any]) -> list[str]:
-    """Return the DNs of the MOs in ``index`` that nothing in it sits above.
-
-    These are the subtrees to fetch: one request each, covering everything the
-    body has to say without asking the APIC for the same MO twice.
-    """
-
     return [dn for dn in index if parent_dn(dn) not in index]
 
 
@@ -94,9 +68,9 @@ def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Chan
 
     ``kind`` says what ``target`` is, as on :meth:`a4i.Client.post`. ``fabric``
     is what the POST would land on -- everything under uni as ``a4i fetch`` read
-    it, or the subtrees :func:`roots` names, which is what
-    :meth:`a4i.Client.dry_run` hands over. It is keyword-only for the reason
-    :func:`a4i._diff.compare` gives.
+    it, or the subtrees under the MOs the body stands at, which is what
+    :meth:`a4i.Client.dry_run` reads. It is keyword-only for the reason
+    :func:`a4i.diff` gives.
 
     Nothing is sent. An empty list means the POST would change nothing at all.
 
@@ -110,13 +84,6 @@ def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Chan
 
 
 def compare(intended: Intended, current: Intended) -> list[Change]:
-    """Return the changes posting ``intended`` would cause, given ``current``.
-
-    An MO the fabric does not carry is one the POST creates; an MO it carries is
-    compared on the attributes the body sets and no others. Nothing is sorted:
-    only one side is walked, so the body's own order is the report's.
-    """
-
     changes: list[Change] = []
     deleted: set[str] = set()
     for dn, node in intended.index.items():
@@ -149,13 +116,9 @@ def compare(intended: Intended, current: Intended) -> list[Change]:
     return changes
 
 
+# Every ancestor is walked rather than the parent alone: the index is in the order the
+# body gave, which is no promise that a parent was seen first.
 def _under(dn: str, deleted: set[str]) -> bool:
-    """True when any MO above ``dn`` is one the body deletes.
-
-    Every ancestor is walked rather than the parent alone: the index is in the
-    order the body gave, which is no promise that a parent was seen first.
-    """
-
     parent = parent_dn(dn)
     while parent is not None:
         if parent in deleted:
@@ -171,8 +134,6 @@ def _added(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None
 def _compare_attributes(
     attributes: dict[str, str], current: dict[str, str]
 ) -> dict[str, tuple[str | None, str | None]]:
-    """Diff the attributes the body sets against the ones the MO has now."""
-
     changed: dict[str, tuple[str | None, str | None]] = {}
     for key, value in attributes.items():
         if key in META:
@@ -184,8 +145,6 @@ def _compare_attributes(
 
 
 def _status(attributes: dict[str, str]) -> frozenset[str]:
-    """Return the status tokens, e.g. "created,modified" -> {created, modified}."""
-
     raw = attributes.get("status")
     if not isinstance(raw, str):
         return frozenset()

@@ -1,15 +1,7 @@
-"""The MCP server itself: JSON-RPC 2.0 over newline-delimited stdio.
-
-Written out rather than taken from the MCP SDK, for the reason argparse is here
-instead of Typer: this process starts afresh every time an MCP client launches,
-and the SDK's import costs more than everything it would be doing. Six methods
-and one notification, none of which needs a framework.
-
-The one thing that is not plain request-and-reply is the tool list: whether
-``post`` is offered follows the daemon's session, so the list is built from its
-state each time it is asked for, and a ``notifications/tools/list_changed`` goes
-out when that state turns out to have changed.
-"""
+# Written out rather than taken from the MCP SDK, for the reason argparse is used
+# instead of Typer: this process starts afresh every time an MCP client launches, and
+# the SDK's import costs more than everything it would be doing. Six methods and one
+# notification, none of which needs a framework.
 
 from __future__ import annotations
 
@@ -40,14 +32,9 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
 
+# handle takes one parsed message and returns the messages to send back, the transport
+# staying outside so that the protocol can be tested by handing it messages.
 class Server:
-    """One MCP session.
-
-    :meth:`handle` takes one parsed message and returns the messages to send
-    back, the transport staying outside so that the protocol can be tested by
-    handing it messages.
-    """
-
     def __init__(self) -> None:
         self._protocol_version = LATEST_VERSION
         # What the client was last told the tool list depends on. None means it
@@ -56,14 +43,10 @@ class Server:
 
     # -- daemon state -----------------------------------------------------
 
+    # A daemon that is not running, or not logged in, is not read-only as far as this is
+    # concerned: a client that lists tools once at startup, before anyone has logged in,
+    # would otherwise never be offered post at all.
     def read_only(self) -> bool:
-        """Return whether the daemon is holding a read-only session.
-
-        A daemon that is not running, or not logged in, is not read-only as far
-        as this is concerned: a client that lists tools once at startup, before
-        anyone has logged in, would otherwise never be offered ``post`` at all.
-        """
-
         try:
             status = ipc.status()
         except DaemonError:
@@ -71,8 +54,6 @@ class Server:
         return bool(status.get("read_only")) if isinstance(status, dict) else False
 
     def _list_changed(self) -> list[dict[str, Any]]:
-        """Return the notification to send if the tool list is no longer what we said."""
-
         current = self.read_only()
         if self._announced_read_only is None or self._announced_read_only == current:
             return []
@@ -82,8 +63,6 @@ class Server:
     # -- dispatch ---------------------------------------------------------
 
     def handle(self, message: Any) -> list[dict[str, Any]]:
-        """Return the messages to send in response to one incoming message."""
-
         if not isinstance(message, dict):
             return [_error(None, INVALID_REQUEST, "message must be a JSON object")]
         method = message.get("method")
@@ -173,8 +152,6 @@ class Server:
 
 
 class _RequestError(Exception):
-    """A JSON-RPC level failure: the request itself could not be acted on."""
-
     def __init__(self, code: int, message: str) -> None:
         super().__init__(message)
         self.code = code
@@ -188,14 +165,10 @@ def _error(message_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": message_id, "error": {"code": code, "message": message}}
 
 
+# Nothing is ever printed to stdout except protocol messages -- a stray print would be
+# read as one and end the session -- so anything worth saying goes to stderr, which the
+# client shows as the server's log.
 def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
-    """Run the server over ``stdin``/``stdout`` until the client closes the stream.
-
-    Nothing is ever printed to stdout except protocol messages -- a stray print
-    would be read as one and end the session -- so anything worth saying goes to
-    stderr, which the client shows as the server's log.
-    """
-
     stdin = sys.stdin if stdin is None else stdin
     stdout = sys.stdout if stdout is None else stdout
     server = Server()

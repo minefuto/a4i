@@ -1,9 +1,6 @@
-"""Settings the whole test suite depends on.
-
-``FORCE_COLOR`` makes ``rich`` colour pytest's captured streams, whose
-highlighter then breaks a message into coloured runs and fails every assertion on
-a substring of one. It is dropped here, before the first ``Console`` is built.
-"""
+# FORCE_COLOR makes rich colour pytest's captured streams, whose highlighter then breaks
+# a message into coloured runs and fails every assertion on a substring of one. It is
+# dropped here, before the first Console is built.
 
 from __future__ import annotations
 
