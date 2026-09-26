@@ -6,14 +6,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from a4i._merge import Intended, read
+from a4i._merge import Intended, added, changed, read, removed
 from a4i._mo import Change, Exclusions, parent_dn, split_condition
 from a4i._validate import read_body
-
-# "status" tells the APIC what to do with an MO, so the fabric never has a value
-# to hold it against. The rest of a4i._mo.META is already gone by now:
-# a4i._merge.read drops it from both sides on the way in.
-_INSTRUCTION = frozenset({"status"})
 
 
 def compare(
@@ -140,7 +135,7 @@ def _missing_and_modified(intended: Intended, actual: Intended, *, expand: bool)
                 "missing",
                 node.class_name,
                 dn,
-                attributes=_only_intended(node.attributes),
+                attributes=added(node.attributes),
                 child_count=0 if expand else intended.descendant_count(dn),
             )
         )
@@ -159,7 +154,7 @@ def _extra(intended: Intended, actual: Intended, *, expand: bool) -> list[Change
                 "extra",
                 node.class_name,
                 dn,
-                attributes=_only_actual(node.attributes),
+                attributes=removed(node.attributes),
                 child_count=0 if expand else actual.descendant_count(dn),
             )
         )
@@ -183,29 +178,5 @@ def _under_an_extra_parent(dn: str, intended: Intended, actual: Intended) -> boo
 def _compare(
     intended: dict[str, str], actual: dict[str, str]
 ) -> dict[str, tuple[str | None, str | None]]:
-    changed: dict[str, tuple[str | None, str | None]] = {}
-    for key, value in intended.items():
-        if key in _INSTRUCTION:
-            continue
-        before = actual.get(key)
-        if before != value:
-            changed[key] = (before, value)
-    for key, value in actual.items():
-        if key in _INSTRUCTION or key in intended:
-            continue
-        changed[key] = (value, None)
-    # Sorted so that the report does not depend on the order the attributes were
-    # written in, nor on the order the APIC returned them.
-    return dict(sorted(changed.items()))
-
-
-def _only_intended(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
-    return {
-        key: (None, value) for key, value in sorted(attributes.items()) if key not in _INSTRUCTION
-    }
-
-
-def _only_actual(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
-    return {
-        key: (value, None) for key, value in sorted(attributes.items()) if key not in _INSTRUCTION
-    }
+    extra = {key: value for key, value in actual.items() if key not in intended}
+    return dict(sorted({**changed(intended, actual), **removed(extra)}.items()))

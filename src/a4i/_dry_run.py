@@ -8,7 +8,7 @@ from typing import Any
 
 from a4i import _merge as merge
 from a4i._merge import Intended
-from a4i._mo import META, WRAPPER, Change, parent_dn, split_mo
+from a4i._mo import WRAPPER, Change, parent_dn, split_mo
 from a4i._query import Kind
 from a4i._validate import read_body
 
@@ -106,11 +106,13 @@ def compare(intended: Intended, current: Intended) -> list[Change]:
         if existing is None:
             if "modified" in status and "created" not in status:
                 changes.append(Change("warning", node.class_name, dn, message=_MODIFIED_CONFLICT))
-            changes.append(Change("created", node.class_name, dn, attributes=_added(attributes)))
+            changes.append(
+                Change("created", node.class_name, dn, attributes=merge.added(attributes))
+            )
             continue
         if "created" in status and "modified" not in status:
             changes.append(Change("warning", node.class_name, dn, message=_CREATED_CONFLICT))
-        changed = _compare_attributes(attributes, existing.attributes)
+        changed = merge.changed(attributes, existing.attributes)
         if changed:
             changes.append(Change("modified", node.class_name, dn, attributes=changed))
     return changes
@@ -125,23 +127,6 @@ def _under(dn: str, deleted: set[str]) -> bool:
             return True
         parent = parent_dn(parent)
     return False
-
-
-def _added(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
-    return {key: (None, value) for key, value in attributes.items() if key not in META}
-
-
-def _compare_attributes(
-    attributes: dict[str, str], current: dict[str, str]
-) -> dict[str, tuple[str | None, str | None]]:
-    changed: dict[str, tuple[str | None, str | None]] = {}
-    for key, value in attributes.items():
-        if key in META:
-            continue
-        before = current.get(key)
-        if before != value:
-            changed[key] = (before, value)
-    return changed
 
 
 def _status(attributes: dict[str, str]) -> frozenset[str]:

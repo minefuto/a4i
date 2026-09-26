@@ -27,6 +27,9 @@ from a4i._validate import problems, refuse
 # a4i._mo.META: dropping it would be a configuration whose deletions had silently
 # stopped working.
 _DROPPED = frozenset({"dn", "rn", "childAction"})
+# What is left for a comparison to skip: "status" tells the APIC what to do with an
+# MO, so the fabric never has a value to hold it against.
+_INSTRUCTION = frozenset({"status"})
 
 # How many unidentified MOs to name before summarising the rest.
 _NAMED = 3
@@ -117,6 +120,30 @@ def count(body: dict[str, Any]) -> int:
         return total
 
     return below((body.get(WRAPPER) or {}).get("children"))
+
+
+# Sorted so that a report does not depend on the order the attributes were written in,
+# nor on the order the APIC returned them.
+def changed(
+    intended: dict[str, str], current: dict[str, str]
+) -> dict[str, tuple[str | None, str | None]]:
+    return {
+        key: (current.get(key), value)
+        for key, value in sorted(intended.items())
+        if key not in _INSTRUCTION and current.get(key) != value
+    }
+
+
+def added(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
+    return {
+        key: (None, value) for key, value in sorted(attributes.items()) if key not in _INSTRUCTION
+    }
+
+
+def removed(attributes: dict[str, str]) -> dict[str, tuple[str | None, str | None]]:
+    return {
+        key: (value, None) for key, value in sorted(attributes.items()) if key not in _INSTRUCTION
+    }
 
 
 # -- what cannot be placed -------------------------------------------------
