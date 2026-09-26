@@ -12,17 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from a4i import ipc
-from a4i.daemon import Daemon
-from a4i.daemon import main as daemon_main
-from a4i.errors import (
+from a4i import _ipc as ipc
+from a4i._daemon import Daemon
+from a4i._daemon import main as daemon_main
+from a4i._errors import (
     ApicError,
     DaemonError,
     NoFabricError,
     NotLoggedInError,
     SessionExpiredError,
 )
-from a4i.session import DEFAULT_TIMEOUT
+from a4i._session import DEFAULT_TIMEOUT
 from apic_mock import Clock, make_session_factory
 
 

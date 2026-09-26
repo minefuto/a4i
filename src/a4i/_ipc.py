@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from a4i.errors import (
+from a4i._errors import (
     NO_FABRIC_MESSAGE,
     DaemonError,
     NoDaemonError,
@@ -177,7 +177,7 @@ def _spawn_daemon(path: Path) -> None:
     import subprocess
 
     proc = subprocess.Popen(
-        [sys.executable, "-m", "a4i.daemon", str(path)],
+        [sys.executable, "-m", "a4i._daemon", str(path)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -225,7 +225,7 @@ def _request(op: str, args: dict[str, Any], *, autostart: bool) -> Any:
     """Send one request to the daemon and return its ``data`` payload.
 
     Raises whatever the daemon caught, rebuilt by
-    :func:`a4i.errors.from_payload`, or a :class:`DaemonError` for a failure no
+    :func:`a4i._errors.from_payload`, or a :class:`DaemonError` for a failure no
     daemon reported. If the daemon shuts down between connect and send (e.g. an
     idle-timeout race), the request is retried once with a freshly (auto)started
     daemon.
@@ -348,7 +348,7 @@ def fabric() -> Any:
     Starts nothing, and a daemon that is not running is answered as one holding
     no fabric would answer: the next move is a fetch either way.
 
-    Raises :class:`~a4i.errors.NoFabricError` when nothing has been fetched.
+    Raises :class:`~a4i._errors.NoFabricError` when nothing has been fetched.
     """
 
     try:

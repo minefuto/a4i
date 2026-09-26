@@ -17,9 +17,9 @@ import json
 import sys
 from typing import Any, TextIO
 
-from a4i import ipc
-from a4i.errors import DaemonError
-from a4i.mcp import guides, tools
+from a4i import _ipc as ipc
+from a4i._errors import DaemonError
+from a4i._mcp import guides, tools
 
 # Protocol revisions this server can speak. A client asking for one of them is
 # answered in its own; anything else is answered in the newest we know, which is

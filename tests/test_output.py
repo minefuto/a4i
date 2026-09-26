@@ -1,6 +1,6 @@
 """How the bundled model is laid out, at the width it is being read at.
 
-These run against a4i.output directly, over a console opened on a string, which
+These run against a4i._output directly, over a console opened on a string, which
 is what lets a width be named: a test going through the command line would be
 reading a pipe, which has no width to overflow. They run against the dictionary
 that ships with a4i, whose numbers -- thirty properties, thirty-four children,
@@ -17,7 +17,8 @@ from typing import cast
 import pytest
 from rich.console import Console
 
-from a4i import metadata, output
+from a4i import _metadata as metadata
+from a4i import _output as output
 
 
 def _console(width: int | None = None) -> Console:

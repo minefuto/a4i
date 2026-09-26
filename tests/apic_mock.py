@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx2
 
-from a4i.session import DEFAULT_TIMEOUT, AsyncSession, Session
+from a4i._session import DEFAULT_TIMEOUT, AsyncSession, Session
 
 
 class Clock:
@@ -180,7 +180,7 @@ def _make_handler(state: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Re
                     200, json={"totalCount": str(len(children)), "imdata": children}
                 )
             # The one MO it was asked for, its children nested inside it, which is
-            # why totalCount is 1: see a4i.client._check_complete.
+            # why totalCount is 1: see a4i._client._check_complete.
             return httpx2.Response(
                 200,
                 json={

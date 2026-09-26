@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.scripts]
-a4i = "a4i.cli:main"
+a4i = "a4i._cli:main"
 
 [dependency-groups]
 dev = [

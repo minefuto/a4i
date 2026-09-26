@@ -2,8 +2,8 @@
 
 The one difference between the two entry points: the CLI sends over a Unix
 domain socket to the daemon holding the token, a library caller from a
-:class:`~a4i.session.Session` of its own. A caller catches the same exception
-either way, :mod:`a4i.ipc` rebuilding what the daemon flattened onto the wire.
+:class:`~a4i._session.Session` of its own. A caller catches the same exception
+either way, :mod:`a4i._ipc` rebuilding what the daemon flattened onto the wire.
 
 There is no awaited daemon transport: the daemon exists to carry a token across
 the short-lived processes a CLI run is made of, which is not a problem an
@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
-from a4i import ipc, query
+from a4i import _ipc as ipc
+from a4i import _query as query
 
 if TYPE_CHECKING:
-    from a4i.session import AsyncSession, Session
+    from a4i._session import AsyncSession, Session
 
 
 class Transport(Protocol):

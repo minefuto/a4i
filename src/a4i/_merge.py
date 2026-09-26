@@ -1,7 +1,7 @@
 """Fold several configurations into the one body they describe together.
 
 :func:`read` absorbs the inputs into an index keyed by DN and :func:`merge`
-writes that index back out. :mod:`a4i.diff` and :mod:`a4i.dry_run` read both of
+writes that index back out. :mod:`a4i._diff` and :mod:`a4i._dry_run` read both of
 their sides through :func:`read`, so what one of the three refuses the other two
 refuse as well. Nothing here performs I/O: a DN follows from the body and the
 bundled RN formats alone.
@@ -13,8 +13,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from a4i.metadata import describe, load_rn_formats, rn_format
-from a4i.mo import (
+from a4i._metadata import describe, load_rn_formats, rn_format
+from a4i._mo import (
     ROOT,
     WRAPPER,
     Exclusions,
@@ -26,11 +26,11 @@ from a4i.mo import (
     tail_rn,
     text,
 )
-from a4i.validate import problems, refuse
+from a4i._validate import problems, refuse
 
 # What the key says about an MO is not written again among its attributes, and
 # "childAction" is the APIC talking. "status" is deliberately not here, unlike in
-# a4i.mo.META: dropping it would be a configuration whose deletions had silently
+# a4i._mo.META: dropping it would be a configuration whose deletions had silently
 # stopped working.
 _DROPPED = frozenset({"dn", "rn", "childAction"})
 
@@ -300,7 +300,7 @@ def _holds(class_name: str, child: str, records: dict[str, dict[str, Any]]) -> b
 def _record(class_name: str, records: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Return ``class_name``'s dictionary record, read once each.
 
-    :func:`a4i.metadata.describe` is a seek and a parse, and one class is asked
+    :func:`a4i._metadata.describe` is a seek and a parse, and one class is asked
     about once per gap it is weighed against.
     """
 
@@ -402,7 +402,7 @@ class Mo:
     class_name: str
     dn: str
     attributes: dict[str, str] = field(default_factory=dict)
-    # False where the last RN is the stand-in a4i.mo.pseudo_rn builds. It keys
+    # False where the last RN is the stand-in a4i._mo.pseudo_rn builds. It keys
     # the merge as well as a real RN does, but writing one back out would be
     # writing an RN no POST could carry.
     real_rn: bool = True
@@ -422,7 +422,7 @@ def _names_its_own_rn(class_name: str, body: dict[str, Any]) -> bool:
 class Intended:
     """The configurations merged into one tree, keyed by DN as the fabric's is.
 
-    ``excluded`` is for :mod:`a4i.diff` alone, and only ever quiets the
+    ``excluded`` is for :mod:`a4i._diff` alone, and only ever quiets the
     complaint about an MO that cannot be identified. :func:`merge` excludes
     nothing: dropping an MO from a body would be dropping configuration.
     """

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from a4i import diff
+from a4i import _diff as diff
 
 # -- the fabric as the APIC would return it, everything under uni ----------
 
@@ -56,9 +56,7 @@ INTENDED = [
 ]
 
 
-def compare(
-    *mos, imdata: list | None = None, expand: bool = False, exclude=None, on_unused=None
-) -> list:
+def compare(*mos, imdata: list | None = None, expand: bool = False, exclude=None) -> list:
     """Compare one configuration made of the MOs given, against FABRIC.
 
     diff takes a single body and a list of MOs is one, so the arguments here are
@@ -71,7 +69,6 @@ def compare(
         fabric=FABRIC if imdata is None else imdata,
         expand=expand,
         exclude=exclude,
-        on_unused=on_unused,
     )
 
 
@@ -962,20 +959,6 @@ def test_an_exception_may_carry_a_condition_of_its_own() -> None:
     changed = mo("fvTenant", {"dn": "uni/tn-b", "name": "b", "descr": "changed"})
     (change,) = compare(changed, imdata=MARKED, exclude=["uni/tn-*", "!uni/tn-*[descr=by*]"])
     assert (change.kind, change.dn) == ("modified", "uni/tn-b")
-
-
-def test_a_condition_that_matched_nothing_is_reported_to_the_caller() -> None:
-    # A DN naming nothing says something about the fabric; a condition matching
-    # nothing is as likely a misspelt attribute, which leaves nothing out at all.
-    unused: list[str] = []
-    compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[desc=auto-*]", on_unused=unused.extend)
-    assert unused == ["uni/tn-*[desc=auto-*]"]
-
-
-def test_a_condition_that_matched_something_is_not_reported() -> None:
-    unused: list[str] = []
-    compare(BY_HAND, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]", on_unused=unused.extend)
-    assert unused == []
 
 
 def test_a_condition_naming_no_attribute_is_refused() -> None:

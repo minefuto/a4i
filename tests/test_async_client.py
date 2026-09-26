@@ -1,7 +1,7 @@
 """What awaiting adds, and nothing else.
 
-tests/test_awaited.py checks that :class:`~a4i.client.AsyncClient` is
-:class:`~a4i.client.Client` with the sending awaited, statement for statement, so
+tests/test_awaited.py checks that :class:`~a4i._client.AsyncClient` is
+:class:`~a4i._client.Client` with the sending awaited, statement for statement, so
 what tests/test_client.py covers is not covered again here.
 
 What is left is what that check cannot see: the constructor it exempts, the
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from a4i.client import AsyncClient
-from a4i.transport import AsyncDirectTransport
+from a4i._client import AsyncClient
+from a4i._transport import AsyncDirectTransport
 from apic_mock import Clock, make_async_session
 
 
@@ -28,7 +28,7 @@ def state() -> dict:
 async def client(state):
     """A logged-in client talking to the mocked APIC."""
 
-    client = AsyncClient(transport=AsyncDirectTransport(make_async_session(state, Clock())))
+    client = AsyncClient(_transport=AsyncDirectTransport(make_async_session(state, Clock())))
     await client.login("admin", "pw")
     yield client
     await client.close()
@@ -79,7 +79,7 @@ async def test_a_client_without_a_session_of_its_own_cannot_log_in() -> None:
 
         async def post(self, target, kind, body): ...
 
-    client = AsyncClient(transport=Nowhere())
+    client = AsyncClient(_transport=Nowhere())
     with pytest.raises(TypeError):
         await client.login("admin", "pw")
     # Closing is still safe: there is nothing to close.
@@ -97,7 +97,7 @@ async def test_the_context_manager_closes_the_session(state) -> None:
     """
 
     session = make_async_session(state, Clock())
-    async with AsyncClient(transport=AsyncDirectTransport(session)) as client:
+    async with AsyncClient(_transport=AsyncDirectTransport(session)) as client:
         await client.login("admin", "pw")
         assert client.logged_in
     with pytest.raises(RuntimeError):

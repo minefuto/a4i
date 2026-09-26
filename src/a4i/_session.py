@@ -19,10 +19,10 @@ from typing import Any, Generic, TypeVar
 
 import httpx2
 
-from a4i.errors import ApicError, NotLoggedInError, SessionExpiredError
+from a4i._errors import ApicError, NotLoggedInError, SessionExpiredError
 
 # Re-exported: this module raises them, and importing them from here reads more
-# naturally than from a4i.errors at the call sites that already use a Session.
+# naturally than from a4i._errors at the call sites that already use a Session.
 __all__ = [
     "DEFAULT_REFRESH_TIMEOUT",
     "DEFAULT_TIMEOUT",

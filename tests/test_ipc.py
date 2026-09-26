@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from a4i import ipc
-from a4i.errors import DaemonError, NoFabricError, UnusableSocketError
+from a4i import _ipc as ipc
+from a4i._errors import DaemonError, NoFabricError, UnusableSocketError
 
 SOCK = "daemon.sock"
 

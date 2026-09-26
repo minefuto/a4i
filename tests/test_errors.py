@@ -1,6 +1,6 @@
 """What an exception becomes on the wire, and what it comes back as.
 
-Both directions are read off one dictionary in a4i.errors, and these are the
+Both directions are read off one dictionary in a4i._errors, and these are the
 tests of that: the round trip is faithful, and no error can be added to one side
 alone.
 """
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from a4i import errors
-from a4i.errors import (
+from a4i import _errors as errors
+from a4i._errors import (
     A4iError,
     ApicError,
     DaemonError,
@@ -96,7 +96,7 @@ def test_every_error_either_travels_or_is_the_clients_own() -> None:
         travels = cls in errors._WIRE.values()
         clients_own = issubclass(cls, DaemonError)
         assert travels != clients_own, (
-            f"{cls.__name__} is in neither camp: put it in a4i.errors._WIRE if the daemon "
+            f"{cls.__name__} is in neither camp: put it in a4i._errors._WIRE if the daemon "
             f"raises it, or under DaemonError if this client does"
         )
 

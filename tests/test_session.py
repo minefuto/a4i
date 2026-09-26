@@ -7,7 +7,7 @@ import warnings
 import httpx2
 import pytest
 
-from a4i.session import (
+from a4i._session import (
     DEFAULT_TIMEOUT,
     LOGOUT_TIMEOUT,
     NODE_CLIENT_MAX,

@@ -6,10 +6,11 @@ import pathlib
 
 import pytest
 
-from a4i import cli, ipc
-from a4i.client import Client
-from a4i.merge import merge
-from a4i.transport import DaemonTransport
+from a4i import _cli as cli
+from a4i import _ipc as ipc
+from a4i._client import Client
+from a4i._merge import merge
+from a4i._transport import DaemonTransport
 
 
 def mo(class_name: str, attributes: dict, children: list | None = None) -> dict:
@@ -508,7 +509,7 @@ def test_a_class_written_under_itself_is_held() -> None:
 
 
 def test_a_stand_in_rn_is_not_written_back() -> None:
-    # a4i.mo.pseudo_rn keys an unknown class by what the body gives, which is no
+    # a4i._mo.pseudo_rn keys an unknown class by what the body gives, which is no
     # RN the APIC would take, so the nesting has to say where the MO sits.
     config = mo("fvTenant", {"name": "t"}, [mo("fooBar", {"name": "x", "descr": "y"})])
     _, (_, dn, unknown) = walk(merge(config))
@@ -546,7 +547,7 @@ def test_merge_prints_the_body_to_stdout(capsys, tmp_path) -> None:
     assert dns(_merged(capsys)) == ["uni/tn-demo"]
 
 
-# What the paths mean is a4i.config's and is verified there. What is left here is
+# What the paths mean is a4i._config's and is verified there. What is left here is
 # what only the command can show: that it hands its arguments over, and what it
 # does with what comes back.
 
@@ -571,7 +572,7 @@ def test_merge_fills_in_a_missing_ancestor_when_told_to(capsys, tmp_path) -> Non
 
 
 def test_merge_names_the_way_out_when_an_ancestor_is_undescribed(capsys, tmp_path) -> None:
-    # a4i.merge says what is missing; naming --loose is this command's own to add,
+    # a4i._merge says what is missing; naming --loose is this command's own to add,
     # and UndescribedError is a ValueError, so a handler that let it fall through
     # to the general one would refuse without the way out.
     orphan = {"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-b"}}}
@@ -589,7 +590,7 @@ def test_merge_writes_to_a_file_when_asked(capsys, tmp_path) -> None:
 
 
 def test_merge_names_the_way_out_when_it_refuses_to_overwrite(capsys, tmp_path) -> None:
-    # a4i.config names the path; naming --force is this command's own to add, and
+    # a4i._config names the path; naming --force is this command's own to add, and
     # FileExistsError is an OSError, so a handler that let it fall through would
     # say "already exists" and leave the reader nowhere to go.
     intended = _write(tmp_path, "tn.json", BASE)
@@ -672,7 +673,7 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
     monkeypatch.setattr(ipc, "get", get)
     # The real fetch over the mocked GETs rather than a body written out by hand:
     # half this seam is fetch's reading.
-    fabric = Client(transport=DaemonTransport()).fetch()
+    fabric = Client(_transport=DaemonTransport()).fetch()
     monkeypatch.setattr(ipc, "fabric", lambda: fabric)
     monkeypatch.setattr("sys.stdin", io.StringIO(merged.read_text()))
     # 0 is the fabric matching what the two files describe between them.
@@ -687,8 +688,8 @@ def test_what_merge_writes_is_what_a_post_would_place() -> None:
     and the APIC still refused the body, an fvBD being no child of polUni.
     """
 
-    from a4i import dry_run
-    from a4i.merge import read
+    from a4i import _dry_run as dry_run
+    from a4i._merge import read
 
     body = merge(
         mo("fvTenant", {"name": "demo"}, [mo("fvBD", {"name": "bd1", "mtu": "9000"})]),

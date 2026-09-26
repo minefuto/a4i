@@ -1,6 +1,6 @@
 """The tools the MCP server offers, and what each one does.
 
-Every tool is a thin wrapper over the very same :class:`~a4i.client.Client` the
+Every tool is a thin wrapper over the very same :class:`~a4i._client.Client` the
 command line drives, so a model and a person send the identical request. What is
 added is the part a model needs and a person does not: a schema, a size limit so
 that one query cannot fill a context window, and errors phrased as instructions.
@@ -16,8 +16,9 @@ import json
 import os
 from typing import Any
 
-from a4i import metadata, query
-from a4i.errors import (
+from a4i import _metadata as metadata
+from a4i import _query as query
+from a4i._errors import (
     A4iError,
     NoDaemonError,
     NoFabricError,
@@ -432,10 +433,10 @@ def tool_definitions(*, read_only: bool) -> list[dict]:
 def _client():
     """Build a client that talks through the daemon, never starting one."""
 
-    from a4i.client import Client
-    from a4i.transport import DaemonTransport
+    from a4i._client import Client
+    from a4i._transport import DaemonTransport
 
-    return Client(transport=DaemonTransport(autostart=False))
+    return Client(_transport=DaemonTransport(autostart=False))
 
 
 def _json(data: Any) -> str:
@@ -481,8 +482,9 @@ def _dry_run(arguments: dict[str, Any]) -> str:
     The report says which, for the reason 'a4i post --dry-run' prints it.
     """
 
-    from a4i import dry_run, ipc
-    from a4i.output import dry_run_report
+    from a4i import _dry_run as dry_run
+    from a4i import _ipc as ipc
+    from a4i._output import dry_run_report
 
     target, body, kind = arguments["target"], arguments["body"], arguments["kind"]
     try:
@@ -497,9 +499,9 @@ def _dry_run(arguments: dict[str, Any]) -> str:
 
 
 def _merge(arguments: dict[str, Any]) -> str:
-    from a4i import config
-    from a4i.merge import UndescribedError, count, merge
-    from a4i.validate import problems, refuse
+    from a4i import _config as config
+    from a4i._merge import UndescribedError, count, merge
+    from a4i._validate import problems, refuse
 
     paths = list(arguments.get("paths") or [])
     try:
@@ -545,7 +547,7 @@ def _merge(arguments: dict[str, Any]) -> str:
 
 
 def _fetch(arguments: dict[str, Any]) -> str:
-    from a4i import ipc
+    from a4i import _ipc as ipc
 
     # autostart=False, as every other request from this server: a daemon started
     # here would be one nobody is logged in to.
@@ -584,10 +586,11 @@ def _one_body(arguments: dict[str, Any], tool: str) -> Any:
 
 
 def _plan(arguments: dict[str, Any]) -> str:
-    from a4i import config, ipc
-    from a4i import plan as plan_
-    from a4i.output import plural
-    from a4i.plan import count
+    from a4i import _config as config
+    from a4i import _ipc as ipc
+    from a4i import _plan as plan_
+    from a4i._output import plural
+    from a4i._plan import count
 
     body = _one_body(arguments, "plan")
     try:
@@ -607,27 +610,18 @@ def _plan(arguments: dict[str, Any]) -> str:
 
 
 def _diff(arguments: dict[str, Any]) -> str:
-    from a4i import diff, ipc
-    from a4i.output import diff_report
+    from a4i import _diff as diff
+    from a4i import _ipc as ipc
+    from a4i._output import diff_report
 
     body = _one_body(arguments, "diff")
-    unused: list[str] = []
     changes = diff.compare(
         body,
         fabric=ipc.fabric(),
         expand=bool(arguments.get("expand")),
         exclude=list(arguments.get("exclude") or []) or None,
-        on_unused=unused.extend,
     )
-    report = diff_report(changes)
-    if not unused:
-        return report
-    # Ahead of the report rather than after it: what the comparison left out is
-    # what the report has to be read against.
-    warnings = [
-        f"warning: exclude {name}: no MO matched, so nothing was left out by it" for name in unused
-    ]
-    return "\n".join([*warnings, "", report])
+    return diff_report(changes)
 
 
 def _list(arguments: dict[str, Any]) -> str:

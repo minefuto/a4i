@@ -1,7 +1,7 @@
 """Per-user daemon that holds the APIC session token in memory.
 
 One request per connection, over a Unix domain socket, against a single
-:class:`~a4i.session.Session` whose token is never written to disk. It holds one
+:class:`~a4i._session.Session` whose token is never written to disk. It holds one
 other thing: the fabric a ``fetch`` read, dropped the moment it could no longer
 be true of the session that answers. Both are things no CLI process can keep,
 each one ending.
@@ -17,10 +17,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from a4i import query
-from a4i.errors import NO_FABRIC_MESSAGE, DaemonError, NoFabricError, ReadOnlyError, to_payload
-from a4i.ipc import create_socket_dir
-from a4i.session import DEFAULT_TIMEOUT, ApicError, NotLoggedInError, Session
+from a4i import _query as query
+from a4i._errors import NO_FABRIC_MESSAGE, DaemonError, NoFabricError, ReadOnlyError, to_payload
+from a4i._ipc import create_socket_dir
+from a4i._session import DEFAULT_TIMEOUT, ApicError, NotLoggedInError, Session
 
 # What a POST is told when the session was logged in read-only. It names the way
 # out, a fresh login not being one.
@@ -240,12 +240,12 @@ class Daemon:
         # Imported here rather than at module scope: it pulls in the whole
         # comparison stack, and a daemon that is only ever logged in to and
         # queried should not pay for it at startup.
-        from a4i.client import Client
-        from a4i.merge import count
-        from a4i.transport import DirectTransport
+        from a4i._client import Client
+        from a4i._merge import count
+        from a4i._transport import DirectTransport
 
         session = self._require_session()
-        fabric = Client(transport=DirectTransport(session)).fetch()
+        fabric = Client(_transport=DirectTransport(session)).fetch()
         self._fabric = fabric
         self._fetched_at = self._clock()
         self._fabric_count = count(fabric)
@@ -287,7 +287,7 @@ class Daemon:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        print("usage: python -m a4i.daemon <socket-path>", file=sys.stderr)
+        print("usage: python -m a4i._daemon <socket-path>", file=sys.stderr)
         return 2
     try:
         Daemon(argv[0]).serve()

@@ -1,6 +1,6 @@
 """Where an intended configuration is read from, and where it is written back.
 
-:mod:`a4i.merge` performs no I/O at all; this module is the other half, and every
+:mod:`a4i._merge` performs no I/O at all; this module is the other half, and every
 file a configuration comes from or goes to is opened here and nowhere else, so
 that a command and a model fold the identical files in the identical order.
 
@@ -16,7 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from a4i.validate import problems, refuse
+from a4i._validate import problems, refuse
 
 
 def load(paths: list[str]) -> list[Any]:
@@ -29,7 +29,7 @@ def load(paths: list[str]) -> list[Any]:
 
     Every file is checked as it is read, and what is wrong with any of them is
     reported together, each named by the file it is in. Checking here rather than
-    in :func:`a4i.merge.merge` is the whole reason the file names survive: merge
+    in :func:`a4i._merge.merge` is the whole reason the file names survive: merge
     is handed parsed bodies and cannot say which file one came from.
 
     Raises :class:`OSError` for a path that cannot be read, and

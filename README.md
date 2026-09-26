@@ -246,10 +246,6 @@ and keeps the token in memory for as long as it lives.
 
 ```python
 import a4i
-from a4i.diff import compare
-from a4i.dry_run import check
-from a4i.merge import merge
-from a4i.plan import create
 
 with a4i.Client("apic1.example.com", verify=False) as client:
     client.login("admin", password)
@@ -258,10 +254,10 @@ with a4i.Client("apic1.example.com", verify=False) as client:
     client.post("uni/tn-demo", {"fvTenant": {"attributes": {"name": "demo"}}}, kind="mo")
 
     fabric = client.fetch()
-    changes = compare(merge(base, override), fabric=fabric)
+    changes = a4i.diff(a4i.merge(base, override), fabric=fabric)
     tenant = {"fvTenant": {"attributes": {"descr": "prod"}}}
-    check("uni/tn-demo", tenant, kind="mo", fabric=fabric)  # or client.dry_run(...)
-    client.post("uni", create(merge(base, override), fabric=fabric), kind="mo")
+    a4i.dry_run("uni/tn-demo", tenant, kind="mo", fabric=fabric)  # or client.dry_run(...)
+    client.post("uni", a4i.plan(a4i.merge(base, override), fabric=fabric), kind="mo")
 ```
 
 `kind` is the subcommand the CLI takes, and it is required: `"class"` for a
@@ -271,8 +267,8 @@ express, and `timeout` is `login --timeout`.
 
 `fetch()` reads the whole of `uni` and returns it as one body; no daemon is
 involved here, so it is yours to hold for as long as it is worth holding.
-`a4i.diff.compare()`, `a4i.plan.create()` and `a4i.dry_run.check()` are `diff`,
-`plan` and the dry run, and each takes that body as a keyword-only `fabric` --
+`a4i.diff()`, `a4i.plan()` and `a4i.dry_run()` are `diff`, `plan` and the dry
+run, and each takes that body as a keyword-only `fabric` --
 they perform no I/O, so what they compared against is whatever you last read.
 `client.dry_run()` is the one that reads for itself, fetching only the subtrees
 the body names, which is what `post --dry-run` falls back to.
@@ -288,6 +284,7 @@ async with a4i.AsyncClient("apic1.example.com", verify=False) as client:
 
 A value ACI does not define raises `ValueError` before anything is sent. A
 failed request raises `a4i.ApicError`, `a4i.NotLoggedInError` or
-`a4i.SessionExpiredError`, all of them `a4i.A4iError`. The token refreshes
-itself once half its lifetime has elapsed, so a long-running script needs
-nothing of its own.
+`a4i.SessionExpiredError`, all of them `a4i.A4iError`. `a4i.merge()` raises
+`a4i.UndescribedError`, a `ValueError`, for a class the bundled dictionary does
+not carry; `loose=True` lets it through. The token refreshes itself once half
+its lifetime has elapsed, so a long-running script needs nothing of its own.

@@ -6,8 +6,9 @@ import json
 
 import pytest
 
-from a4i import cli, ipc
-from a4i.errors import (
+from a4i import _cli as cli
+from a4i import _ipc as ipc
+from a4i._errors import (
     NO_FABRIC_MESSAGE,
     DaemonError,
     NoDaemonError,
@@ -15,8 +16,8 @@ from a4i.errors import (
     NotLoggedInError,
     UnusableSocketError,
 )
-from a4i.merge import merge
-from a4i.session import DEFAULT_TIMEOUT
+from a4i._merge import merge
+from a4i._session import DEFAULT_TIMEOUT
 
 # -- an unusable socket must not read as "no daemon" ------------------------
 #
@@ -694,11 +695,11 @@ def _run_fetch(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
 def _fetch_through_daemon() -> dict:
     """What the daemon's fetch op does: read uni with the client, count what it read."""
 
-    from a4i.client import Client
-    from a4i.merge import count
-    from a4i.transport import DaemonTransport
+    from a4i._client import Client
+    from a4i._merge import count
+    from a4i._transport import DaemonTransport
 
-    body = Client(transport=DaemonTransport()).fetch()
+    body = Client(_transport=DaemonTransport()).fetch()
     return {"count": count(body)}
 
 
@@ -732,10 +733,10 @@ def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
     sent: list[dict] = []
 
     _record(monkeypatch, sent, lambda target: FABRIC.get(target, {"imdata": []}))
-    from a4i.client import Client
-    from a4i.transport import DaemonTransport
+    from a4i._client import Client
+    from a4i._transport import DaemonTransport
 
-    body = Client(transport=DaemonTransport()).fetch()
+    body = Client(_transport=DaemonTransport()).fetch()
     monkeypatch.setattr(ipc, "fabric", lambda: body)
     sent.clear()
     return cli.main(argv), sent
@@ -921,7 +922,7 @@ def test_list_class_matches_case_insensitively(capsys) -> None:
 
 
 def test_list_class_without_a_prefix_lists_everything(capsys) -> None:
-    from a4i.metadata import load_class_names
+    from a4i._metadata import load_class_names
 
     assert cli.main(["list", "class"]) == 0
     assert capsys.readouterr().out.split() == list(load_class_names())
@@ -978,7 +979,7 @@ def test_list_mo_takes_a_dn_with_or_without_a_leading_slash(monkeypatch, capsys)
         _, sent = _run_list_mo(monkeypatch, ["list", "mo", dn], {"imdata": []})
         assert sent[0]["target"] == dn
     # Either way the daemon builds the same path from kind="mo".
-    from a4i import query
+    from a4i import _query as query
 
     assert query.build_path("/uni/tn-common", "mo") == query.build_path("uni/tn-common", "mo")
 
@@ -1061,7 +1062,7 @@ def test_describe_rejects_an_unknown_class_with_what_to_try(capsys) -> None:
 def test_describe_json_is_what_the_mcp_tool_serves(capsys) -> None:
     # One record either way: a piped 'describe --json' and the MCP tool must not
     # differ.
-    from a4i.mcp import tools
+    from a4i._mcp import tools
 
     assert cli.main(["describe", "fvBD", "--json"]) == 0
     assert capsys.readouterr().out == tools.call("describe", {"class_name": "fvBD"}) + "\n"
@@ -1117,14 +1118,4 @@ def test_diff_leaves_out_an_mo_by_an_attribute_condition(monkeypatch, capsys) ->
     argv = ["diff", json.dumps(quiet), "--exclude", "uni/tn-demo/BD-*[mtu=1500]"]
     code, _ = _run_diff(monkeypatch, argv)
     assert capsys.readouterr().out.strip() == "no differences"
-    assert code == 0
-
-
-def test_diff_warns_about_a_condition_that_matched_nothing(monkeypatch, capsys) -> None:
-    # A misspelt attribute leaves nothing out, and otherwise says nothing.
-    argv = ["diff", json.dumps(INTENDED), "--exclude", "uni/tn-demo/BD-*[mut=1500]"]
-    code, _ = _run_diff(monkeypatch, argv)
-    captured = capsys.readouterr()
-    assert "no MO matched" in captured.err
-    # The comparison itself stands, so the exit code is the one it earned.
     assert code == 0

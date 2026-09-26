@@ -6,13 +6,14 @@ import json
 
 import pytest
 
-from a4i import diff, ipc
-from a4i import mo as mo_
-from a4i import plan as plan_
-from a4i.client import Client
-from a4i.errors import ApicError, NotLoggedInError, SessionExpiredError
-from a4i.session import DEFAULT_TIMEOUT
-from a4i.transport import DaemonTransport, DirectTransport
+from a4i import _diff as diff
+from a4i import _ipc as ipc
+from a4i import _mo as mo_
+from a4i import _plan as plan_
+from a4i._client import Client
+from a4i._errors import ApicError, NotLoggedInError, SessionExpiredError
+from a4i._session import DEFAULT_TIMEOUT
+from a4i._transport import DaemonTransport, DirectTransport
 from apic_mock import APIC_HOST, Clock, make_session
 
 
@@ -25,7 +26,7 @@ def state() -> dict:
 def client(state) -> Client:
     """A logged-in client talking to the mocked APIC."""
 
-    client = Client(transport=DirectTransport(make_session(state, Clock())))
+    client = Client(_transport=DirectTransport(make_session(state, Clock())))
     client.login("admin", "pw")
     return client
 
@@ -155,7 +156,7 @@ def test_get_reports_an_apic_error(client) -> None:
 
 
 def test_get_before_login_does_not_reach_the_apic(state) -> None:
-    client = Client(transport=DirectTransport(make_session(state, Clock())))
+    client = Client(_transport=DirectTransport(make_session(state, Clock())))
     with pytest.raises(NotLoggedInError):
         client.get("fvTenant", kind="class")
 
@@ -351,7 +352,7 @@ def test_dry_run_refuses_a_paged_answer_rather_than_reporting_it_as_a_change(mon
 
     monkeypatch.setattr(ipc, "get", get)
     with pytest.raises(ApicError) as exc:
-        Client(transport=DaemonTransport()).dry_run(
+        Client(_transport=DaemonTransport()).dry_run(
             "uni/tn-demo", {"fvTenant": {"attributes": {"name": "demo"}}}, kind="mo"
         )
     assert "uni/tn-demo: the APIC returned 2 of 3 MOs" in str(exc.value)
@@ -377,13 +378,6 @@ def test_a_raw_post_sends_a_malformed_body_untouched(client, state) -> None:
     # The one input path that is not checked: a raw POST never parses the body.
     client.post("uni/tn-demo", '{"fvTenant": null}', kind="mo")
     assert state["last_method"] == "POST"
-
-
-def test_post_with_dry_run_compares_instead_of_sending(client, state) -> None:
-    body = {"fvTenant": {"attributes": {"name": "demo"}}}
-    changes = client.post("uni/tn-demo", body, kind="mo", dry_run=True)
-    assert isinstance(changes[0], mo_.Change)
-    assert state["last_method"] == "GET"
 
 
 # -- plan (what a POST would change, as a body) -----------------------------
@@ -590,7 +584,7 @@ def test_a_client_asking_for_no_timeout_gets_the_default_one() -> None:
 
 
 def test_a_client_without_a_session_of_its_own_cannot_log_in() -> None:
-    client = Client(transport=DaemonTransport())
+    client = Client(_transport=DaemonTransport())
     with pytest.raises(TypeError):
         client.login("admin", "pw")
     # Closing is still safe: there is nothing to close.
@@ -601,14 +595,14 @@ def test_a_transport_of_ones_own_settles_the_timeout_itself(state) -> None:
     """As verify: what describes a session this client did not build is not its say."""
 
     session = make_session(state, Clock())
-    client = Client(timeout=120.0, transport=DirectTransport(session))
+    client = Client(timeout=120.0, _transport=DirectTransport(session))
     assert client._session is session
     assert session.timeout == DEFAULT_TIMEOUT
     client.close()
 
 
 def test_the_context_manager_closes_the_session(state) -> None:
-    with Client(transport=DirectTransport(make_session(state, Clock()))) as client:
+    with Client(_transport=DirectTransport(make_session(state, Clock()))) as client:
         client.login("admin", "pw")
         assert client.logged_in
     with pytest.raises(RuntimeError):
@@ -617,7 +611,7 @@ def test_the_context_manager_closes_the_session(state) -> None:
 
 def test_the_token_is_refreshed_past_its_half_life(state) -> None:
     clock = Clock()
-    client = Client(transport=DirectTransport(make_session(state, clock)))
+    client = Client(_transport=DirectTransport(make_session(state, clock)))
     client.login("admin", "pw")
     clock.advance(301)
     client.get("fvTenant", kind="class")
@@ -627,7 +621,7 @@ def test_the_token_is_refreshed_past_its_half_life(state) -> None:
 
 def test_an_expired_token_asks_for_a_new_login(state) -> None:
     clock = Clock()
-    client = Client(transport=DirectTransport(make_session(state, clock)))
+    client = Client(_transport=DirectTransport(make_session(state, clock)))
     client.login("admin", "pw")
     clock.advance(601)
     with pytest.raises(SessionExpiredError):
@@ -656,7 +650,7 @@ def test_the_daemon_transport_sends_what_the_daemon_expects(monkeypatch) -> None
 
     monkeypatch.setattr(ipc, "get", get)
     monkeypatch.setattr(ipc, "post", post)
-    client = Client(transport=DaemonTransport())
+    client = Client(_transport=DaemonTransport())
     client.get("fvTenant", kind="class", rsp_subtree="full", node="leaf101.example.com")
     client.post("uni/tn-demo", '{"fvTenant":{}}', kind="mo")
     # The kind travels with the target rather than being encoded into it.
@@ -686,7 +680,7 @@ def test_the_public_names_resolve_without_importing_httpx2_up_front() -> None:
 
 
 def test_the_apic_host_is_normalized(state) -> None:
-    client = Client(transport=DirectTransport(make_session(state, Clock())))
+    client = Client(_transport=DirectTransport(make_session(state, Clock())))
     assert client._session is not None
     assert client._session.base_url == f"https://{APIC_HOST}"
 
@@ -705,7 +699,7 @@ def test_fetch_refuses_a_paged_answer_rather_than_holding_half_a_fabric(monkeypa
 
     monkeypatch.setattr(ipc, "get", get)
     with pytest.raises(ApicError) as exc:
-        Client(transport=DaemonTransport()).fetch()
+        Client(_transport=DaemonTransport()).fetch()
     assert "uni: the APIC returned 2 of 3 MOs" in str(exc.value)
 
 

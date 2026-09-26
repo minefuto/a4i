@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate every bundled dictionary in ``src/a4i/metadata`` from the MIM Reference.
+"""Regenerate every bundled dictionary in ``src/a4i/_metadata`` from the MIM Reference.
 
 Four artifacts come out:
 
@@ -43,7 +43,7 @@ from typing import Any
 BASE = "https://pubhub.devnetcloud.com/media/model-doc-latest/docs/doc/jsonmeta"
 
 REPO = Path(__file__).resolve().parent.parent
-OUT_DIR = REPO / "src" / "a4i" / "metadata"
+OUT_DIR = REPO / "src" / "a4i" / "_metadata"
 CACHE_DIR = REPO / ".metadata-cache"
 
 # The root of the whole management information tree, so following containment

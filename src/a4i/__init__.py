@@ -12,7 +12,7 @@
 
 The names below are resolved on first use rather than imported here, ``__version__``
 included: shell completion runs through this package on every tab press, and
-reaching :class:`~a4i.client.Client` or importlib.metadata costs more than the
+reaching :class:`~a4i._client.Client` or importlib.metadata costs more than the
 whole completion would.
 """
 
@@ -25,29 +25,37 @@ if TYPE_CHECKING:
     # follow __getattr__ below. Nothing is imported at run time.
     __version__: str
 
-    from a4i.client import AsyncClient as AsyncClient
-    from a4i.client import Client as Client
-    from a4i.errors import A4iError as A4iError
-    from a4i.errors import ApicError as ApicError
-    from a4i.errors import NotLoggedInError as NotLoggedInError
-    from a4i.errors import ReadOnlyError as ReadOnlyError
-    from a4i.errors import SessionExpiredError as SessionExpiredError
-    from a4i.mo import Change as Change
+    from a4i._client import AsyncClient as AsyncClient
+    from a4i._client import Client as Client
+    from a4i._diff import compare as diff  # noqa: F401
+    from a4i._dry_run import check as dry_run  # noqa: F401
+    from a4i._errors import A4iError as A4iError
+    from a4i._errors import ApicError as ApicError
+    from a4i._errors import NotLoggedInError as NotLoggedInError
+    from a4i._errors import SessionExpiredError as SessionExpiredError
+    from a4i._merge import UndescribedError as UndescribedError
+    from a4i._merge import merge as merge
+    from a4i._mo import Change as Change
+    from a4i._plan import create as plan  # noqa: F401
 
 # What __version__ reads when the package is not installed, which is what an
 # uninstalled source tree looks like to importlib.metadata.
 _FALLBACK_VERSION = "0.0.1"
 
-# Public name -> the module it lives in.
+# Public name -> the module it lives in, and its name there.
 _EXPORTS = {
-    "Client": "a4i.client",
-    "AsyncClient": "a4i.client",
-    "Change": "a4i.mo",
-    "A4iError": "a4i.errors",
-    "ApicError": "a4i.errors",
-    "NotLoggedInError": "a4i.errors",
-    "ReadOnlyError": "a4i.errors",
-    "SessionExpiredError": "a4i.errors",
+    "Client": ("a4i._client", "Client"),
+    "AsyncClient": ("a4i._client", "AsyncClient"),
+    "Change": ("a4i._mo", "Change"),
+    "merge": ("a4i._merge", "merge"),
+    "diff": ("a4i._diff", "compare"),
+    "plan": ("a4i._plan", "create"),
+    "dry_run": ("a4i._dry_run", "check"),
+    "A4iError": ("a4i._errors", "A4iError"),
+    "ApicError": ("a4i._errors", "ApicError"),
+    "NotLoggedInError": ("a4i._errors", "NotLoggedInError"),
+    "SessionExpiredError": ("a4i._errors", "SessionExpiredError"),
+    "UndescribedError": ("a4i._merge", "UndescribedError"),
 }
 
 __all__ = ["__version__", *_EXPORTS]
@@ -67,12 +75,13 @@ def __getattr__(name: str) -> object:
         globals()[name] = resolved
         return resolved
 
-    module = _EXPORTS.get(name)
-    if module is None:
+    export = _EXPORTS.get(name)
+    if export is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
 
-    value = getattr(importlib.import_module(module), name)
+    module, attribute = export
+    value = getattr(importlib.import_module(module), attribute)
     # Cached in the module's own namespace, so the lookup happens once.
     globals()[name] = value
     return value

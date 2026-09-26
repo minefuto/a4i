@@ -4,12 +4,12 @@ An MO the APIC returned and an MO someone wrote are the same JSON, and a
 malformed one wants opposite treatment: skipping an element of a response is a4i
 falling short of reporting the fabric, where skipping one of an input is a
 configuration that quietly means something other than what it says. So the
-leniency stays where responses are read (:func:`a4i.mo.split_mo` goes on
+leniency stays where responses are read (:func:`a4i._mo.split_mo` goes on
 returning None) and every path carrying an input runs it past :func:`problems`
 first -- bar a raw ``a4i post``, which never parses the body at all.
 
 The shape alone is checked. Whether the MOs make sense together is
-:func:`a4i.merge.merge`'s question and is asked afterwards, on an input already
+:func:`a4i._merge.merge`'s question and is asked afterwards, on an input already
 known to be well formed: a diagnosis drawn from a tree half of whose elements
 were skipped would be a diagnosis of the wrong thing.
 """
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from a4i.mo import ROOT, WRAPPER, child_dn
+from a4i._mo import ROOT, WRAPPER, child_dn
 
 # What an MO body may hold, and nothing else.
 _BODY_KEYS = frozenset({"attributes", "children"})
@@ -189,7 +189,7 @@ def _body(
 def _dn_of(class_name: str, body: dict[str, Any], parent: str | None, *, sound: bool) -> str | None:
     """Return the DN to name this MO's children by, or None to name none of them.
 
-    Worked out the way :class:`a4i.merge.Intended` works it out, so that a
+    Worked out the way :class:`a4i._merge.Intended` works it out, so that a
     problem is reported at the position the merge would have put the MO at. None
     where a DN built from this body would name a place that does not exist.
     """

@@ -7,12 +7,12 @@ nothing about MCP, no port is opened, and the token stays where it was.
 The server starts whether or not anyone is logged in, because an MCP client
 launches it when the editor starts and the person logs in afterwards.
 
-:mod:`a4i.mcp.server` is the protocol, :mod:`a4i.mcp.tools` the ten tools, and
-:mod:`a4i.mcp.guides` the four documents offered as resources.
+:mod:`a4i._mcp.server` is the protocol, :mod:`a4i._mcp.tools` the ten tools, and
+:mod:`a4i._mcp.guides` the four documents offered as resources.
 """
 
 from __future__ import annotations
 
-from a4i.mcp.server import serve
+from a4i._mcp.server import serve
 
 __all__ = ["serve"]

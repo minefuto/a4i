@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from a4i import dry_run, merge
-from a4i.mo import ROOT, WRAPPER, Change, child_dn, split_mo, tail_rn
-from a4i.output import plural
-from a4i.validate import read_body
+from a4i import _dry_run as dry_run
+from a4i import _merge as merge
+from a4i._mo import ROOT, WRAPPER, Change, child_dn, split_mo, tail_rn
+from a4i._output import plural
+from a4i._validate import read_body
 
 # A container -- an MO no change names, in the body only to nest what changed --
 # is on the fabric already, so it says as much and the APIC refuses the POST
@@ -39,14 +40,14 @@ _LOST = (
 def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     """Return ``config`` narrowed to the MOs posting it at uni would change.
 
-    ``config`` is one ACI body, as :func:`a4i.diff.compare` takes one: several
-    configurations are folded into it beforehand with :func:`a4i.merge.merge`,
+    ``config`` is one ACI body, as :func:`a4i._diff.compare` takes one: several
+    configurations are folded into it beforehand with :func:`a4i._merge.merge`,
     which this runs it through in any case -- merging is idempotent, so a body
     that has been through it already comes out unchanged.
 
     ``fabric`` is what the POST would land on, as :meth:`a4i.Client.fetch`
-    returns it, and is keyword-only for the reason :func:`a4i.diff.compare`
-    gives. The comparison itself is :func:`a4i.dry_run.check`, the one
+    returns it, and is keyword-only for the reason :func:`a4i._diff.compare`
+    gives. The comparison itself is :func:`a4i._dry_run.check`, the one
     ``post --dry-run`` reports, run over the merged body at uni.
 
     Posting the result at uni does what that comparison found and touches

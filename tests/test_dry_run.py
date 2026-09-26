@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from a4i import dry_run
-from a4i import mo as mo_
-from a4i.merge import read
+from a4i import _dry_run as dry_run
+from a4i import _mo as mo_
+from a4i._merge import read
 
 # -- the current tree the APIC would return for /uni/tn-demo ---------------
 
@@ -42,9 +42,9 @@ TENANT = [
 def dry_run_compare(
     body: object, imdata: list | None = None, dn: str = "uni/tn-demo"
 ) -> list[dry_run.Change]:
-    """Run one dry run end to end, as a4i.client.Client.dry_run runs it.
+    """Run one dry run end to end, as a4i._client.Client.dry_run runs it.
 
-    Both sides go through a4i.merge.read, which is the point: what the body
+    Both sides go through a4i._merge.read, which is the point: what the body
     means and what the response means are settled by the same reading.
     """
 

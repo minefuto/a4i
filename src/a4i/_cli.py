@@ -2,7 +2,7 @@
 
 Typer is deliberately not used: shell completion spawns a whole new process on
 every tab press, and importing Typer cost more than the lookup it enabled.
-argparse also doubles as the parser :mod:`a4i.completion` walks.
+argparse also doubles as the parser :mod:`a4i._completion` walks.
 """
 
 from __future__ import annotations
@@ -15,9 +15,11 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from a4i import completion, ipc, query
-from a4i.completion import attach, complete_csv, complete_from
-from a4i.errors import (
+from a4i import _completion as completion
+from a4i import _ipc as ipc
+from a4i import _query as query
+from a4i._completion import attach, complete_csv, complete_from
+from a4i._errors import (
     A4iError,
     DaemonError,
     NoFabricError,
@@ -25,13 +27,13 @@ from a4i.errors import (
     SessionExpiredError,
     UnusableSocketError,
 )
-from a4i.query import QueryTarget, RspPropInclude, RspSubtree, RspSubtreeInclude
+from a4i._query import QueryTarget, RspPropInclude, RspSubtree, RspSubtreeInclude
 
 if TYPE_CHECKING:
-    from a4i.client import Client
+    from a4i._client import Client
 
 # The option names are the ACI query parameter names verbatim. The enums spelling
-# out their values live in a4i.query, so the library validates against the same
+# out their values live in a4i._query, so the library validates against the same
 # list.
 
 
@@ -110,7 +112,7 @@ class _VersionAction(argparse.Action):
 def _fail(exc: A4iError) -> int:
     """Report a failed request and return the exit code for it."""
 
-    from a4i.output import print_error
+    from a4i._output import print_error
 
     hint = " (run 'a4i login')" if isinstance(exc, SessionExpiredError | NotLoggedInError) else ""
     print_error(f"{exc}{hint}")
@@ -126,7 +128,7 @@ def _warn_apic(info: ipc.EndReply) -> None:
 
     message = info.get("apic_error")
     if message:
-        from a4i.output import print_warning
+        from a4i._output import print_warning
 
         print_warning(f"APIC not notified: {message}")
 
@@ -139,10 +141,10 @@ def _client() -> Client:
 
     # Imported here rather than at module scope: shell completion reaches this
     # module on every tab press but never issues a request.
-    from a4i.client import Client
-    from a4i.transport import DaemonTransport
+    from a4i._client import Client
+    from a4i._transport import DaemonTransport
 
-    return Client(transport=DaemonTransport())
+    return Client(_transport=DaemonTransport())
 
 
 # -- commands -------------------------------------------------------------
@@ -153,7 +155,7 @@ def _cmd_login(args: argparse.Namespace) -> int:
 
     # Imported here rather than at module scope: reaching the session's own
     # default costs httpx2, which a tab press must not pay for.
-    from a4i.session import DEFAULT_TIMEOUT
+    from a4i._session import DEFAULT_TIMEOUT
 
     password = os.environ.get("APIC_PASSWORD") or getpass.getpass("APIC password: ")
     verify: bool | str = args.ca if args.ca else not args.insecure
@@ -175,7 +177,7 @@ def _cmd_login(args: argparse.Namespace) -> int:
     if read_only and not args.read_only:
         # This login got less than it asked for, and saying nothing would leave
         # the first refused post to explain it.
-        from a4i.output import print_warning
+        from a4i._output import print_warning
 
         print_warning(
             "this daemon was started read-only; run 'a4i daemon stop' and log in again to write"
@@ -203,7 +205,7 @@ def _cmd_logout(args: argparse.Namespace) -> int:
 def _cmd_get(args: argparse.Namespace) -> int:
     """GET the objects of a class, or one MO by its DN."""
 
-    from a4i.output import print_error, render
+    from a4i._output import print_error, render
 
     # Every option is named after the parameter it sets, so this is a rename from
     # dashes to underscores and nothing more.
@@ -238,7 +240,7 @@ def _cmd_get(args: argparse.Namespace) -> int:
 def _cmd_post(args: argparse.Namespace) -> int:
     """POST a JSON body to a class or an MO (body from argument or stdin)."""
 
-    from a4i.output import print_error, render
+    from a4i._output import print_error, render
 
     body = args.body if args.body is not None else sys.stdin.read()
     client = _client()
@@ -266,8 +268,8 @@ def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
     was is printed either way. This path never reaches the post op.
     """
 
-    from a4i import dry_run
-    from a4i.output import print_note, render_dry_run
+    from a4i import _dry_run as dry_run
+    from a4i._output import print_note, render_dry_run
 
     try:
         fabric = ipc.fabric()
@@ -301,7 +303,7 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     stop, rather than comparing against a fabric nobody read.
     """
 
-    from a4i.output import print_error
+    from a4i._output import print_error
 
     try:
         held = ipc.fetch()
@@ -328,15 +330,8 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     that one body first with 'a4i merge'.
     """
 
-    from a4i import diff
-    from a4i.output import print_error, print_warning, render_diff
-
-    def unused(names: list[str]) -> None:
-        # A condition that matched nothing left nothing out, a misspelt attribute
-        # being the likeliest reason. Said and gone on with: the comparison itself
-        # is sound.
-        for name in names:
-            print_warning(f"--exclude {name}: no MO matched, so nothing was left out by it")
+    from a4i import _diff as diff
+    from a4i._output import print_error, render_diff
 
     config = args.body if args.body is not None else sys.stdin.read()
     try:
@@ -345,7 +340,6 @@ def _cmd_diff(args: argparse.Namespace) -> int:
             fabric=ipc.fabric(),
             expand=args.expand,
             exclude=args.exclude,
-            on_unused=unused,
         )
     except ValueError as exc:
         # An MO in the input whose DN cannot be worked out, or an --exclude that
@@ -380,9 +374,9 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
     import json
 
-    from a4i import config
-    from a4i import plan as plan_
-    from a4i.output import print_error
+    from a4i import _config as config
+    from a4i import _plan as plan_
+    from a4i._output import print_error
 
     body = args.body if args.body is not None else sys.stdin.read()
     try:
@@ -425,9 +419,9 @@ def _cmd_merge(args: argparse.Namespace) -> int:
 
     import json
 
-    from a4i import config
-    from a4i.merge import UndescribedError, merge
-    from a4i.output import print_error
+    from a4i import _config as config
+    from a4i._merge import UndescribedError, merge
+    from a4i._output import print_error
 
     try:
         configs = config.load(args.paths)
@@ -466,7 +460,7 @@ def _cmd_list_class(args: argparse.Namespace) -> int:
 
     # Imported here rather than at module scope: a tab press reaches this module
     # and has no use for the dictionary.
-    from a4i.metadata import class_names_startingwith
+    from a4i._metadata import class_names_startingwith
 
     for name in class_names_startingwith(args.prefix):
         print(name)
@@ -498,8 +492,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
     nothing else. Nothing is sent anywhere: the dictionary ships with a4i.
     """
 
-    from a4i.metadata import search
-    from a4i.output import print_error, print_note, render, render_search
+    from a4i._metadata import search
+    from a4i._output import print_error, print_note, render, render_search
 
     # The limit is applied last, after the whole dictionary has been walked: the
     # total is what makes "40 of 212 shown" sayable.
@@ -532,8 +526,8 @@ def _cmd_describe(args: argparse.Namespace) -> int:
     listed; --all and --children spell each of them out. Needs no session.
     """
 
-    from a4i.metadata import describe, search
-    from a4i.output import print_error, render, render_describe
+    from a4i._metadata import describe, search
+    from a4i._output import print_error, render, render_describe
 
     record = describe(args.class_name)
     if record is None:
@@ -626,7 +620,7 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     the editor starts.
     """
 
-    from a4i.mcp import serve
+    from a4i._mcp import serve
 
     return serve()
 

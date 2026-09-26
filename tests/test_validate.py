@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from a4i.validate import check, problems
+from a4i._validate import check, problems
 
 
 def mo(class_name: str, attributes: dict, children: list | None = None) -> dict:
@@ -69,7 +69,7 @@ def test_an_unknown_key_in_a_body_is_refused() -> None:
 
 
 def test_attributes_that_are_not_an_object_are_refused() -> None:
-    # This used to reach a4i.mo.child_dn and raise AttributeError there.
+    # This used to reach a4i._mo.child_dn and raise AttributeError there.
     assert '"attributes" is an array' in only({"fvTenant": {"attributes": [{"name": "t"}]}})
 
 

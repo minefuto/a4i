@@ -4,18 +4,18 @@ The APIC has no server-side dry run, so ``post --dry-run`` compares here.
 Nothing in this module performs I/O: :func:`check` takes the body and the fabric
 it would land on, both already in hand, and cannot tell which caller read that
 fabric. The comparison runs one way on purpose, a POST leaving alone everything
-the body does not mention; comparing both ways is :mod:`a4i.diff`.
+the body does not mention; comparing both ways is :mod:`a4i._diff`.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from a4i import merge
-from a4i.merge import Intended
-from a4i.mo import META, WRAPPER, Change, parent_dn, split_mo
-from a4i.query import Kind
-from a4i.validate import read_body
+from a4i import _merge as merge
+from a4i._merge import Intended
+from a4i._mo import META, WRAPPER, Change, parent_dn, split_mo
+from a4i._query import Kind
+from a4i._validate import read_body
 
 _CREATED_CONFLICT = 'status="created" but the MO already exists; the POST will fail'
 _MODIFIED_CONFLICT = 'status="modified" but the MO does not exist; the POST will fail'
@@ -48,14 +48,14 @@ def root_dn(target: str, kind: str, mo: Any) -> str | None:
 def rooted(target: str, kind: str, body: Any) -> list[Any]:
     """Return ``body``'s root MOs, each naming the DN it stands at.
 
-    :func:`a4i.merge.read` reads a body down from uni, so a root that does not
+    :func:`a4i._merge.read` reads a body down from uni, so a root that does not
     say where it sits would be placed directly under uni rather than under the
     target. Writing the target in as the root's ``dn`` is the whole of the
     difference: what comes out is indistinguishable from a body that said so
     itself.
 
     A ``polUni`` is left as it is, and so is anything that is not an MO at all,
-    so that :func:`a4i.merge.read` is the one that says so.
+    so that :func:`a4i._merge.read` is the one that says so.
 
     Raises ``ValueError`` if a root names no DN and the target gives none.
     """
@@ -96,7 +96,7 @@ def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Chan
     is what the POST would land on -- everything under uni as ``a4i fetch`` read
     it, or the subtrees :func:`roots` names, which is what
     :meth:`a4i.Client.dry_run` hands over. It is keyword-only for the reason
-    :func:`a4i.diff.compare` gives.
+    :func:`a4i._diff.compare` gives.
 
     Nothing is sent. An empty list means the POST would change nothing at all.
 

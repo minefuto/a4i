@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from a4i import query
+from a4i import _query as query
 
 
 def test_build_path_class_vs_mo() -> None:

@@ -1,7 +1,7 @@
 """The ACI REST API as a Python object.
 
 What a get or a post means lives here; how the request travels is
-:mod:`a4i.transport`'s business, so the CLI and a library caller send the very
+:mod:`a4i._transport`'s business, so the CLI and a library caller send the very
 same request. A client made from a host owns its session and keeps the token in
 this process's memory. :class:`AsyncClient` is spelled out separately rather
 than shared with :class:`Client`, because what the two have in common already
@@ -14,13 +14,16 @@ from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
-from a4i import dry_run, merge, mo, query
-from a4i.errors import ApicError
-from a4i.transport import AsyncDirectTransport, AsyncTransport, DirectTransport, Transport
-from a4i.validate import read_body
+from a4i import _dry_run as dry_run
+from a4i import _merge as merge
+from a4i import _mo as mo
+from a4i import _query as query
+from a4i._errors import ApicError
+from a4i._transport import AsyncDirectTransport, AsyncTransport, DirectTransport, Transport
+from a4i._validate import read_body
 
 if TYPE_CHECKING:
-    from a4i.session import AsyncSession, Session
+    from a4i._session import AsyncSession, Session
 
 # What a comparison needs to see of a subtree: the whole of it, because the body
 # may reach into it, and only the settable properties, because only those change.
@@ -40,18 +43,13 @@ _NO_SESSION = "this client has no session of its own"
 class Client:
     """A connection to one APIC.
 
-    ``transport`` replaces the session this client would otherwise build. The
-    CLI passes a :class:`~a4i.transport.DaemonTransport` so that its requests go
-    through the daemon holding the token; the session methods below then do not
-    apply. A transport that owns a session of its own -- a
-    :class:`~a4i.transport.DirectTransport` around a
-    :class:`~a4i.session.Session` built by hand -- hands it over, which is the
-    way in for a session this constructor cannot express. ``verify`` and
-    ``timeout`` describe the session this constructor would build, so a
-    ``transport`` that brings its own settles both of them itself.
+    ``_transport`` replaces the session this client would otherwise build: the
+    CLI passes a :class:`~a4i._transport.DaemonTransport` so that its requests go
+    through the daemon holding the token, and the session methods below then do
+    not apply.
 
     ``timeout`` bounds every request this client sends, in seconds; None is not
-    "no timeout" but "whichever :data:`~a4i.session.DEFAULT_TIMEOUT` says", named
+    "no timeout" but "whichever :data:`~a4i._session.DEFAULT_TIMEOUT` says", named
     that way so the default lives in one place and is read only once a session is
     actually being built.
     """
@@ -62,25 +60,25 @@ class Client:
         *,
         verify: bool | str = True,
         timeout: float | None = None,
-        transport: Transport | None = None,
+        _transport: Transport | None = None,
     ) -> None:
-        if transport is None:
+        if _transport is None:
             if host is None:
                 raise TypeError("a host is required")
             # Imported here rather than at module scope: a CLI command reaches
             # this module with a transport of its own, and importing httpx2 costs
             # more than the whole command that would never use it.
-            from a4i.session import DEFAULT_TIMEOUT, Session
+            from a4i._session import DEFAULT_TIMEOUT, Session
 
-            transport = DirectTransport(
+            _transport = DirectTransport(
                 Session(
                     host,
                     verify=verify,
                     timeout=DEFAULT_TIMEOUT if timeout is None else timeout,
                 )
             )
-        self._transport = transport
-        self._session: Session | None = getattr(transport, "session", None)
+        self._transport = _transport
+        self._session: Session | None = getattr(_transport, "session", None)
 
     def __enter__(self) -> Client:
         return self
@@ -105,7 +103,7 @@ class Client:
 
         The token is dropped whether or not the APIC could be told, so this
         client is logged out even when it raises: an unreachable or unhappy APIC
-        surfaces as an :class:`~a4i.errors.ApicError` after the fact, leaving
+        surfaces as an :class:`~a4i._errors.ApicError` after the fact, leaving
         only the APIC's own copy of the session to expire on its own.
         """
 
@@ -188,21 +186,17 @@ class Client:
         data = self._transport.get(dn, "mo", dict(_CHILDREN), node)
         return mo.top_level_dns(data.get("imdata"))
 
-    def post(self, target: str, body: str | Any, *, kind: query.Kind, dry_run: bool = False) -> Any:
+    def post(self, target: str, body: str | Any, *, kind: query.Kind) -> Any:
         """POST a JSON body to a class or an MO.
 
         ``kind`` says what ``target`` is, as on :meth:`get`. ``body`` is JSON
-        text, or an object to serialize. Text is sent exactly as given. With
-        ``dry_run``, nothing is sent and :meth:`dry_run` runs instead -- the
-        return value is then a list of :class:`~a4i.mo.Change`.
+        text, or an object to serialize. Text is sent exactly as given.
 
         ``node`` has no counterpart here on purpose: a switch's MIT is a
         projection of the policy the APIC resolved onto it, so configuration
         written there is overwritten on the next policy resolution.
         """
 
-        if dry_run:
-            return self.dry_run(target, body, kind=kind)
         text, _ = read_body(body)
         return self._transport.post(target, kind, text)
 
@@ -210,7 +204,7 @@ class Client:
         """Return the changes posting ``body`` would cause, reading the fabric first.
 
         The APIC has no server-side dry run, so the current state is fetched and
-        the comparison happens here, in :func:`a4i.dry_run.check`. An empty list
+        the comparison happens here, in :func:`a4i._dry_run.check`. An empty list
         means the POST would change nothing at all.
 
         What is fetched is the subtree of each MO the body stands at, one
@@ -222,7 +216,7 @@ class Client:
         whole, for the reason :meth:`_fetch_uni` gives.
 
         A caller already holding a fabric -- :meth:`fetch` returns one -- calls
-        :func:`a4i.dry_run.check` with it instead, and sends nothing. That is
+        :func:`a4i._dry_run.check` with it instead, and sends nothing. That is
         what ``post --dry-run`` does when ``a4i fetch`` has left one in the
         daemon; this is what it falls back to when none has.
 
@@ -236,14 +230,14 @@ class Client:
         return dry_run.check(target, parsed, kind=kind, fabric=current)
 
     def fetch(self) -> dict[str, Any]:
-        """Return the fabric's own configuration, shaped as :func:`a4i.merge.merge` shapes one.
+        """Return the fabric's own configuration, shaped as :func:`a4i._merge.merge` shapes one.
 
         Everything under uni is read one top-level subtree at a time, and what
         comes back is folded into the one body those MOs describe: a ``polUni``
         holding each of them nested under the MO it hangs off, siblings in RN
         order. Nothing is compared -- this is the fabric written as an intended
         configuration, ready to be kept in git, posted at uni, or handed to
-        :func:`a4i.diff.compare` and :func:`a4i.plan.create` as the fabric they
+        :func:`a4i._diff.compare` and :func:`a4i._plan.create` as the fabric they
         compare against.
 
         What the APIC sends is every settable property, its defaults included,
@@ -251,7 +245,7 @@ class Client:
         have written for the same fabric.
 
         Raises :class:`ValueError` if the fabric holds an MO that no single body
-        posted at uni could carry -- see :func:`a4i.merge.merge`. That is the
+        posted at uni could carry -- see :func:`a4i._merge.merge`. That is the
         bundled dictionary disagreeing with the fabric in front of it, and it
         names the MO rather than quietly leaving it out.
         """
@@ -316,7 +310,7 @@ class AsyncClient:
     the same requests in the same order. Every method below is documented on
     :class:`Client`, which is the one description of what a call means.
 
-    ``transport`` replaces the session this client would otherwise build, as on
+    ``_transport`` replaces the session this client would otherwise build, as on
     :class:`Client`, and must be an awaited one. There is no awaited daemon
     transport, so a client here always holds a session of its own.
     """
@@ -327,24 +321,24 @@ class AsyncClient:
         *,
         verify: bool | str = True,
         timeout: float | None = None,
-        transport: AsyncTransport | None = None,
+        _transport: AsyncTransport | None = None,
     ) -> None:
-        if transport is None:
+        if _transport is None:
             if host is None:
                 raise TypeError("a host is required")
             # Imported here rather than at module scope, for the reason
             # Client.__init__ gives.
-            from a4i.session import DEFAULT_TIMEOUT, AsyncSession
+            from a4i._session import DEFAULT_TIMEOUT, AsyncSession
 
-            transport = AsyncDirectTransport(
+            _transport = AsyncDirectTransport(
                 AsyncSession(
                     host,
                     verify=verify,
                     timeout=DEFAULT_TIMEOUT if timeout is None else timeout,
                 )
             )
-        self._transport = transport
-        self._session: AsyncSession | None = getattr(transport, "session", None)
+        self._transport = _transport
+        self._session: AsyncSession | None = getattr(_transport, "session", None)
 
     async def __aenter__(self) -> AsyncClient:
         return self
@@ -432,13 +426,9 @@ class AsyncClient:
         data = await self._transport.get(dn, "mo", dict(_CHILDREN), node)
         return mo.top_level_dns(data.get("imdata"))
 
-    async def post(
-        self, target: str, body: str | Any, *, kind: query.Kind, dry_run: bool = False
-    ) -> Any:
+    async def post(self, target: str, body: str | Any, *, kind: query.Kind) -> Any:
         """POST a JSON body to a class or an MO. See :meth:`Client.post`."""
 
-        if dry_run:
-            return await self.dry_run(target, body, kind=kind)
         text, _ = read_body(body)
         return await self._transport.post(target, kind, text)
 

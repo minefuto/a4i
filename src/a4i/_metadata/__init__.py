@@ -6,7 +6,7 @@ this directory is written by hand. A record of ``model.jsonl`` is reached by one
 seek, the file being some megabytes and a caller wanting one class of it.
 
 Nothing here runs in the completion path, so every file loads lazily: a tab press
-costs one process start and no I/O. See :mod:`a4i.completion`.
+costs one process start and no I/O. See :mod:`a4i._completion`.
 """
 
 from __future__ import annotations

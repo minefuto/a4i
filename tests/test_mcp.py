@@ -1,7 +1,7 @@
 """The MCP server, from the protocol down to the fabric.
 
 The JSON-RPC layer is written out in a4i rather than taken from an SDK, so it is
-tested the way a client exercises it: by handing :class:`~a4i.mcp.server.Server`
+tested the way a client exercises it: by handing :class:`~a4i._mcp.server.Server`
 whole messages and reading whole replies. Underneath, the tools run against the
 same mocked APIC every other test uses.
 """
@@ -20,11 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from a4i import ipc
-from a4i.daemon import Daemon
-from a4i.errors import DaemonError
-from a4i.mcp import guides, tools
-from a4i.mcp.server import LATEST_VERSION, RESOURCE_PREFIX, Server, serve
+from a4i import _ipc as ipc
+from a4i._daemon import Daemon
+from a4i._errors import DaemonError
+from a4i._mcp import guides, tools
+from a4i._mcp.server import LATEST_VERSION, RESOURCE_PREFIX, Server, serve
 from apic_mock import Clock, make_session_factory
 
 
@@ -564,7 +564,7 @@ def test_merge_refuses_to_replace_a_file_unless_told_to(no_daemon, tmp_path) -> 
     text, is_error = _tool_text(Server(), "merge", arguments)
     assert is_error
     assert "already exists" in text
-    # The rule is a4i.config's; naming this tool's own argument is what tells the
+    # The rule is a4i._config's; naming this tool's own argument is what tells the
     # model how to go on.
     assert "overwrite: true" in text
     assert out.read_text() == "keep me"
@@ -579,7 +579,7 @@ def test_merge_fills_in_a_missing_ancestor_only_when_told_to(no_daemon) -> None:
     text, is_error = _tool_text(Server(), "merge", {"configs": orphan})
     assert is_error
     assert 'nothing describes "uni/tn-demo"' in text
-    # The rule is a4i.merge's; naming this tool's own argument is what tells the
+    # The rule is a4i._merge's; naming this tool's own argument is what tells the
     # model how to go on.
     assert "loose: true" in text
 
@@ -743,7 +743,7 @@ def _cli_get_options() -> set[str]:
 
     import argparse
 
-    from a4i import cli
+    from a4i import _cli as cli
 
     parser = argparse.ArgumentParser()
     cli._add_query_options(parser)

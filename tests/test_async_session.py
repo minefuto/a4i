@@ -1,7 +1,7 @@
 """What awaiting adds to a session, and nothing else.
 
-tests/test_awaited.py checks that :class:`~a4i.session.AsyncSession` is
-:class:`~a4i.session.Session` with the sending awaited, statement for statement,
+tests/test_awaited.py checks that :class:`~a4i._session.AsyncSession` is
+:class:`~a4i._session.Session` with the sending awaited, statement for statement,
 so what tests/test_session.py covers is not covered again here.
 
 What is left is what that check cannot see: the constructor it exempts, the
@@ -14,7 +14,7 @@ from __future__ import annotations
 import httpx2
 import pytest
 
-from a4i.session import AsyncSession, Session
+from a4i._session import AsyncSession, Session
 from apic_mock import Clock, make_async_session
 
 # -- the constructor, which test_awaited.py exempts -------------------------
@@ -107,7 +107,7 @@ async def test_close_leaves_no_client_open() -> None:
 async def test_an_awaited_request_raises_what_the_apic_said(monkeypatch) -> None:
     # The awaited path has its own _send, so the one place it turns an httpx2
     # failure into an ApicError is worth crossing once here.
-    from a4i.errors import ApicError
+    from a4i._errors import ApicError
 
     session = make_async_session({"unreachable": {"apic.test"}}, Clock())
     with pytest.raises(ApicError) as exc:

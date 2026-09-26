@@ -2,9 +2,9 @@
 
 Nothing in this module performs I/O: :func:`compare` takes the configuration and
 the fabric as :meth:`a4i.Client.fetch` read it, reads each into an index with
-:func:`a4i.merge.read`, and returns the differences.
+:func:`a4i._merge.read`, and returns the differences.
 
-It runs both ways, which is the difference from :mod:`a4i.dry_run`: a POST can
+It runs both ways, which is the difference from :mod:`a4i._dry_run`: a POST can
 only add or change, but a fabric can carry what nobody wrote down. The intended
 configuration is therefore taken to describe the whole of ``uni``, and anything
 it leaves out is reported as ``extra`` unless ``exclude`` says otherwise.
@@ -12,16 +12,16 @@ it leaves out is reported as ``extra`` unless ``exclude`` says otherwise.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
-from a4i.merge import Intended, read
-from a4i.mo import Change, Exclusions, parent_dn, split_condition
-from a4i.validate import read_body
+from a4i._merge import Intended, read
+from a4i._mo import Change, Exclusions, parent_dn, split_condition
+from a4i._validate import read_body
 
 # "status" tells the APIC what to do with an MO, so the fabric never has a value
-# to hold it against. The rest of a4i.mo.META is already gone by now:
-# a4i.merge.read drops it from both sides on the way in.
+# to hold it against. The rest of a4i._mo.META is already gone by now:
+# a4i._merge.read drops it from both sides on the way in.
 _INSTRUCTION = frozenset({"status"})
 
 
@@ -31,13 +31,12 @@ def compare(
     fabric: Any,
     expand: bool = False,
     exclude: str | Sequence[str] | None = None,
-    on_unused: Callable[[list[str]], None] | None = None,
 ) -> list[Change]:
     """Return how ``fabric`` differs from the intended configuration.
 
     ``config`` is one ACI body -- one MO, a list of them, or the same as JSON
     text -- describing the whole of ``uni``; several are folded into one
-    beforehand by :func:`a4i.merge.merge`. ``fabric`` is what
+    beforehand by :func:`a4i._merge.merge`. ``fabric`` is what
     :meth:`a4i.Client.fetch` returns, and is keyword-only so that every call says
     the word, a comparison being worth only as much as the reader knows of where
     its other side came from. Without ``expand``, a subtree that is wholly
@@ -48,10 +47,6 @@ def compare(
     "*", and each standing for everything under it as well; a leading "!" makes
     one an exception to the others, and a trailing ``[key=value]`` narrows one to
     the MOs whose attribute matches.
-
-    ``on_unused`` is called with the conditioned names that matched no MO at all.
-    Nothing here writes anywhere, so a caller that wants to say so passes what
-    says it -- leaving nothing out is not a comparison that failed.
 
     Raises :class:`ValueError` if the configuration is not written as ACI
     expects, or if an MO does not carry the properties its RN is built from:
@@ -74,8 +69,6 @@ def compare(
     actual = read(fabric)
     excluded.resolve(intended.index)
     excluded.resolve(actual.index)
-    if on_unused is not None and (unused := excluded.unused()):
-        on_unused(unused)
     _prune(intended.index, excluded)
     _prune(actual.index, excluded)
     changes = _missing_and_modified(intended, actual, expand=expand)

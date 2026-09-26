@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from a4i import config
+from a4i import _config as config
 
 BASE = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "wrong"}}}
 OVERRIDE = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "right"}}}

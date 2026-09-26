@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from a4i import completion
-from a4i.cli import build_parser
-from a4i.completion import candidates
-from a4i.query import QueryTarget, RspPropInclude, RspSubtree, RspSubtreeInclude
+from a4i import _completion as completion
+from a4i._cli import build_parser
+from a4i._completion import candidates
+from a4i._query import QueryTarget, RspPropInclude, RspSubtree, RspSubtreeInclude
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """The exceptions every entry point raises, and how one crosses the socket.
 
 A module of their own because both ends of the socket need them, and importing
-them from :mod:`a4i.session` would drag httpx2 into every ``a4i get``.
+them from :mod:`a4i._session` would drag httpx2 into every ``a4i get``.
 
 Not every exception here travels: :class:`DaemonError` and the two below it are
 raised by the client before any daemon has answered, so they carry no tag and
@@ -35,7 +35,7 @@ class NoFabricError(A4iError):
 
 
 # What that error says, here rather than beside either raiser: the daemon raises
-# it for a fabric it does not hold, and a4i.ipc for a daemon that is not there to
+# it for a fabric it does not hold, and a4i._ipc for a daemon that is not there to
 # hold one.
 NO_FABRIC_MESSAGE = (
     "no fabric has been fetched: run 'a4i fetch' first\n"

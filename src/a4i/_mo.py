@@ -2,8 +2,8 @@
 
 An ACI body names its children by a naming property (``name``, ``ip``, ``tDn``,
 ...) rather than by DN, so a DN is built from the class's RN format, which
-:mod:`a4i.metadata` bundles -- never from what the fabric happens to carry.
-Both comparisons (:mod:`a4i.diff`, :mod:`a4i.dry_run`) are built on that reading
+:mod:`a4i._metadata` bundles -- never from what the fabric happens to carry.
+Both comparisons (:mod:`a4i._diff`, :mod:`a4i._dry_run`) are built on that reading
 and report what they found as a :class:`Change`.
 """
 
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from functools import cache
 from typing import Any
 
-from a4i.metadata import rn_format
+from a4i._metadata import rn_format
 
 # Attributes that identify the MO or steer the request, never a configuration
 # value worth diffing.
@@ -23,7 +23,7 @@ META = frozenset({"dn", "rn", "status", "childAction"})
 
 # The policy universe every configurable MO hangs under, and the class of the MO
 # itself. Facts about the tree rather than about one command, which is why they
-# sit here rather than in a4i.merge.
+# sit here rather than in a4i._merge.
 ROOT = "uni"
 WRAPPER = "polUni"
 
@@ -36,9 +36,9 @@ class Change:
     """One MO-level difference, in either comparison.
 
     ``kind`` is what a POST would do -- ``created``, ``modified``, ``deleted``,
-    ``warning`` -- for :func:`a4i.dry_run.compare`, and how the fabric stands
+    ``warning`` -- for :func:`a4i._dry_run.compare`, and how the fabric stands
     against the intended configuration -- ``missing``, ``modified``, ``extra``
-    -- for :func:`a4i.diff.compare`.
+    -- for :func:`a4i._diff.compare`.
     """
 
     kind: str
@@ -113,7 +113,7 @@ def matches_rn(fmt: str, rn: str) -> bool:
 def _rn_pattern(fmt: str) -> re.Pattern[str]:
     """The compiled reading of one RN format.
 
-    Cached because :mod:`a4i.merge` weighs one RN against every format the
+    Cached because :mod:`a4i._merge` weighs one RN against every format the
     dictionary holds, and compiling all of them again per gap is the whole cost
     of filling one in.
     """
@@ -259,11 +259,9 @@ def split_condition(name: str) -> tuple[str, tuple[str, str] | None]:
 class _Conditioned:
     """A name that also holds an attribute condition, settled by :meth:`Exclusions.resolve`."""
 
-    name: str
     rns: tuple[Callable[[str], Any], ...]
     key: str
     value: Callable[[str], Any]
-    used: bool = False
 
     def matches(self, rns: list[str], attributes: dict[str, Any]) -> bool:
         if len(self.rns) != len(rns):
@@ -295,9 +293,7 @@ class _Names:
         if condition is not None:
             key, value = condition
             self.conditioned.append(
-                _Conditioned(
-                    name, tuple(_rn_match(rn) for rn in split_rns(dn)), key, _rn_match(value)
-                )
+                _Conditioned(tuple(_rn_match(rn) for rn in split_rns(dn)), key, _rn_match(value))
             )
             return
         if "*" not in dn:
@@ -354,22 +350,7 @@ class Exclusions:
             for names in (self._out, self._kept):
                 for one in names.conditioned:
                     if one.matches(rns, node.attributes):
-                        one.used = True
                         names.literal.add(dn)
-
-    def unused(self) -> list[str]:
-        """Return the conditioned names that matched no MO on either side.
-
-        A DN naming nothing says something about the fabric; a condition matching
-        nothing is as likely a misspelt attribute name.
-        """
-
-        return sorted(
-            one.name
-            for names in (self._out, self._kept)
-            for one in names.conditioned
-            if not one.used
-        )
 
     def __bool__(self) -> bool:
         # Exceptions on their own exclude nothing, and leave a comparison with

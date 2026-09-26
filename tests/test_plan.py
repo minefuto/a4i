@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from a4i import plan
-from a4i.merge import merge
-from a4i.mo import Change
+from a4i import _plan as plan
+from a4i._merge import merge
+from a4i._mo import Change
 
 CURRENT = [
     {

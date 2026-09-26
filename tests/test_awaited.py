@@ -18,10 +18,12 @@ import inspect
 
 import pytest
 
-from a4i import client, session, transport
+from a4i import _client as client
+from a4i import _session as session
+from a4i import _transport as transport
 
 # The pairs, named outright rather than found by their prefix: DaemonTransport
-# has no awaited twin on purpose (see a4i.transport), and a rule that went
+# has no awaited twin on purpose (see a4i._transport), and a rule that went
 # looking for one would report it missing every time.
 PAIRS = [
     (client, "Client", "AsyncClient"),

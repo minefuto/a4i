@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from a4i import mo
+from a4i import _mo as mo
 
 # What the APIC returns for a query-target=children GET: one MO per child, each
 # carrying the dn the APIC wrote.

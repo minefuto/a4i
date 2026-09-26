@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rich.console import Console
 
-    from a4i.mo import Change
+    from a4i._mo import Change
 
 # The mark that opens a line, per kind of change, and the colour each mark is
 # printed in. Attribute lines carry a mark of their own, so a line's colour
