@@ -326,6 +326,29 @@ def test_get_rejects_invalid_values(capsys, argv, message) -> None:
     assert message in capsys.readouterr().err
 
 
+def test_get_config_prints_config_only_imdata(monkeypatch, capsys) -> None:
+    sent: list[dict] = []
+    tenant = {"fvTenant": {"attributes": {"dn": "uni/tn-a", "name": "a"}}}
+    _record(monkeypatch, sent, {"totalCount": "1", "imdata": [tenant]})
+    assert cli.main(["get", "class", "fvTenant", "--config", "--raw"]) == 0
+    assert sent[0]["params"] == {"rsp-prop-include": "config-only"}
+    assert json.loads(capsys.readouterr().out) == [tenant]
+
+
+def test_get_config_refuses_one_page_of_many(monkeypatch, capsys) -> None:
+    _record(monkeypatch, [], {"totalCount": "3", "imdata": [{"fvTenant": {"attributes": {}}}]})
+    argv = ["get", "class", "fvTenant", "--config", "--page", "0", "--page-size", "1"]
+    assert cli.main(argv) == 1
+    assert "1 of 3" in capsys.readouterr().err
+
+
+def test_get_config_refuses_another_prop_include(monkeypatch, capsys) -> None:
+    _raise_request(monkeypatch, DaemonError("no a4i daemon is running"))
+    argv = ["get", "class", "fvTenant", "--config", "--rsp-prop-include", "all"]
+    assert cli.main(argv) == 1
+    assert "--config" in capsys.readouterr().err
+
+
 def test_get_accepts_a_bare_subtree_include_modifier(monkeypatch) -> None:
     sent = _run_get(monkeypatch, ["get", "class", "fvTenant", "--rsp-subtree-include", "count"])
     assert sent["params"] == {"rsp-subtree-include": "count"}

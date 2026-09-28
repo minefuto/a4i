@@ -175,8 +175,16 @@ def _cmd_logout(args: argparse.Namespace) -> int:
 def _cmd_get(args: argparse.Namespace) -> int:
     """GET the objects of a class, or one MO by its DN."""
 
+    from a4i._client import _check_complete
     from a4i._output import print_error, render
 
+    if args.config:
+        if args.rsp_prop_include not in (None, "config-only"):
+            print_error(
+                "--config returns config-only properties, so it takes no other --rsp-prop-include"
+            )
+            return 1
+        args.rsp_prop_include = "config-only"
     # Every option is named after the parameter it sets, so this is a rename from
     # dashes to underscores and nothing more.
     try:
@@ -196,6 +204,10 @@ def _cmd_get(args: argparse.Namespace) -> int:
             page_size=args.page_size,
             node=args.node,
         )
+        if args.config:
+            # One page of a class is not the whole of its configuration.
+            _check_complete(args.target, data)
+            data = data["imdata"]
     except ValueError as exc:
         # A combination argparse cannot express on its own, such as --page
         # without --page-size.
@@ -622,6 +634,11 @@ def _add_query_options(parser: argparse.ArgumentParser) -> None:
         "--node",
         metavar="HOST",
         help="query a fabric switch directly (IP or hostname) with the same token",
+    )
+    parser.add_argument(
+        "--config",
+        action="store_true",
+        help="print the config-only MOs inside imdata, ready for 'a4i merge'",
     )
     parser.add_argument("--raw", action="store_true", help="uncolored JSON output")
 

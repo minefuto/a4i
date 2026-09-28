@@ -683,8 +683,9 @@ def _cli_get_options() -> set[str]:
     return {
         action.dest
         for action in parser._actions
-        # --raw is about colouring a terminal, which an MCP client has none of.
-        if action.dest not in {"help", "raw"}
+        # --raw is about colouring a terminal, which an MCP client has none of, and
+        # --config is a shell pipe's shortcut: an agent sends config-only and reads imdata.
+        if action.dest not in {"help", "raw", "config"}
     }
 
 
