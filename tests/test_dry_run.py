@@ -327,3 +327,21 @@ def test_a_malformed_child_is_refused_rather_than_skipped() -> None:
     with pytest.raises(ValueError) as exc:
         dry_run_compare(body)
     assert "not an MO" in str(exc.value)
+
+
+# -- a body below what it describes ------------------------------------------
+
+
+def test_an_ancestor_the_body_does_not_describe_is_taken_as_there() -> None:
+    body = mo("fvBD", {"dn": "uni/tn-demo/BD-bd1", "arpFlood": "yes"})
+    changes = dry_run.check("uni/tn-demo/BD-bd1", body, kind="mo", fabric=TENANT)
+    assert [(c.kind, c.dn) for c in changes] == [("modified", "uni/tn-demo/BD-bd1")]
+
+
+def test_an_ancestor_the_body_does_not_describe_is_a_warning_when_absent() -> None:
+    body = mo("fvBD", {"dn": "uni/tn-other/BD-bd1"})
+    changes = dry_run.check("uni/tn-other/BD-bd1", body, kind="mo", fabric=TENANT)
+    assert [(c.kind, c.dn) for c in changes] == [
+        ("created", "uni/tn-other/BD-bd1"),
+        ("warning", "uni/tn-other"),
+    ]

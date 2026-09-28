@@ -14,6 +14,7 @@ from a4i._validate import read_body
 
 _CREATED_CONFLICT = 'status="created" but the MO already exists; the POST will fail'
 _MODIFIED_CONFLICT = 'status="modified" but the MO does not exist; the POST will fail'
+_FILLED_MISSING = "the body hangs under this MO, which does not exist; the POST will fail"
 _NO_TARGET_DN = (
     "cannot determine the target DN for a dry run "
     '(post to an mo target, or give a "dn" attribute in the body)'
@@ -59,8 +60,18 @@ def rooted(target: str, kind: str, body: Any) -> list[Any]:
     return found
 
 
+# The MOs the body itself stands at, each read as a subtree. What loose filled in above
+# them is read on its own, see filled: its subtree is everything the body leaves alone.
 def roots(index: dict[str, Any]) -> list[str]:
-    return [dn for dn in index if parent_dn(dn) not in index]
+    return [
+        dn
+        for dn, node in index.items()
+        if not node.filled and (parent_dn(dn) not in index or index[parent_dn(dn)].filled)
+    ]
+
+
+def filled(index: dict[str, Any]) -> list[str]:
+    return [dn for dn, node in index.items() if node.filled]
 
 
 def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Change]:
@@ -74,12 +85,13 @@ def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Chan
 
     Nothing is sent. An empty list means the POST would change nothing at all.
 
-    The fabric side is read with ``loose``, since a body posted below uni names
-    a DN whose ancestors carry no configuration of their own to have come back.
+    Both sides are read with ``loose``, since a body posted below uni names a DN
+    whose ancestors it does not describe. An ancestor filled in that way is taken
+    to be on the fabric already, and a warning if it is not.
     """
 
     _, parsed = read_body(body)
-    intended = merge.read(rooted(target, kind, parsed))
+    intended = merge.read(rooted(target, kind, parsed), loose=True)
     return compare(intended, merge.read(fabric, loose=True))
 
 
@@ -94,6 +106,10 @@ def compare(intended: Intended, current: Intended) -> list[Change]:
         attributes = node.attributes
         status = _status(attributes)
         existing = current.index.get(dn)
+        if node.filled:
+            if existing is None:
+                changes.append(Change("warning", node.class_name, dn, message=_FILLED_MISSING))
+            continue
         if "deleted" in status:
             # Deleting an MO that is not there changes nothing, and the APIC
             # accepts it without complaint.

@@ -181,3 +181,14 @@ def test_a_configuration_may_arrive_as_json_text() -> None:
 
     config = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "prod"}}}
     assert plan.create(json.dumps(config), fabric=CURRENT) == plan.create(config, fabric=CURRENT)
+
+
+def test_an_undescribed_ancestor_is_carried_as_a_container() -> None:
+    built = _plan({"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-bd1", "mtu": "9000"}}})
+    [tenant] = _children(built)
+    assert tenant["fvTenant"]["attributes"] == {"rn": "tn-demo", "status": "modified"}
+
+
+def test_an_undescribed_ancestor_the_fabric_lacks_is_refused() -> None:
+    with pytest.raises(ValueError, match="1 warning"):
+        _plan({"fvBD": {"attributes": {"dn": "uni/tn-other/BD-bd1"}}})

@@ -1,5 +1,6 @@
 # a4i._diff and a4i._dry_run read both of their sides through read, so what one of the
-# three refuses the other two refuse as well.
+# three refuses the other two refuse as well -- bar an undescribed ancestor, which
+# a4i._dry_run and a4i._plan read with loose.
 
 from __future__ import annotations
 
@@ -239,7 +240,7 @@ def _fill_the_undescribed(index: dict[str, Mo], undescribed: dict[str, str]) -> 
         if class_name is None:
             left[dn] = undescribed[dn]
             continue
-        index[dn] = Mo(class_name, dn)
+        index[dn] = Mo(class_name, dn, filled=True)
         parent = parent_dn(dn)
         if parent is not None:
             below.setdefault(parent, []).append(class_name)
@@ -364,6 +365,9 @@ class Mo:
     class_name: str
     dn: str
     attributes: dict[str, str] = field(default_factory=dict)
+    # Put there by loose rather than written by anyone: it says the MO is on the fabric
+    # already, never that it should be.
+    filled: bool = False
 
 
 # excluded is for a4i._diff alone. merge excludes nothing: dropping an MO from a body

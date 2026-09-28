@@ -264,6 +264,19 @@ def test_dry_run_folds_two_roots_naming_one_mo_into_one_comparison(client, state
     assert [(c.kind, c.attributes) for c in changes] == [("modified", {"name": ("common", "b")})]
 
 
+# The tenant is only asked whether it is there: its subtree is what the body leaves alone.
+def test_dry_run_reads_an_undescribed_ancestor_on_its_own(client, state) -> None:
+    changes = client.dry_run(
+        "uni/tn-common/BD-default", {"fvBD": {"attributes": {"descr": "x"}}}, kind="mo"
+    )
+    assert state["mo_requests"] == {
+        "/api/mo/uni/tn-common/BD-default.json": 1,
+        "/api/mo/uni/tn-common.json": 1,
+    }
+    assert state["last_params"] == {"rsp-prop-include": "naming-only"}
+    assert [(c.kind, c.dn) for c in changes] == [("modified", "uni/tn-common/BD-default")]
+
+
 def test_dry_run_splits_a_wrapped_body_into_one_request_per_top_level_mo(client, state) -> None:
     # uni fetched whole with rsp-subtree=full is the request a large fabric times
     # out on, and the wrapper carries no configuration of its own, so each MO under

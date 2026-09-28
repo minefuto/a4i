@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 # may reach into it, and only the settable properties, because only those change.
 _CURRENT_STATE = {"rsp-subtree": "full", "rsp-prop-include": "config-only"}
 
+# An ancestor the body does not describe is only asked whether it is there.
+_EXISTS = {"rsp-prop-include": "naming-only"}
+
 # "config-only" rather than "naming-only" because this list decides what gets
 # walked: uni's runtime children would only be reported extra. It returns the DNs
 # all the same.
@@ -207,7 +210,8 @@ class Client:
         a fabric missing everything past the page, and every MO on the far side
         of it would be reported as one this POST creates. A body wrapped in
         ``polUni`` is fetched one top-level subtree at a time rather than as uni
-        whole, as :meth:`fetch` reads it.
+        whole, as :meth:`fetch` reads it. An ancestor the body hangs under but
+        does not describe is read on its own, never its subtree.
 
         A caller already holding a fabric -- :meth:`fetch` returns one -- calls
         :func:`a4i.dry_run` with it instead, and sends nothing. That is
@@ -219,8 +223,9 @@ class Client:
         """
 
         _, parsed = read_body(body)
-        intended = merge.read(dry_run.rooted(target, kind, parsed))
+        intended = merge.read(dry_run.rooted(target, kind, parsed), loose=True)
         current = self._fetch_subtrees(dry_run.roots(intended.index))
+        current += self._fetch_subtrees(dry_run.filled(intended.index), _EXISTS)
         return dry_run.check(target, parsed, kind=kind, fabric=current)
 
     def fetch(self) -> dict[str, Any]:
@@ -257,10 +262,12 @@ class Client:
     def _fetch_uni(self) -> list[Any]:
         return self._fetch_subtrees(self._top_level_dns())
 
-    def _fetch_subtrees(self, dns: Sequence[str]) -> list[Any]:
+    def _fetch_subtrees(
+        self, dns: Sequence[str], params: dict[str, str] = _CURRENT_STATE
+    ) -> list[Any]:
         imdata: list[Any] = []
         for dn in dns:
-            data = self._fetch(dn, dict(_CURRENT_STATE))
+            data = self._fetch(dn, dict(params))
             imdata.extend(data.get("imdata") or [])
         return imdata
 
@@ -420,8 +427,9 @@ class AsyncClient:
         """
 
         _, parsed = read_body(body)
-        intended = merge.read(dry_run.rooted(target, kind, parsed))
+        intended = merge.read(dry_run.rooted(target, kind, parsed), loose=True)
         current = await self._fetch_subtrees(dry_run.roots(intended.index))
+        current += await self._fetch_subtrees(dry_run.filled(intended.index), _EXISTS)
         return dry_run.check(target, parsed, kind=kind, fabric=current)
 
     async def fetch(self) -> dict[str, Any]:
@@ -439,10 +447,12 @@ class AsyncClient:
     async def _fetch_uni(self) -> list[Any]:
         return await self._fetch_subtrees(await self._top_level_dns())
 
-    async def _fetch_subtrees(self, dns: Sequence[str]) -> list[Any]:
+    async def _fetch_subtrees(
+        self, dns: Sequence[str], params: dict[str, str] = _CURRENT_STATE
+    ) -> list[Any]:
         imdata: list[Any] = []
         for dn in dns:
-            data = await self._fetch(dn, dict(_CURRENT_STATE))
+            data = await self._fetch(dn, dict(params))
             imdata.extend(data.get("imdata") or [])
         return imdata
 

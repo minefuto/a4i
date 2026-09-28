@@ -49,7 +49,7 @@ def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     """
 
     _, parsed = read_body(config)
-    intended = merge.read(parsed)
+    intended = merge.read(parsed, loose=True)
     if not intended.index:
         raise ValueError(merge.EMPTY)
     changes = dry_run.compare(intended, merge.read(fabric, loose=True))
