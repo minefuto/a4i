@@ -66,7 +66,7 @@ def roots(index: dict[str, Any]) -> list[str]:
     return [
         dn
         for dn, node in index.items()
-        if not node.filled and (parent_dn(dn) not in index or index[parent_dn(dn)].filled)
+        if not node.filled and ((parent := parent_dn(dn)) not in index or parent is None or index[parent].filled)
     ]
 
 

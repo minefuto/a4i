@@ -511,7 +511,7 @@ def _one_body(arguments: dict[str, Any]) -> Any:
     from a4i._validate import read_body
 
     body = arguments.get("body")
-    patterns = arguments.get("paths")
+    patterns = arguments.get("paths") or []
     if (body is None) == (not patterns):
         raise ToolError(
             "give exactly one of 'body' (an ACI body) or 'paths' (files or glob patterns)"
