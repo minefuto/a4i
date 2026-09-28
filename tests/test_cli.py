@@ -355,6 +355,14 @@ def _run_dry_run(monkeypatch, argv: list[str], response=None) -> tuple[int, list
     return cli.main(argv), sent
 
 
+# A body written inline goes in on stdin, where a command given no path reads it.
+def _body_on_stdin(monkeypatch, argv: list[str]) -> list[str]:
+    if len(argv) > 1 and argv[1][:1] in "{[":
+        monkeypatch.setattr("sys.stdin", io.StringIO(argv[1]))
+        return [argv[0], *argv[2:]]
+    return argv
+
+
 # The requests are still recorded, and a plan should make none of them: what it compares
 # against was read by the fetch before it.
 def _run_plan(monkeypatch, argv: list[str], response=None) -> tuple[int, list[dict]]:
@@ -362,7 +370,7 @@ def _run_plan(monkeypatch, argv: list[str], response=None) -> tuple[int, list[di
     held = TENANT if response is None else response
     _record(monkeypatch, sent, held)
     _hold(monkeypatch, held)
-    return cli.main(argv), sent
+    return cli.main(_body_on_stdin(monkeypatch, argv)), sent
 
 
 def test_dry_run_gets_the_current_subtree_and_never_posts(monkeypatch, capsys) -> None:
@@ -551,21 +559,6 @@ def test_plan_refuses_an_mo_that_does_not_sit_under_uni(monkeypatch, capsys) -> 
     assert code == 1
 
 
-def test_plan_writes_to_a_file_and_refuses_to_overwrite_one(monkeypatch, capsys, tmp_path) -> None:
-    out = tmp_path / "plan.json"
-    body = '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}'
-    code, _ = _run_plan(monkeypatch, ["plan", body, "-o", str(out)])
-    assert code == 0
-    assert json.loads(out.read_text())["polUni"]["attributes"] == {"dn": "uni"}
-    # Nothing on stdout: the body went to the file.
-    assert capsys.readouterr().out == ""
-
-    code, _ = _run_plan(monkeypatch, ["plan", body, "-o", str(out)])
-    assert code == 1
-    assert "--force" in capsys.readouterr().err
-    assert _run_plan(monkeypatch, ["plan", body, "-o", str(out), "--force"])[0] == 0
-
-
 def test_plan_reads_the_body_from_stdin(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "sys.stdin", io.StringIO('{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"prod"}}}')
@@ -580,10 +573,24 @@ def test_plan_reads_the_body_from_stdin(monkeypatch, capsys) -> None:
     )
 
 
+def test_plan_folds_several_files_in_order(monkeypatch, capsys, tmp_path) -> None:
+    paths = []
+    for name, descr in (("10-base.json", "old"), ("20-over.json", "prod")):
+        path = tmp_path / name
+        path.write_text(
+            json.dumps({"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": descr}}})
+        )
+        paths.append(str(path))
+    code, _ = _run_plan(monkeypatch, ["plan", *paths])
+    assert code == 0
+    (child,) = json.loads(capsys.readouterr().out)["polUni"]["children"]
+    assert child["fvTenant"]["attributes"]["descr"] == "prod"
+
+
 def test_plan_without_a_fetch_says_to_fetch(monkeypatch, capsys) -> None:
     _hold_nothing(monkeypatch)
     body = '{"fvTenant":{"attributes":{"dn":"uni/tn-demo","descr":"x"}}}'
-    assert cli.main(["plan", body]) == 1
+    assert cli.main(_body_on_stdin(monkeypatch, ["plan", body])) == 1
     captured = capsys.readouterr()
     assert "no fabric has been fetched" in captured.err
     # What dropped it, because a post drops it under a caller who did nothing else.
@@ -699,7 +706,7 @@ def _run_diff(monkeypatch, argv: list[str]) -> tuple[int, list[dict]]:
     body = Client(_transport=DaemonTransport()).fetch()
     monkeypatch.setattr(ipc, "fabric", lambda: body)
     sent.clear()
-    return cli.main(argv), sent
+    return cli.main(_body_on_stdin(monkeypatch, argv)), sent
 
 
 def test_diff_asks_the_fabric_for_nothing(monkeypatch) -> None:
@@ -713,8 +720,7 @@ def test_diff_reports_a_clean_fabric_with_a_clean_exit(monkeypatch, capsys) -> N
     assert code == 0
 
 
-def test_diff_takes_the_body_as_an_argument_or_on_stdin(monkeypatch, capsys) -> None:
-    # As post does: the argument is the body itself, never a path to one.
+def test_diff_reads_the_body_from_stdin(monkeypatch, capsys) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(INTENDED)))
     code, _ = _run_diff(monkeypatch, ["diff"])
     assert capsys.readouterr().out.strip() == "no differences"
@@ -855,7 +861,7 @@ def test_diff_refuses_an_mo_it_cannot_tell_from_the_ones_on_the_fabric(monkeypat
 
 def test_diff_without_a_fetch_says_to_fetch(monkeypatch, capsys) -> None:
     _hold_nothing(monkeypatch)
-    assert cli.main(["diff", json.dumps(INTENDED)]) == 1
+    assert cli.main(_body_on_stdin(monkeypatch, ["diff", json.dumps(INTENDED)])) == 1
     captured = capsys.readouterr()
     assert "no fabric has been fetched" in captured.err
     assert "dropped by a post" in captured.err

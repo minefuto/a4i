@@ -129,6 +129,29 @@ _QUERY_PROPERTIES: dict[str, Any] = {
 }
 
 
+# The intended configuration, as merge, diff and plan each take it: exactly one of these.
+_CONFIG: dict[str, Any] = {
+    "body": {
+        "type": ["object", "array", "string"],
+        "description": (
+            "The configuration as one ACI body: a polUni with children, a single MO, a "
+            "list of them (folded in order, later values winning), or the same as JSON "
+            "text. Give this or 'paths'."
+        ),
+    },
+    "paths": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "Files to read the configuration from instead, each a path or a glob pattern "
+            "('conf/**/*.json' reaches into subdirectories), folded in order with later "
+            "values winning. A pattern's matches are taken in path order. A directory is "
+            "refused: give a pattern for the files in it."
+        ),
+    },
+}
+
+
 def _tool(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict:
     return {
         "name": name,
@@ -183,30 +206,14 @@ MERGE = _tool(
     "MO nested under the MO it hangs off, which is what diff compares against and what "
     "a post to 'uni' takes. Every DN on the way down from 'uni' has to be described by "
     "something, unless 'loose' says to fill it in. Touches the fabric not at all. Use "
-    "this whenever a configuration is spread across files: diff and post each take one "
-    "body.",
+    "this to write a configuration spread across files out as the one body post takes.",
     {
-        "paths": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": (
-                "Files to read the configuration from, or directories searched for "
-                "*.json recursively. Merged in the order given."
-            ),
-        },
-        "configs": {
-            "type": "array",
-            "items": {"type": ["object", "array"]},
-            "description": (
-                "Further ACI bodies given inline, merged after everything read from "
-                "'paths' -- so these win. Use this for a body you have just written."
-            ),
-        },
+        **_CONFIG,
         "output": {
             "type": "string",
             "description": (
                 "Write the merged body to this file and return a summary instead of the "
-                "body itself, then pass the same path to diff as 'path'. Do this for a "
+                "body itself, then pass the same path to diff as 'paths'. Do this for a "
                 "configuration of any size: it keeps the whole body out of the "
                 "conversation. An existing file is refused unless 'overwrite' is true."
             ),
@@ -234,25 +241,11 @@ DIFF = _tool(
     "both ways: what the configuration asks for and the fabric lacks, and what the "
     "fabric carries and the configuration never mentions. Reads only, and sends nothing "
     "to the APIC: the fabric side is what fetch last read, so call fetch first, and "
-    "again after any post. Takes one body, "
-    "as post does -- run merge first if the configuration is spread across files. Note "
+    "again after any post. Several files are folded as merge folds them. Note "
     "that the configuration is taken to describe the whole of 'uni', so anything it "
     "omits is reported as extra -- use 'exclude' for the subtrees you are not describing.",
     {
-        "body": {
-            "type": ["object", "array", "string"],
-            "description": (
-                "The intended configuration as one ACI body: a polUni with children, a "
-                "single MO, a list of them, or the same as JSON text. Give this or 'path'."
-            ),
-        },
-        "path": {
-            "type": "string",
-            "description": (
-                "Read the one body from this file instead -- typically what merge wrote. "
-                "A single file, not a directory: merge is what reads several."
-            ),
-        },
+        **_CONFIG,
         "exclude": {
             "type": "array",
             "items": {"type": "string"},
@@ -309,20 +302,7 @@ PLAN = _tool(
     'ones it marks status="created". Refused if the comparison warns the post '
     "would fail.",
     {
-        "body": {
-            "type": ["object", "array", "string"],
-            "description": (
-                "The intended configuration as one ACI body: a polUni with children, a "
-                "single MO, a list of them, or the same as JSON text. Give this or 'path'."
-            ),
-        },
-        "path": {
-            "type": "string",
-            "description": (
-                "Read the one body from this file instead -- typically what merge wrote. "
-                "A single file, not a directory: merge is what reads several."
-            ),
-        },
+        **_CONFIG,
         "output": {
             "type": "string",
             "description": (
@@ -481,23 +461,9 @@ def _dry_run(arguments: dict[str, Any]) -> str:
 def _merge(arguments: dict[str, Any]) -> str:
     from a4i import _config as config
     from a4i._merge import UndescribedError, count, merge
-    from a4i._validate import problems, refuse
 
-    paths = list(arguments.get("paths") or [])
     try:
-        configs: list[Any] = config.load(paths) if paths else []
-    except OSError as exc:
-        raise ToolError(f"cannot read the configuration: {exc}") from None
-    # Inline bodies go last, so one written here wins over what the files say.
-    # Checked here rather than left to merge, so that a bad one is named by its
-    # position in this argument rather than after the files were counted in.
-    inline = list(arguments.get("configs") or [])
-    refuse([p for i, body in enumerate(inline) for p in problems(body, f"configs[{i}]")])
-    configs.extend(inline)
-    if not configs:
-        raise ToolError("give 'paths' (files or directories) or 'configs' (inline ACI bodies)")
-    try:
-        body = merge(*configs, loose=bool(arguments.get("loose")))
+        body = merge(_one_body(arguments), loose=bool(arguments.get("loose")))
     except UndescribedError as exc:
         # The rule is merge's; the way out is this tool's own argument, so it is
         # named here -- as 'overwrite' is below.
@@ -512,7 +478,7 @@ def _merge(arguments: dict[str, Any]) -> str:
             raise ToolError(
                 f"The merged configuration is {len(text):,} bytes, over the "
                 f"{max_bytes():,} byte limit. Nothing was truncated -- pass 'output' with a "
-                "file path to write it there instead, then give that path to diff as 'path'."
+                "file path to write it there instead, then give that path to diff as 'paths'."
             )
         return text
     try:
@@ -523,7 +489,7 @@ def _merge(arguments: dict[str, Any]) -> str:
         raise ToolError(f"{exc} (pass overwrite: true to replace it)") from None
     except OSError as exc:
         raise ToolError(f"cannot write {output}: {exc}") from None
-    return f"merged {count(body)} MOs into {output}; pass it to diff as path='{output}'"
+    return f"merged {count(body)} MOs into {output}; pass it to diff as paths=['{output}']"
 
 
 def _fetch(arguments: dict[str, Any]) -> str:
@@ -538,23 +504,30 @@ def _fetch(arguments: dict[str, Any]) -> str:
     )
 
 
-def _one_body(arguments: dict[str, Any], tool: str) -> Any:
-    from pathlib import Path
+def _one_body(arguments: dict[str, Any]) -> Any:
+    import glob
+
+    from a4i import _config as config
+    from a4i._validate import read_body
 
     body = arguments.get("body")
-    path = arguments.get("path")
-    if (body is None) == (path is None):
-        raise ToolError("give exactly one of 'body' (an ACI body) or 'path' (a file holding one)")
-    if body is not None:
-        return body
-    target = Path(str(path))
-    if target.is_dir():
+    patterns = arguments.get("paths")
+    if (body is None) == (not patterns):
         raise ToolError(
-            f"{path} is a directory, and {tool} takes one configuration. Run merge over "
-            "it with an 'output' path, then give that file here."
+            "give exactly one of 'body' (an ACI body) or 'paths' (files or glob patterns)"
         )
+    if body is not None:
+        return read_body(body)[1]
+    # There is no shell here to expand a pattern, so this does it, as a shell would.
+    # And with no path at all, load would read stdin, which is this server's protocol.
+    paths: list[str] = []
+    for pattern in patterns:
+        found = sorted(glob.glob(pattern, recursive=True))
+        if not found:
+            raise ToolError(f"{pattern} matches no file")
+        paths.extend(found)
     try:
-        return target.read_text()
+        return config.load(paths)
     except OSError as exc:
         raise ToolError(f"cannot read the configuration: {exc}") from None
 
@@ -566,7 +539,7 @@ def _plan(arguments: dict[str, Any]) -> str:
     from a4i._merge import count
     from a4i._output import plural
 
-    body = _one_body(arguments, "plan")
+    body = _one_body(arguments)
     try:
         narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
@@ -588,7 +561,7 @@ def _diff(arguments: dict[str, Any]) -> str:
     from a4i import _ipc as ipc
     from a4i._output import diff_report
 
-    body = _one_body(arguments, "diff")
+    body = _one_body(arguments)
     changes = diff.compare(
         body,
         fabric=ipc.fabric(),

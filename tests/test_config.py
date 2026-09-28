@@ -25,21 +25,6 @@ def test_a_named_file_is_read_whatever_it_is_called(tmp_path) -> None:
     assert config.load([_write(tmp_path, "intended.txt", BASE)]) == [BASE]
 
 
-def test_a_directory_is_read_in_path_order(tmp_path) -> None:
-    # The reading order is the merge order, so a numeric prefix is what decides
-    # which file's value survives.
-    _write(tmp_path, "20-rest.json", OVERRIDE)
-    _write(tmp_path, "10-base.json", BASE)
-    assert config.load([str(tmp_path)]) == [BASE, OVERRIDE]
-
-
-def test_a_directory_is_walked_recursively_and_nothing_but_json_is_read(tmp_path) -> None:
-    _write(tmp_path, "sub/tn.json", BASE)
-    _write(tmp_path, "README.md", "not json at all")
-    _write(tmp_path, "tn.json.bak", "{broken")
-    assert config.load([str(tmp_path)]) == [BASE]
-
-
 def test_the_paths_are_read_in_the_order_given(tmp_path) -> None:
     wrong = _write(tmp_path, "a.json", BASE)
     right = _write(tmp_path, "b.json", OVERRIDE)
@@ -48,9 +33,9 @@ def test_the_paths_are_read_in_the_order_given(tmp_path) -> None:
     assert config.load([right, wrong]) == [OVERRIDE, BASE]
 
 
-def test_a_dash_reads_stdin(monkeypatch) -> None:
+def test_no_path_reads_stdin(monkeypatch) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(BASE)))
-    assert config.load(["-"]) == [BASE]
+    assert config.load([]) == [BASE]
 
 
 def test_a_file_that_is_not_json_is_named_in_the_error(tmp_path) -> None:
@@ -68,35 +53,28 @@ def test_a_path_that_is_not_there_is_an_oserror(tmp_path) -> None:
 def test_a_file_that_is_not_written_as_aci_expects_is_named_in_the_error(tmp_path) -> None:
     # The whole reason the check runs here: merge is handed parsed bodies and
     # could not say which of thirty files the bad element sits in.
-    _write(tmp_path, "10-good.json", BASE)
-    _write(tmp_path, "20-bad.json", [BASE, {"totalCount": "1", "imdata": []}])
+    good = _write(tmp_path, "10-good.json", BASE)
+    bad = _write(tmp_path, "20-bad.json", [BASE, {"totalCount": "1", "imdata": []}])
     with pytest.raises(ValueError) as exc:
-        config.load([str(tmp_path)])
+        config.load([good, bad])
     assert "20-bad.json: [1]" in str(exc.value)
     assert "10-good.json" not in str(exc.value)
 
 
 def test_every_file_is_read_before_any_of_them_is_refused(tmp_path) -> None:
     # One run names everything to fix, rather than one file per run.
-    _write(tmp_path, "10-a.json", ["a"])
-    _write(tmp_path, "20-b.json", ["b"])
+    a = _write(tmp_path, "10-a.json", ["a"])
+    b = _write(tmp_path, "20-b.json", ["b"])
     with pytest.raises(ValueError) as exc:
-        config.load([str(tmp_path)])
+        config.load([a, b])
     assert "10-a.json" in str(exc.value)
     assert "20-b.json" in str(exc.value)
 
 
 def test_a_file_describing_nothing_is_no_bar_to_the_ones_that_do(tmp_path) -> None:
-    _write(tmp_path, "10-placeholder.json", [])
-    _write(tmp_path, "20-tn.json", BASE)
-    assert config.load([str(tmp_path)]) == [[], BASE]
-
-
-def test_finding_no_configuration_is_not_an_error(tmp_path) -> None:
-    # A directory holding nothing to read yields nothing. What that means is
-    # merge's to decide, not this module's.
-    _write(tmp_path, "README.md", "not json at all")
-    assert config.load([str(tmp_path)]) == []
+    placeholder = _write(tmp_path, "10-placeholder.json", [])
+    tn = _write(tmp_path, "20-tn.json", BASE)
+    assert config.load([placeholder, tn]) == [BASE]
 
 
 # -- writing ---------------------------------------------------------------
@@ -109,8 +87,6 @@ def test_the_text_is_written_with_a_trailing_newline(tmp_path) -> None:
 
 
 def test_a_file_that_is_already_there_is_refused(tmp_path) -> None:
-    # "> conf/all.json" would truncate the file before a4i ran, and an output
-    # path inside the input directory is the easy mistake to make.
     out = tmp_path / "tn.json"
     out.write_text("keep me")
     with pytest.raises(FileExistsError) as exc:
@@ -119,8 +95,7 @@ def test_a_file_that_is_already_there_is_refused(tmp_path) -> None:
     assert out.read_text() == "keep me"
 
 
-# 'a4i merge' says --force and the MCP merge tool says overwrite: true, so a remedy
-# written here would be wrong for one of them.
+# The MCP merge and plan tools each phrase the way out in their own words.
 def test_the_refusal_names_no_way_out(tmp_path) -> None:
     out = tmp_path / "tn.json"
     out.write_text("keep me")

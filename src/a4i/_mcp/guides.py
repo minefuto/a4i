@@ -190,10 +190,11 @@ the two it did.
 
 ## Applying a whole configuration
 
-1. `merge` folds a configuration spread across files or directories into the one
-   body the rest of this path takes, later values winning attribute by
-   attribute. Give it an `output` path and pass that path on, so a whole
-   fabric's configuration never travels through this conversation.
+1. `merge`, `diff` and `plan` each take the configuration as `paths` (files or
+   glob patterns, folded in order, later values winning attribute by attribute)
+   or as one inline `body`. Give them `paths`, so a whole fabric's
+   configuration never travels through this conversation; `merge` with an
+   `output` path writes it out as the one body `dry_run` and `post` take.
 2. `fetch` reads the whole of `uni` into the session and returns only how much
    that was. `diff` and `plan` compare against what it read and send nothing to
    the APIC themselves, so one `fetch` serves any number of them.
@@ -214,8 +215,8 @@ a login, a logout and a session expiry. After any of those, `fetch` again. A
 `diff` or `plan` with nothing to compare against says so and stops rather than
 reading a fabric nobody asked for.
 
-`diff` takes one intended configuration -- a `body` inline, or a `path` to a file
-holding one -- and compares it against everything `fetch` read, both ways: what
+`diff` takes one intended configuration -- a `body` inline, or `paths` to the
+files holding it -- and compares it against everything `fetch` read, both ways: what
 the configuration asks for and the fabric lacks, and what the fabric carries and
 the configuration never mentions.
 
@@ -344,9 +345,9 @@ writing anything. `fetch`, `diff` and `plan` are for that path only; `dry_run`
 uses a fetched fabric when there is one and reads what your body names when
 there is not, and says which it did.
 
-`post` and `diff` each take one body. Give `merge` an `output` path and hand
-that path to `diff` as `path`, so a whole fabric's configuration never travels
-through this conversation.
+`post` takes one body. Give `diff` and `plan` the configuration's files as
+`paths`, so a whole fabric's configuration never travels through this
+conversation.
 
 Writing a body: an MO is `{"className": {"attributes": {...}, "children": [...]}}`.
 Children are named by a naming property (`name`, `ip`, ...), not by DN -- `fvBD`

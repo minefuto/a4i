@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import pathlib
 
 import pytest
 
@@ -544,10 +543,10 @@ def test_merge_reports_what_it_could_not_read(capsys, tmp_path) -> None:
     assert "invalid JSON" in err
 
 
-def test_merge_reports_a_directory_holding_no_configuration(capsys, tmp_path) -> None:
-    _write(tmp_path, "README.md", "not json at all")
-    assert cli.main(["merge", str(tmp_path)]) == 1
-    assert "empty" in capsys.readouterr().err
+def test_merge_reads_stdin_when_given_no_path(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(BASE)))
+    assert cli.main(["merge"]) == 0
+    assert dns(_merged(capsys)) == ["uni/tn-demo"]
 
 
 def test_merge_fills_in_a_missing_ancestor_when_told_to(capsys, tmp_path) -> None:
@@ -565,41 +564,6 @@ def test_merge_names_the_way_out_when_an_ancestor_is_undescribed(capsys, tmp_pat
     err = capsys.readouterr().err
     assert "nothing describes" in err
     assert "--loose" in err
-
-
-def test_merge_writes_to_a_file_when_asked(capsys, tmp_path) -> None:
-    out = tmp_path / "merged.json"
-    assert cli.main(["merge", _write(tmp_path, "tn.json", BASE), "-o", str(out)]) == 0
-    assert capsys.readouterr().out == ""
-    assert dns(json.loads(out.read_text())) == ["uni/tn-demo"]
-
-
-def test_merge_names_the_way_out_when_it_refuses_to_overwrite(capsys, tmp_path) -> None:
-    # a4i._config names the path; naming --force is this command's own to add, and
-    # FileExistsError is an OSError, so a handler that let it fall through would
-    # say "already exists" and leave the reader nowhere to go.
-    intended = _write(tmp_path, "tn.json", BASE)
-    assert cli.main(["merge", intended, "-o", intended]) == 1
-    err = capsys.readouterr().err
-    assert "already exists" in err
-    assert "--force" in err
-    assert json.loads(pathlib.Path(intended).read_text()) == BASE
-
-
-def test_merge_overwrites_when_forced(tmp_path) -> None:
-    intended = _write(tmp_path, "tn.json", BASE)
-    assert cli.main(["merge", intended, "-o", intended, "--force"]) == 0
-    assert dns(json.loads(pathlib.Path(intended).read_text())) == ["uni/tn-demo"]
-
-
-def test_merge_reads_everything_before_it_writes_anything(tmp_path) -> None:
-    # Survivable only because the write comes last: the merged body still carries
-    # what the overwritten file said.
-    first = _write(tmp_path, "10-base.json", BASE)
-    _write(tmp_path, "20-rest.json", OVERRIDE)
-    assert cli.main(["merge", str(tmp_path), "-o", first, "--force"]) == 0
-    ((_, tenant),) = children(json.loads(pathlib.Path(first).read_text()))
-    assert tenant["descr"] == "right"
 
 
 # -- merge into diff -------------------------------------------------------
@@ -634,8 +598,10 @@ FABRIC = {
 # though it were absolute, say -- with every unit test passing. So one case runs the
 # real pipe.
 def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> None:
-    _write(tmp_path, "10-base.json", {"fvTenant": {"attributes": {"name": "demo", "descr": "no"}}})
-    _write(
+    base = _write(
+        tmp_path, "10-base.json", {"fvTenant": {"attributes": {"name": "demo", "descr": "no"}}}
+    )
+    over = _write(
         tmp_path,
         "20-over.json",
         {
@@ -645,8 +611,8 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
             }
         },
     )
-    merged = tmp_path / "merged.json"
-    assert cli.main(["merge", str(tmp_path), "-o", str(merged)]) == 0
+    assert cli.main(["merge", base, over]) == 0
+    merged = capsys.readouterr().out
 
     def get(target, kind, params, node, *, autostart=True):
         return FABRIC.get(target, {"imdata": []})
@@ -656,7 +622,7 @@ def test_what_merge_writes_is_what_diff_reads(monkeypatch, capsys, tmp_path) -> 
     # half this seam is fetch's reading.
     fabric = Client(_transport=DaemonTransport()).fetch()
     monkeypatch.setattr(ipc, "fabric", lambda: fabric)
-    monkeypatch.setattr("sys.stdin", io.StringIO(merged.read_text()))
+    monkeypatch.setattr("sys.stdin", io.StringIO(merged))
     # 0 is the fabric matching what the two files describe between them.
     assert cli.main(["diff"]) == 0
     assert capsys.readouterr().out.strip() == "no differences"

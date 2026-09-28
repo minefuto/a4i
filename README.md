@@ -99,11 +99,12 @@ read-only properties, `--children` the classes that may hang under this one, and
 ### Comparing a configuration
 
 `merge` folds a configuration written across several files into the one body
-that `diff` and `post` each take, later files winning attribute by attribute.
-Two files mean the same MO when they resolve to the same DN, however each one
-said so. The result is a `polUni` holding every merged MO nested under the MO it
-hangs off, which is the shape a POST to `uni` takes; `diff` compares that same
-body against everything the fabric has under `uni`.
+that `post` takes, later files winning attribute by attribute. Two files mean
+the same MO when they resolve to the same DN, however each one said so. The
+result is a `polUni` holding every merged MO nested under the MO it hangs off,
+which is the shape a POST to `uni` takes. `diff` and `plan` take the same files
+and fold them the same way; `diff` compares that body against everything the
+fabric has under `uni`.
 
 `fetch` is what reads the fabric. It walks everything under `uni` and leaves it
 in the daemon, where `diff` and `plan` take it from: they send nothing to the
@@ -112,10 +113,10 @@ prints what it read and nothing else -- the body is not output, because nothing
 downstream needs it in a file.
 
 ```sh
-a4i merge ./configs/ -o merged.json               # every *.json, in path order
+a4i merge configs/*.json > merged.json           # files merged in the order given
 a4i fetch                                         # read the fabric, once
-a4i diff merged.json
-a4i diff merged.json --exclude uni/tn-common --exclude uni/infra
+a4i diff configs/*.json                           # files folded as merge folds them
+a4i diff configs/*.json --exclude uni/tn-common --exclude uni/infra
 a4i post mo uni/tn-demo --dry-run '{"fvTenant":{"attributes":{"descr":"prod"}}}'
 ```
 
@@ -142,9 +143,8 @@ fetched fabric, and then plan and post it.
 ```sh
 a4i fetch
 a4i post mo uni merged.json --dry-run      # what would change
-a4i merge ./configs/ | a4i plan            # the body, on stdout
-a4i plan merged.json -o plan.json          # -o and --force, as merge takes them
-a4i plan merged.json -o plan.json && a4i post mo uni plan.json
+a4i plan configs/*.json                   # the body, on stdout
+a4i plan merged.json > plan.json && a4i post mo uni plan.json
 ```
 
 The body is shaped exactly as a merged one is, so the two can be read side by

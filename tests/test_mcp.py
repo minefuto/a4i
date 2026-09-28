@@ -391,37 +391,30 @@ def test_diff_takes_one_inline_body(daemon) -> None:
     assert "uni/tn-common" not in text
 
 
-def test_diff_reads_the_body_from_a_path(daemon, tmp_path) -> None:
+def test_diff_reads_the_body_from_paths(daemon, tmp_path) -> None:
     _login()
     _tool_text(Server(), "fetch", {})
     config = tmp_path / "fabric.json"
     config.write_text(json.dumps(INFRA))
     text, is_error = _tool_text(
-        Server(), "diff", {"path": str(config), "exclude": ["uni/tn-common"]}
+        Server(), "diff", {"paths": [str(config)], "exclude": ["uni/tn-common"]}
     )
     assert not is_error
     assert "uni/tn-common" not in text
 
 
-def test_diff_wants_a_body_or_a_path_and_not_both(daemon, tmp_path) -> None:
+def test_every_configuration_tool_wants_a_body_or_paths_and_not_both(daemon, tmp_path) -> None:
     _login()
-    for arguments in ({}, {"body": INFRA, "path": str(tmp_path / "x.json")}):
-        text, is_error = _tool_text(Server(), "diff", arguments)
-        assert is_error
-        assert "body" in text and "path" in text
-
-
-def test_diff_sends_a_directory_back_to_merge(daemon, tmp_path) -> None:
-    # A directory here would be diff reading several configurations again.
-    _login()
-    text, is_error = _tool_text(Server(), "diff", {"path": str(tmp_path)})
-    assert is_error
-    assert "merge" in text
+    for tool in ("merge", "diff", "plan"):
+        for arguments in ({}, {"body": INFRA, "paths": [str(tmp_path / "x.json")]}):
+            text, is_error = _tool_text(Server(), tool, arguments)
+            assert is_error
+            assert "body" in text and "paths" in text
 
 
 def test_diff_reports_a_path_that_is_not_there(daemon, tmp_path) -> None:
     _login()
-    text, is_error = _tool_text(Server(), "diff", {"path": str(tmp_path / "gone.json")})
+    text, is_error = _tool_text(Server(), "diff", {"paths": [str(tmp_path / "gone.json")]})
     assert is_error
     assert "gone.json" in text
 
@@ -459,21 +452,6 @@ def test_plan_writes_the_body_to_a_file_and_keeps_it_out_of_the_reply(daemon, tm
     assert "overwrite" in text
 
 
-def test_plan_wants_a_body_or_a_path_and_not_both(daemon, tmp_path) -> None:
-    _login()
-    for arguments in ({}, {"body": INFRA, "path": str(tmp_path / "x.json")}):
-        text, is_error = _tool_text(Server(), "plan", arguments)
-        assert is_error
-        assert "body" in text and "path" in text
-
-
-def test_plan_sends_a_directory_back_to_merge(daemon, tmp_path) -> None:
-    _login()
-    text, is_error = _tool_text(Server(), "plan", {"path": str(tmp_path)})
-    assert is_error
-    assert "merge" in text
-
-
 def test_plan_refuses_a_body_the_dry_run_warned_about(daemon) -> None:
     _login()
     _tool_text(Server(), "fetch", {})
@@ -499,41 +477,12 @@ def test_merge_returns_the_body_it_folded(no_daemon, tmp_path) -> None:
     assert body["polUni"]["children"][0]["fvTenant"]["attributes"]["rn"] == "tn-infra"
 
 
-def test_merge_lays_inline_bodies_over_what_the_files_say(no_daemon, tmp_path) -> None:
-    config = tmp_path / "fabric.json"
-    config.write_text(json.dumps({"fvTenant": {"attributes": {"name": "infra", "descr": "old"}}}))
-    text, _ = _tool_text(
-        Server(),
-        "merge",
-        {
-            "paths": [str(config)],
-            "configs": [{"fvTenant": {"attributes": {"name": "infra", "descr": "new"}}}],
-        },
-    )
-    (child,) = json.loads(text)["polUni"]["children"]
-    assert child["fvTenant"]["attributes"]["descr"] == "new"
-
-
-def test_merge_names_an_inline_body_by_its_place_in_the_argument(no_daemon, tmp_path) -> None:
-    # Not by its place after the files were counted in, which is a position the
-    # model never wrote.
-    config = tmp_path / "fabric.json"
-    config.write_text(json.dumps({"fvTenant": {"attributes": {"name": "infra"}}}))
-    text, is_error = _tool_text(
-        Server(),
-        "merge",
-        {"paths": [str(config)], "configs": [{"fvTenant": {"attributes": {"name": None}}}]},
-    )
-    assert is_error
-    assert "configs[0]" in text
-
-
 def test_merge_writes_to_a_file_and_keeps_the_body_out_of_the_answer(no_daemon, tmp_path) -> None:
     out = tmp_path / "merged.json"
     text, is_error = _tool_text(
         Server(),
         "merge",
-        {"configs": [{"fvTenant": {"attributes": {"name": "infra"}}}], "output": str(out)},
+        {"body": {"fvTenant": {"attributes": {"name": "infra"}}}, "output": str(out)},
     )
     assert not is_error
     assert "merged 1 MOs" in text and str(out) in text
@@ -543,7 +492,7 @@ def test_merge_writes_to_a_file_and_keeps_the_body_out_of_the_answer(no_daemon, 
 def test_merge_refuses_to_replace_a_file_unless_told_to(no_daemon, tmp_path) -> None:
     out = tmp_path / "merged.json"
     out.write_text("keep me")
-    arguments = {"configs": [{"fvTenant": {"attributes": {"name": "infra"}}}], "output": str(out)}
+    arguments = {"body": {"fvTenant": {"attributes": {"name": "infra"}}}, "output": str(out)}
     text, is_error = _tool_text(Server(), "merge", arguments)
     assert is_error
     assert "already exists" in text
@@ -559,23 +508,37 @@ def test_merge_refuses_to_replace_a_file_unless_told_to(no_daemon, tmp_path) -> 
 
 def test_merge_fills_in_a_missing_ancestor_only_when_told_to(no_daemon) -> None:
     orphan = [{"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-b"}}}]
-    text, is_error = _tool_text(Server(), "merge", {"configs": orphan})
+    text, is_error = _tool_text(Server(), "merge", {"body": orphan})
     assert is_error
     assert 'nothing describes "uni/tn-demo"' in text
     # The rule is a4i._merge's; naming this tool's own argument is what tells the
     # model how to go on.
     assert "loose: true" in text
 
-    text, is_error = _tool_text(Server(), "merge", {"configs": orphan, "loose": True})
+    text, is_error = _tool_text(Server(), "merge", {"body": orphan, "loose": True})
     assert not is_error
     (child,) = json.loads(text)["polUni"]["children"]
     assert child["fvTenant"]["attributes"] == {"rn": "tn-demo"}
 
 
-def test_merge_with_nothing_to_merge_says_what_it_wants(no_daemon) -> None:
-    text, is_error = _tool_text(Server(), "merge", {})
+def test_merge_expands_a_pattern_in_path_order_and_refuses_one_matching_nothing(
+    no_daemon, tmp_path
+) -> None:
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "20-rest.json").write_text(
+        json.dumps({"fvTenant": {"attributes": {"name": "infra", "descr": "right"}}})
+    )
+    (tmp_path / "10-base.json").write_text(
+        json.dumps({"fvTenant": {"attributes": {"name": "infra", "descr": "wrong"}}})
+    )
+    text, is_error = _tool_text(Server(), "merge", {"paths": [f"{tmp_path}/**/*.json"]})
+    assert not is_error
+    (child,) = json.loads(text)["polUni"]["children"]
+    assert child["fvTenant"]["attributes"]["descr"] == "right"
+
+    text, is_error = _tool_text(Server(), "merge", {"paths": [f"{tmp_path}/*.yaml"]})
     assert is_error
-    assert "paths" in text and "configs" in text
+    assert "matches no file" in text
 
 
 def test_fetch_holds_the_fabric_and_says_how_much_it_read(daemon) -> None:

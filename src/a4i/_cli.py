@@ -280,29 +280,29 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
-    """Compare the fabric against one intended configuration (body or stdin).
+    """Compare the fabric against an intended configuration (files or stdin).
 
     The fabric side is what 'a4i fetch' last read: this sends nothing to the
-    APIC, so run a fetch first, and again after any post. One body, as post
-    takes one body. A configuration written across several files is folded into
-    that one body first with 'a4i merge'.
+    APIC, so run a fetch first, and again after any post. Several files are
+    folded into one configuration as 'a4i merge' folds them.
     """
 
+    from a4i import _config as config
     from a4i import _diff as diff
     from a4i._output import print_error, render_diff
 
-    config = args.body if args.body is not None else sys.stdin.read()
     try:
         changes = diff.compare(
-            config,
+            config.load(args.paths),
             fabric=ipc.fabric(),
             expand=args.expand,
             exclude=args.exclude,
         )
-    except ValueError as exc:
-        # A configuration that is malformed, empty or names no single MO, or an
-        # --exclude that is refused. Nothing is printed: comparing the rest would
-        # report a fabric that matches on the strength of MOs never looked at.
+    except (OSError, ValueError) as exc:
+        # A file that cannot be read, a configuration that is malformed, empty or
+        # names no single MO, or an --exclude that is refused. Nothing is printed:
+        # comparing the rest would report a fabric that matches on the strength of
+        # MOs never looked at.
         print_error(str(exc))
         return 1
     except A4iError as exc:
@@ -336,30 +336,18 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     from a4i import _plan as plan_
     from a4i._output import print_error
 
-    body = args.body if args.body is not None else sys.stdin.read()
     try:
-        narrowed = plan_.create(body, fabric=ipc.fabric())
-    except ValueError as exc:
-        # A body that is not written as ACI expects, one holding an MO that cannot
-        # be placed under uni, or a dry run that warned the POST would fail.
+        narrowed = plan_.create(config.load(args.paths), fabric=ipc.fabric())
+    except (OSError, ValueError) as exc:
+        # A file that cannot be read, a body that is not written as ACI expects, one
+        # holding an MO that cannot be placed under uni, or a dry run that warned the
+        # POST would fail.
         # Nothing is printed: half a plan is a POST nobody read.
         print_error(str(exc))
         return 1
     except A4iError as exc:
         return _fail(exc)
-    text = json.dumps(narrowed, indent=2, ensure_ascii=False)
-    if args.output is None:
-        print(text)
-        return 0
-    try:
-        config.write(args.output, text, overwrite=args.force)
-    except FileExistsError as exc:
-        # Before the OSError below, which it is one of, as in _cmd_merge.
-        print_error(f"{exc} (pass --force to overwrite it)")
-        return 1
-    except OSError as exc:
-        print_error(str(exc))
-        return 1
+    print(json.dumps(narrowed, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -382,8 +370,7 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     from a4i._output import print_error
 
     try:
-        configs = config.load(args.paths)
-        body = merge(*configs, loose=args.loose)
+        body = merge(config.load(args.paths), loose=args.loose)
     except UndescribedError as exc:
         # Before the ValueError below, which it is one of. The rule is merge's;
         # the way out is this parser's option, so it is named here.
@@ -392,20 +379,7 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         print_error(str(exc))
         return 1
-    text = json.dumps(body, indent=2, ensure_ascii=False)
-    if args.output is None:
-        print(text)
-        return 0
-    try:
-        config.write(args.output, text, overwrite=args.force)
-    except FileExistsError as exc:
-        # Before the OSError below, which it is one of. The rule is the config
-        # module's; the way out is this parser's option, so it is named here.
-        print_error(f"{exc} (pass --force to overwrite it)")
-        return 1
-    except OSError as exc:
-        print_error(str(exc))
-        return 1
+    print(json.dumps(body, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -810,18 +784,9 @@ def build_parser() -> argparse.ArgumentParser:
     # which is what tells the shell to fall back on its own file completion.
     merge.add_argument(
         "paths",
-        nargs="+",
+        nargs="*",
         metavar="PATH",
-        help="JSON file, or directory searched for *.json ('-' reads stdin)",
-    )
-    merge.add_argument(
-        "-o",
-        "--output",
-        metavar="FILE",
-        help="write the merged body here instead of stdout",
-    )
-    merge.add_argument(
-        "--force", action="store_true", help="overwrite the output file if it exists"
+        help="JSON file; read one body from stdin if omitted",
     )
     merge.add_argument(
         "--loose",
@@ -845,17 +810,11 @@ def build_parser() -> argparse.ArgumentParser:
         description=_cmd_plan.__doc__,
     )
     plan.add_argument(
-        "body",
-        nargs="?",
-        help="the intended configuration as a JSON body; read from stdin if omitted",
+        "paths",
+        nargs="*",
+        metavar="PATH",
+        help="JSON file, folded in order as merge folds them; read one body from stdin if omitted",
     )
-    plan.add_argument(
-        "-o",
-        "--output",
-        metavar="FILE",
-        help="write the body here instead of stdout",
-    )
-    plan.add_argument("--force", action="store_true", help="overwrite the output file if it exists")
     # No --raw: the body is written out as 'a4i merge' writes one, plain either
     # way, so that a redirect and a terminal produce the same bytes.
     plan.set_defaults(func=_cmd_plan)
@@ -866,9 +825,10 @@ def build_parser() -> argparse.ArgumentParser:
         description=_cmd_diff.__doc__,
     )
     diff.add_argument(
-        "body",
-        nargs="?",
-        help="the intended configuration as a JSON body; read from stdin if omitted",
+        "paths",
+        nargs="*",
+        metavar="PATH",
+        help="JSON file, folded in order as merge folds them; read one body from stdin if omitted",
     )
     diff.add_argument(
         "--expand",

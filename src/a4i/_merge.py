@@ -35,7 +35,7 @@ _NAMED = 3
 
 EMPTY = (
     "the configuration is empty: nothing given describes an MO. Check the paths -- "
-    "a directory is searched for *.json, and a file holding {} or [] describes nothing."
+    "a file holding {} or [] describes nothing."
 )
 
 
