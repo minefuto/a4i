@@ -645,3 +645,14 @@ def test_what_merge_writes_is_what_a_post_would_place() -> None:
         "uni/tn-demo/BD-bd1",
         "uni/tn-demo/BD-bd1/subnet-[10.0.0.1/24]",
     ]
+
+
+def test_merge_takes_json_text_alongside_objects() -> None:
+    tenant = mo("fvTenant", {"name": "t", "descr": "old"})
+    body = merge(json.dumps(tenant), mo("fvTenant", {"name": "t", "descr": "new"}))
+    assert children(body) == [("fvTenant", {"rn": "tn-t", "name": "t", "descr": "new"})]
+
+
+def test_merge_names_the_argument_whose_json_is_invalid() -> None:
+    with pytest.raises(ValueError, match=r"^configs\[1\]: invalid JSON body"):
+        merge(mo("fvTenant", {"name": "t"}), "{")

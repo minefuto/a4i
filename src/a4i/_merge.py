@@ -21,7 +21,7 @@ from a4i._mo import (
     tail_rn,
     text,
 )
-from a4i._validate import problems, refuse
+from a4i._validate import problems, read_body, refuse
 
 # What the key says about an MO is not written again among its attributes, and
 # "childAction" is the APIC talking. "status" is deliberately not here: dropping it
@@ -40,12 +40,12 @@ EMPTY = (
 )
 
 
-def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
+def merge(*configs: str | Any, loose: bool = False) -> dict[str, Any]:
     """Return the single body ``configs`` describe between them.
 
-    Each argument is an ACI body -- one MO, or a list of them -- read as
-    describing the whole of ``uni``, and they are merged in the order given with
-    later values winning attribute by attribute. The result is a ``polUni``
+    Each argument is an ACI body -- one MO, a list of them, or the same as JSON
+    text -- read as describing the whole of ``uni``, and they are merged in the
+    order given with later values winning attribute by attribute. The result is a ``polUni``
     holding every merged MO, each nested under the MO it hangs off, named by its
     ``rn``, and siblings in RN order.
 
@@ -60,7 +60,13 @@ def merge(*configs: Any, loose: bool = False) -> dict[str, Any]:
     :class:`UndescribedError` for the one refusal ``loose`` lifts.
     """
 
-    intended = read(*configs, loose=loose)
+    parsed = []
+    for i, config in enumerate(configs):
+        try:
+            parsed.append(read_body(config)[1] if isinstance(config, str) else config)
+        except ValueError as exc:
+            raise ValueError(f"configs[{i}]: {exc}") from None
+    intended = read(*parsed, loose=loose)
     if not intended.index:
         raise ValueError(EMPTY)
     return write(intended)
