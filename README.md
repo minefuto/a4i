@@ -3,24 +3,23 @@
 [![test](https://github.com/minefuto/a4i/actions/workflows/test.yml/badge.svg)](https://github.com/minefuto/a4i/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/a4i.svg)](https://pypi.org/project/a4i/)
 
-CLI/MCP/Python Library for the Cisco ACI REST API.
+CLI/MCP/Python Library for the Cisco ACI REST API. Beyond the basic `get` and
+`post`, it simulates a change before it is made with `post --dry-run`, compares
+the fabric against an intended configuration with `diff`, and narrows that
+configuration to only what a POST would change with `plan` -- all of it the
+same from the command line, from an LLM client over MCP, and from Python.
 
 - **The token is never written to disk.** `login` hands it to a small per-user
   daemon that holds it in memory, behind a Unix domain socket, so it survives
   across short-lived CLI invocations without touching the filesystem.
 - **The ACI object model ships with it.** `search` and `describe` answer what a
   class is called and what a body may set on it, without an APIC and without a
-  login.
-- **`fetch` reads the fabric once, and the daemon holds it.** `diff` and `plan`
+  login -- for you on the command line, and for an LLM through the MCP tools of
+  the same names.
+- **`fetch` reads the fabric configuration once, and the daemon holds it.** `diff` and `plan`
   compare against what it read and send nothing of their own, so a fabric read
   once answers any number of questions, and `post --dry-run` uses it too when it
   is there. A POST drops it, because it is no longer what the fabric holds.
-- **`merge` and `diff` compare a fabric against an intended configuration**,
-  reporting both what the configuration asks for and the fabric lacks, and what
-  the fabric carries and the configuration never mentions.
-- **`plan` posts only what changes.** It narrows a configuration to the MOs a
-  POST of it would actually change, so the MOs the fabric already agrees with
-  are never handed back to the APIC to be written again.
 
 ## Install
 
