@@ -227,12 +227,8 @@ MERGE = _tool(
                 "body itself, then pass the same path to dry_run as 'path', and to diff "
                 "and plan as 'paths'. Do this for a "
                 "configuration of any size: it keeps the whole body out of the "
-                "conversation. An existing file is refused unless 'overwrite' is true."
+                "conversation. An existing file is replaced."
             ),
-        },
-        "overwrite": {
-            "type": "boolean",
-            "description": "Allow 'output' to replace a file that already exists.",
         },
         "loose": {
             "type": "boolean",
@@ -321,12 +317,8 @@ PLAN = _tool(
                 "Write the body to this file and return a summary instead of the body "
                 "itself, then give the same path to post as 'path'. Do this for a "
                 "configuration of any size: it keeps the whole body out of the "
-                "conversation. An existing file is refused unless 'overwrite' is true."
+                "conversation. An existing file is replaced."
             ),
-        },
-        "overwrite": {
-            "type": "boolean",
-            "description": "Allow 'output' to replace a file that already exists.",
         },
     },
     [],
@@ -492,7 +484,7 @@ def _merge(arguments: dict[str, Any]) -> str:
         body = merge(_one_body(arguments), loose=bool(arguments.get("loose")))
     except UndescribedError as exc:
         # The rule is merge's; the way out is this tool's own argument, so it is
-        # named here -- as 'overwrite' is in _deliver.
+        # named here.
         raise ToolError(
             f"{exc} (pass loose: true to fill {'it' if exc.count == 1 else 'them'} in)"
         ) from None
@@ -501,7 +493,6 @@ def _merge(arguments: dict[str, Any]) -> str:
         body,
         what="The merged configuration",
         then="diff as 'paths'",
-        exists="{exc} (pass overwrite: true to replace it)",
         written=lambda output: (
             f"merged {count(body)} MOs into {output}; pass it to dry_run as path='{output}', "
             f"and to diff and plan as paths=['{output}']"
@@ -516,7 +507,6 @@ def _deliver(
     *,
     what: str,
     then: str,
-    exists: str,
     written: Callable[[str], str],
 ) -> str:
     from a4i import _config as config
@@ -532,11 +522,7 @@ def _deliver(
             )
         return text
     try:
-        config.write(output, text, overwrite=bool(arguments.get("overwrite")))
-    except FileExistsError as exc:
-        # Before the OSError below, which it is one of. The rule is the config
-        # module's; the way out is this tool's own argument, so it is named here.
-        raise ToolError(exists.format(exc=exc, output=output)) from None
+        config.write(output, text)
     except OSError as exc:
         raise ToolError(f"cannot write {output}: {exc}") from None
     return written(output)
@@ -598,7 +584,6 @@ def _plan(arguments: dict[str, Any]) -> str:
         narrowed,
         what="The plan",
         then="post as 'path'",
-        exists="{output} exists. Pass overwrite: true to replace it.",
         written=lambda output: f"wrote {plural(count(narrowed), 'MO')} to {output}",
     )
 

@@ -86,29 +86,10 @@ def test_the_text_is_written_with_a_trailing_newline(tmp_path) -> None:
     assert out.read_text() == '{"a": 1}\n'
 
 
-def test_a_file_that_is_already_there_is_refused(tmp_path) -> None:
+def test_an_existing_file_is_replaced(tmp_path) -> None:
     out = tmp_path / "tn.json"
     out.write_text("keep me")
-    with pytest.raises(FileExistsError) as exc:
-        config.write(out, "replaced")
-    assert str(out) in str(exc.value)
-    assert out.read_text() == "keep me"
-
-
-# The MCP merge and plan tools each phrase the way out in their own words.
-def test_the_refusal_names_no_way_out(tmp_path) -> None:
-    out = tmp_path / "tn.json"
-    out.write_text("keep me")
-    with pytest.raises(FileExistsError) as exc:
-        config.write(out, "replaced")
-    assert "--force" not in str(exc.value)
-    assert "overwrite" not in str(exc.value)
-
-
-def test_an_existing_file_is_replaced_when_told_to(tmp_path) -> None:
-    out = tmp_path / "tn.json"
-    out.write_text("keep me")
-    config.write(out, "replaced", overwrite=True)
+    config.write(out, "replaced")
     assert out.read_text() == "replaced\n"
 
 

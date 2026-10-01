@@ -480,10 +480,6 @@ def test_plan_writes_the_body_to_a_file_and_keeps_it_out_of_the_reply(daemon, tm
     assert "polUni" not in text
     assert json.loads(out.read_text())["polUni"]["children"][0]["fvTenant"]["children"]
 
-    text, is_error = _tool_text(Server(), "plan", {"body": body, "output": str(out)})
-    assert is_error
-    assert "overwrite" in text
-
 
 def test_a_plan_over_the_limit_is_refused_with_a_way_out(daemon, monkeypatch) -> None:
     _login()
@@ -529,23 +525,6 @@ def test_merge_writes_to_a_file_and_keeps_the_body_out_of_the_answer(no_daemon, 
     assert not is_error
     assert "merged 1 MOs" in text and str(out) in text
     assert json.loads(out.read_text())["polUni"]["children"]
-
-
-def test_merge_refuses_to_replace_a_file_unless_told_to(no_daemon, tmp_path) -> None:
-    out = tmp_path / "merged.json"
-    out.write_text("keep me")
-    arguments = {"body": {"fvTenant": {"attributes": {"name": "infra"}}}, "output": str(out)}
-    text, is_error = _tool_text(Server(), "merge", arguments)
-    assert is_error
-    assert "already exists" in text
-    # The rule is a4i._config's; naming this tool's own argument is what tells the
-    # model how to go on.
-    assert "overwrite: true" in text
-    assert out.read_text() == "keep me"
-
-    _, is_error = _tool_text(Server(), "merge", {**arguments, "overwrite": True})
-    assert not is_error
-    assert out.read_text() != "keep me"
 
 
 def test_merge_fills_in_a_missing_ancestor_only_when_told_to(no_daemon) -> None:

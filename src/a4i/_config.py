@@ -33,13 +33,9 @@ def _read(paths: list[str]) -> Iterator[tuple[str, str]]:
         yield name, Path(name).read_text()
 
 
-# The MCP server has no shell to redirect with. The caller adds the way out, which is
-# the name of its own argument.
-def write(path: str | Path, text: str, *, overwrite: bool = False) -> None:
-    target = Path(path)
-    if target.exists() and not overwrite:
-        raise FileExistsError(f"{target} already exists")
-    target.write_text(text + "\n")
+# The MCP server has no shell to redirect with.
+def write(path: str | Path, text: str) -> None:
+    Path(path).write_text(text + "\n")
 
 
 def _parse(text: str, name: str) -> Any:
