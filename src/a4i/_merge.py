@@ -60,16 +60,20 @@ def merge(*configs: str | Any, loose: bool = False) -> dict[str, Any]:
     :class:`UndescribedError` for the one refusal ``loose`` lifts.
     """
 
+    intended = read(*parse(configs), loose=loose)
+    if not intended.index:
+        raise ValueError(EMPTY)
+    return write(intended)
+
+
+def parse(configs: Iterable[str | Any]) -> list[Any]:
     parsed = []
     for i, config in enumerate(configs):
         try:
             parsed.append(read_body(config)[1] if isinstance(config, str) else config)
         except ValueError as exc:
             raise ValueError(f"configs[{i}]: {exc}") from None
-    intended = read(*parsed, loose=loose)
-    if not intended.index:
-        raise ValueError(EMPTY)
-    return write(intended)
+    return parsed
 
 
 # An empty index is not refused here: what that means differs between a merge, a

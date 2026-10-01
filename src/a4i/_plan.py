@@ -11,7 +11,6 @@ from a4i import _merge as merge
 from a4i._merge import Intended, Mo
 from a4i._mo import ROOT, Change, parent_dn
 from a4i._output import plural
-from a4i._validate import read_body
 
 # A container -- an MO no change names, in the body only to nest what changed --
 # is on the fabric already, so it says as much and the APIC refuses the POST
@@ -26,13 +25,12 @@ _WARNED = (
 )
 
 
-def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
-    """Return ``config`` narrowed to the MOs posting it at uni would change.
+def create(*configs: str | Any, fabric: Any) -> dict[str, Any]:
+    """Return ``configs`` narrowed to the MOs posting them at uni would change.
 
-    ``config`` is one ACI body, as :func:`a4i.diff` takes one: several
-    configurations are folded into it beforehand with :func:`a4i.merge`,
-    which this runs it through in any case -- merging is idempotent, so a body
-    that has been through it already comes out unchanged.
+    ``configs`` are ACI bodies, taken and folded as :func:`a4i.merge` takes and
+    folds them -- merging is idempotent, so a body that has been through it
+    already comes out unchanged.
 
     ``fabric`` is what the POST would land on, as :meth:`a4i.Client.fetch`
     returns it, and is keyword-only for the reason :func:`a4i.diff`
@@ -48,8 +46,7 @@ def create(config: str | Any, *, fabric: Any) -> dict[str, Any]:
     body written for a warned MO would be a body nobody read.
     """
 
-    _, parsed = read_body(config)
-    intended = merge.read(parsed, loose=True)
+    intended = merge.read(*merge.parse(configs), loose=True)
     if not intended.index:
         raise ValueError(merge.EMPTY)
     changes = dry_run.compare(intended, merge.read(fabric, loose=True))

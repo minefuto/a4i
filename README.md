@@ -262,10 +262,10 @@ with a4i.Client("apic1.example.com", verify=False) as client:
     client.post("uni/tn-demo", {"fvTenant": {"attributes": {"name": "demo"}}}, kind="mo")
 
     fabric = client.fetch()
-    changes = a4i.diff(a4i.merge(base, override), fabric=fabric)
+    changes = a4i.diff(base, override, fabric=fabric)
     tenant = {"fvTenant": {"attributes": {"descr": "prod"}}}
     a4i.dry_run("uni/tn-demo", tenant, kind="mo", fabric=fabric)  # or client.dry_run(...)
-    client.post("uni", a4i.plan(a4i.merge(base, override), fabric=fabric), kind="mo")
+    client.post("uni", a4i.plan(base, override, fabric=fabric), kind="mo")
 ```
 
 `kind` is the subcommand the CLI takes, and it is required: `"class"` for a

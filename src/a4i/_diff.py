@@ -6,24 +6,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from a4i._merge import Intended, added, changed, read, removed
+from a4i._merge import Intended, added, changed, parse, read, removed
 from a4i._mo import Change, Exclusions, parent_dn, split_condition
 from a4i._output import DiffResult
-from a4i._validate import read_body
 
 
 def compare(
-    config: str | Any,
-    *,
+    *configs: str | Any,
     fabric: Any,
     expand: bool = False,
     exclude: str | Sequence[str] | None = None,
 ) -> DiffResult:
     """Return how ``fabric`` differs from the intended configuration.
 
-    ``config`` is one ACI body -- one MO, a list of them, or the same as JSON
-    text -- describing the whole of ``uni``; several are folded into one
-    beforehand by :func:`a4i.merge`. ``fabric`` is what
+    ``configs`` are ACI bodies describing the whole of ``uni`` between them,
+    each taken and folded as :func:`a4i.merge` takes and folds them. ``fabric`` is what
     :meth:`a4i.Client.fetch` returns, and is keyword-only so that every call says
     the word, a comparison being worth only as much as the reader knows of where
     its other side came from. Without ``expand``, a subtree that is wholly
@@ -43,8 +40,7 @@ def compare(
     """
 
     excluded = _exclusions(exclude)
-    _, parsed = read_body(config)
-    intended = read(parsed, excluded=excluded)
+    intended = read(*parse(configs), excluded=excluded)
     if not intended.index:
         raise ValueError(
             "the configuration is empty: it describes no MO at all, so every MO on the "

@@ -183,6 +183,18 @@ def test_a_configuration_may_arrive_as_json_text() -> None:
     assert plan.create(json.dumps(config), fabric=CURRENT) == plan.create(config, fabric=CURRENT)
 
 
+def test_several_configurations_are_folded_in_order() -> None:
+    import json
+
+    first = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "dev"}}}
+    second = {"fvTenant": {"attributes": {"dn": "uni/tn-demo", "descr": "prod"}}}
+    folded = plan.create(second, fabric=CURRENT)
+    assert plan.create(first, second, fabric=CURRENT) == folded
+    assert plan.create(json.dumps(first), json.dumps(second), fabric=CURRENT) == folded
+    with pytest.raises(ValueError, match=r"configs\[1\]: invalid JSON"):
+        plan.create(first, "{", fabric=CURRENT)
+
+
 def test_an_undescribed_ancestor_is_carried_as_a_container() -> None:
     built = _plan({"fvBD": {"attributes": {"dn": "uni/tn-demo/BD-bd1", "mtu": "9000"}}})
     [tenant] = _children(built)

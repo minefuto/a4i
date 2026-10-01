@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from a4i import _diff as diff
@@ -56,12 +58,9 @@ INTENDED = [
 ]
 
 
-# diff takes a single body and a list of MOs is one, so the arguments here are flattened
-# into that list rather than passed as several inputs.
 def compare(*mos, imdata: list | None = None, expand: bool = False, exclude=None) -> list:
-    config = [one for arg in mos for one in (arg if isinstance(arg, list) else [arg])]
     return diff.compare(
-        config,
+        *mos,
         fabric=FABRIC if imdata is None else imdata,
         expand=expand,
         exclude=exclude,
@@ -397,7 +396,7 @@ def test_a_malformed_input_is_refused_rather_than_skipped() -> None:
     # Skipping it would report the fabric extra for carrying what the element was
     # meant to describe.
     with pytest.raises(ValueError) as exc:
-        compare(*INTENDED, "not an mo", {"a": {}, "b": {}})
+        compare([*INTENDED, "not an mo", {"a": {}, "b": {}}])
     assert "[2]" in str(exc.value)
     assert "[3]" in str(exc.value)
 
@@ -964,6 +963,13 @@ def test_a_condition_does_not_excuse_an_unidentified_mo_under_it() -> None:
 
 def test_str_of_the_result_is_the_report() -> None:
     assert str(diff.compare(INTENDED, fabric=FABRIC)) == "no differences"
+
+
+def test_several_json_texts_are_folded_and_a_broken_one_is_named() -> None:
+    texts = [json.dumps(one) for one in INTENDED]
+    assert diff.compare(*texts, fabric=FABRIC) == []
+    with pytest.raises(ValueError, match=r"configs\[1\]: invalid JSON"):
+        diff.compare(texts[0], "{", fabric=FABRIC)
     report = str(diff.compare(INTENDED, fabric=FABRIC[:1]))
     assert report == (
         '+ fvTenant uni/tn-common  (missing: 1 child MO)\n  + name: "common"\n\n'
