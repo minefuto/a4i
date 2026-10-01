@@ -125,7 +125,7 @@ def _missing_and_modified(intended: Intended, actual: Intended, *, expand: bool)
             if attributes:
                 changes.append(Change("modified", node.class_name, dn, attributes=attributes))
             continue
-        if not expand and _under_a_missing_parent(dn, intended, actual):
+        if not expand and _under_one_sided(dn, intended, actual):
             continue
         changes.append(
             Change(
@@ -144,7 +144,7 @@ def _extra(intended: Intended, actual: Intended, *, expand: bool) -> list[Change
     for dn, node in actual.index.items():
         if dn in intended.index:
             continue
-        if not expand and _under_an_extra_parent(dn, intended, actual):
+        if not expand and _under_one_sided(dn, actual, intended):
             continue
         changes.append(
             Change(
@@ -160,14 +160,9 @@ def _extra(intended: Intended, actual: Intended, *, expand: bool) -> list[Change
 
 # Only the parent is looked at: a missing grandparent rolls the parent up in turn, so
 # the whole subtree collapses onto its top MO.
-def _under_a_missing_parent(dn: str, intended: Intended, actual: Intended) -> bool:
+def _under_one_sided(dn: str, has: Intended, lacks: Intended) -> bool:
     parent = parent_dn(dn)
-    return parent is not None and parent in intended.index and parent not in actual.index
-
-
-def _under_an_extra_parent(dn: str, intended: Intended, actual: Intended) -> bool:
-    parent = parent_dn(dn)
-    return parent is not None and parent in actual.index and parent not in intended.index
+    return parent is not None and parent in has.index and parent not in lacks.index
 
 
 # The APIC returns an unset attribute as an empty string, which is a value the

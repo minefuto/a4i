@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from a4i._mo import ROOT, WRAPPER, child_dn
@@ -20,7 +21,7 @@ from a4i._mo import ROOT, WRAPPER, child_dn
 _BODY_KEYS = frozenset({"attributes", "children"})
 
 # How many problems to spell out before summarising the rest.
-_NAMED = 3
+NAMED = 3
 
 _MO_SHAPE = 'an MO is one class name mapped to a body: {"fvBD": {"attributes": {"name": "bd1"}}}'
 _BODY_SHAPE = 'an MO body is an object with "attributes" and an optional "children"'
@@ -63,11 +64,16 @@ def problems(config: Any, source: str | None = None) -> list[str]:
 def refuse(found: list[str]) -> None:
     if not found:
         return
-    named = "\n".join(found[:_NAMED])
-    if len(found) > _NAMED:
-        named += f"\nand {len(found) - _NAMED} more"
+    named = listed(found, str, "\n")
     where = "" if len(found) == 1 else f", in {len(found)} places"
     raise ValueError(f"the configuration is not written as ACI expects{where}:\n{named}")
+
+
+def listed(items: Sequence[Any], name: Callable[[Any], str], sep: str = ", ") -> str:
+    text = sep.join(name(item) for item in items[:NAMED])
+    if len(items) > NAMED:
+        text += f"{sep}and {len(items) - NAMED} more"
+    return text
 
 
 # -- walking the input -----------------------------------------------------
@@ -213,7 +219,7 @@ def _kind(value: Any) -> str:
 
 
 def _named(element: dict[str, Any]) -> str:
-    return _quoted(list(element)[:_NAMED]) + (", ..." if len(element) > _NAMED else "")
+    return _quoted(list(element)[:NAMED]) + (", ..." if len(element) > NAMED else "")
 
 
 def _quoted(keys: list[str]) -> str:

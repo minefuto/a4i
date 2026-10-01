@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from typing import Any
 
 from a4i import _metadata as metadata
@@ -485,26 +486,49 @@ def _dry_run(arguments: dict[str, Any]) -> str:
 
 
 def _merge(arguments: dict[str, Any]) -> str:
-    from a4i import _config as config
     from a4i._merge import UndescribedError, count, merge
 
     try:
         body = merge(_one_body(arguments), loose=bool(arguments.get("loose")))
     except UndescribedError as exc:
         # The rule is merge's; the way out is this tool's own argument, so it is
-        # named here -- as 'overwrite' is below.
+        # named here -- as 'overwrite' is in _deliver.
         raise ToolError(
             f"{exc} (pass loose: true to fill {'it' if exc.count == 1 else 'them'} in)"
         ) from None
-    text = _json(body)
+    return _deliver(
+        arguments,
+        body,
+        what="The merged configuration",
+        then="diff as 'paths'",
+        exists="{exc} (pass overwrite: true to replace it)",
+        written=lambda output: (
+            f"merged {count(body)} MOs into {output}; pass it to dry_run as path='{output}', "
+            f"and to diff and plan as paths=['{output}']"
+        ),
+    )
 
+
+# The body comes back inline only while it fits; past that, 'output' is the way out.
+def _deliver(
+    arguments: dict[str, Any],
+    body: Any,
+    *,
+    what: str,
+    then: str,
+    exists: str,
+    written: Callable[[str], str],
+) -> str:
+    from a4i import _config as config
+
+    text = _json(body)
     output = arguments.get("output")
     if output is None:
         if len(text.encode()) > max_bytes():
             raise ToolError(
-                f"The merged configuration is {len(text):,} bytes, over the "
-                f"{max_bytes():,} byte limit. Nothing was truncated -- pass 'output' with a "
-                "file path to write it there instead, then give that path to diff as 'paths'."
+                f"{what} is {len(text):,} bytes, over the {max_bytes():,} byte limit. "
+                "Nothing was truncated -- pass 'output' with a file path to write it there "
+                f"instead, then give that path to {then}."
             )
         return text
     try:
@@ -512,13 +536,10 @@ def _merge(arguments: dict[str, Any]) -> str:
     except FileExistsError as exc:
         # Before the OSError below, which it is one of. The rule is the config
         # module's; the way out is this tool's own argument, so it is named here.
-        raise ToolError(f"{exc} (pass overwrite: true to replace it)") from None
+        raise ToolError(exists.format(exc=exc, output=output)) from None
     except OSError as exc:
         raise ToolError(f"cannot write {output}: {exc}") from None
-    return (
-        f"merged {count(body)} MOs into {output}; pass it to dry_run as path='{output}', "
-        f"and to diff and plan as paths=['{output}']"
-    )
+    return written(output)
 
 
 def _fetch(arguments: dict[str, Any]) -> str:
@@ -562,7 +583,6 @@ def _one_body(arguments: dict[str, Any]) -> Any:
 
 
 def _plan(arguments: dict[str, Any]) -> str:
-    from a4i import _config as config
     from a4i import _ipc as ipc
     from a4i import _plan as plan_
     from a4i._merge import count
@@ -573,23 +593,14 @@ def _plan(arguments: dict[str, Any]) -> str:
         narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
         raise ToolError(str(exc)) from None
-    text = _json(narrowed)
-    output = arguments.get("output")
-    if output is None:
-        if len(text.encode()) > max_bytes():
-            raise ToolError(
-                f"The plan is {len(text):,} bytes, over the {max_bytes():,} byte limit. "
-                "Nothing was truncated -- pass 'output' with a file path to write it there "
-                "instead, then give that path to post as 'path'."
-            )
-        return text
-    try:
-        config.write(output, text, overwrite=bool(arguments.get("overwrite")))
-    except FileExistsError:
-        raise ToolError(f"{output} exists. Pass overwrite: true to replace it.") from None
-    except OSError as exc:
-        raise ToolError(f"cannot write {output}: {exc}") from None
-    return f"wrote {plural(count(narrowed), 'MO')} to {output}"
+    return _deliver(
+        arguments,
+        narrowed,
+        what="The plan",
+        then="post as 'path'",
+        exists="{output} exists. Pass overwrite: true to replace it.",
+        written=lambda output: f"wrote {plural(count(narrowed), 'MO')} to {output}",
+    )
 
 
 def _diff(arguments: dict[str, Any]) -> str:
@@ -676,16 +687,10 @@ def call(name: str, arguments: dict[str, Any]) -> str:
         # not, being a misconfiguration on the machine, so it falls through to the
         # message it came with.
         raise ToolError(NO_SESSION) from None
-    except A4iError as exc:
-        # Everything else a4i raises, in the words it was raised with: the
-        # APIC's own complaint, a read-only session, a socket left unusable.
-        raise ToolError(str(exc)) from None
-    except OSError as exc:
-        # A dictionary that is not there, or a configuration path that cannot be
-        # read. Neither is a protocol failure, and a model told plainly can pick a
-        # different tool.
-        raise ToolError(str(exc)) from None
-    except (ValueError, TypeError, KeyError) as exc:
-        # A malformed argument, an unparseable body, or a combination ACI does
-        # not define -- all of them the model's to fix.
+    except (A4iError, OSError, ValueError, TypeError, KeyError) as exc:
+        # In the words it was raised with, none of them a protocol failure: the APIC's
+        # own complaint, a read-only session, a socket left unusable, a dictionary or
+        # configuration path that cannot be read, a malformed argument, an unparseable
+        # body, or a combination ACI does not define. A model told plainly can fix the
+        # call or pick a different tool.
         raise ToolError(str(exc)) from None

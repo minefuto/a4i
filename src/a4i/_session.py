@@ -12,21 +12,6 @@ import httpx2
 
 from a4i._errors import ApicError, NotLoggedInError, SessionExpiredError
 
-# Re-exported: this module raises them, and importing them from here reads more
-# naturally than from a4i._errors at the call sites that already use a Session.
-__all__ = [
-    "DEFAULT_REFRESH_TIMEOUT",
-    "DEFAULT_TIMEOUT",
-    "LOGOUT_TIMEOUT",
-    "NODE_CLIENT_MAX",
-    "ApicError",
-    "AsyncSession",
-    "NotLoggedInError",
-    "Session",
-    "SessionExpiredError",
-    "normalize_base_url",
-]
-
 DEFAULT_REFRESH_TIMEOUT = 600.0
 _HTTP_ERROR_STATUS = 400
 

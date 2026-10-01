@@ -8,7 +8,7 @@ from typing import Any
 
 from a4i import _merge as merge
 from a4i._merge import Intended
-from a4i._mo import WRAPPER, Change, parent_dn, split_mo
+from a4i._mo import WRAPPER, Change, is_under, parent_dn, split_mo
 from a4i._output import DryRunResult
 from a4i._query import Kind
 from a4i._validate import read_body
@@ -101,7 +101,7 @@ def compare(intended: Intended, current: Intended) -> list[Change]:
     changes: list[Change] = []
     deleted: set[str] = set()
     for dn, node in intended.index.items():
-        if _under(dn, deleted):
+        if is_under(dn, deleted):
             # The subtree goes with the MO the body deletes, so what the body
             # says about anything inside it adds nothing.
             continue
@@ -134,17 +134,6 @@ def compare(intended: Intended, current: Intended) -> list[Change]:
         if changed:
             changes.append(Change("modified", node.class_name, dn, attributes=changed))
     return changes
-
-
-# Every ancestor is walked rather than the parent alone: the index is in the order the
-# body gave, which is no promise that a parent was seen first.
-def _under(dn: str, deleted: set[str]) -> bool:
-    parent = parent_dn(dn)
-    while parent is not None:
-        if parent in deleted:
-            return True
-        parent = parent_dn(parent)
-    return False
 
 
 def _status(attributes: dict[str, str]) -> frozenset[str]:

@@ -19,9 +19,8 @@ from a4i._mo import (
     split_mo,
     split_rns,
     tail_rn,
-    text,
 )
-from a4i._validate import problems, read_body, refuse
+from a4i._validate import NAMED, listed, problems, read_body, refuse
 
 # What the key says about an MO is not written again among its attributes, and
 # "childAction" is the APIC talking. "status" is deliberately not here: dropping it
@@ -30,9 +29,6 @@ _DROPPED = frozenset({"dn", "rn", "childAction"})
 # What is left for a comparison to skip: "status" tells the APIC what to do with an
 # MO, so the fabric never has a value to hold it against.
 _INSTRUCTION = frozenset({"status"})
-
-# How many unidentified MOs to name before summarising the rest.
-_NAMED = 3
 
 EMPTY = (
     "the configuration is empty: nothing given describes an MO. Check the paths -- "
@@ -91,10 +87,6 @@ def read(
         raise ValueError(unidentified_message(intended.unidentified))
     _refuse_the_unplaceable(intended.index, loose=loose)
     return intended
-
-
-def empty() -> dict[str, Any]:
-    return {WRAPPER: {"attributes": {"dn": ROOT}, "children": []}}
 
 
 def write(intended: Intended) -> dict[str, Any]:
@@ -290,9 +282,7 @@ def _record(class_name: str, records: dict[str, dict[str, Any]]) -> dict[str, An
 
 
 def _outside_message(outside: list[tuple[str, str]]) -> str:
-    named = ", ".join(f'{class_name} at "{dn}"' for class_name, dn in outside[:_NAMED])
-    if len(outside) > _NAMED:
-        named += f", and {len(outside) - _NAMED} more"
+    named = listed(outside, lambda mo: f'{mo[0]} at "{mo[1]}"')
     one = len(outside) == 1
     return (
         f"cannot fold {named} into one body: a merged body is posted at {ROOT}, and "
@@ -303,12 +293,12 @@ def _outside_message(outside: list[tuple[str, str]]) -> str:
 
 def _undescribed_message(undescribed: dict[str, str], index: dict[str, Mo]) -> str:
     missing = sorted(undescribed)
-    named = ", ".join(
-        f'"{dn}" ({index[undescribed[dn]].class_name} at "{undescribed[dn]}" hangs under it)'
-        for dn in missing[:_NAMED]
+    named = listed(
+        missing,
+        lambda dn: (
+            f'"{dn}" ({index[undescribed[dn]].class_name} at "{undescribed[dn]}" hangs under it)'
+        ),
     )
-    if len(missing) > _NAMED:
-        named += f", and {len(missing) - _NAMED} more"
     one = len(missing) == 1
     return (
         f"nothing describes {named}: a merged body nests every MO under the MO it hangs "
@@ -320,12 +310,9 @@ def _undescribed_message(undescribed: dict[str, str], index: dict[str, Mo]) -> s
 
 def _unfillable_message(left: dict[str, str], index: dict[str, Mo]) -> str:
     missing = sorted(left)
-    named = ", ".join(
-        f'"{dn}" ({index[left[dn]].class_name} at "{left[dn]}" hangs under it)'
-        for dn in missing[:_NAMED]
+    named = listed(
+        missing, lambda dn: f'"{dn}" ({index[left[dn]].class_name} at "{left[dn]}" hangs under it)'
     )
-    if len(missing) > _NAMED:
-        named += f", and {len(missing) - _NAMED} more"
     one = len(missing) == 1
     return (
         f"nothing describes {named}, and the bundled dictionary does not settle what class "
@@ -342,22 +329,23 @@ def _hangs_under(class_name: str, records: dict[str, dict[str, Any]]) -> str:
     parents = list(record.get("parents") or ())
     if not parents:
         return ""
-    named = ", ".join(parents[:_NAMED])
-    rest = len(parents) - _NAMED + (record.get("moreParents") or 0)
+    named = ", ".join(parents[:NAMED])
+    rest = len(parents) - NAMED + (record.get("moreParents") or 0)
     return f"{named}, and {rest} more" if rest > 0 else named
+
+
+def _misplaced_one(mo: tuple[str, str, str], records: dict[str, dict[str, Any]]) -> str:
+    class_name, dn, container = mo
+    where = _hangs_under(class_name, records)
+    if where:
+        return f'{class_name} at "{dn}" (it hangs under {where}, not {container})'
+    return f'{class_name} at "{dn}" ({container} does not hold it)'
 
 
 def _misplaced_message(
     misplaced: list[tuple[str, str, str]], records: dict[str, dict[str, Any]]
 ) -> str:
-    named = ", ".join(
-        f'{class_name} at "{dn}" (it hangs under {where}, not {container})'
-        if (where := _hangs_under(class_name, records))
-        else f'{class_name} at "{dn}" ({container} does not hold it)'
-        for class_name, dn, container in misplaced[:_NAMED]
-    )
-    if len(misplaced) > _NAMED:
-        named += f", and {len(misplaced) - _NAMED} more"
+    named = listed(misplaced, lambda mo: _misplaced_one(mo, records))
     one = len(misplaced) == 1
     return (
         f"cannot fold {named} into one body: a merged body nests every MO under the MO it "
@@ -413,7 +401,7 @@ class Intended:
 
     def _absorb(self, class_name: str, body: dict[str, Any], dn: str) -> None:
         attributes = {
-            key: text(value)
+            key: str(value)
             for key, value in (body.get("attributes") or {}).items()
             if key not in _DROPPED
         }
@@ -452,13 +440,17 @@ class Intended:
 def unidentified_message(unidentified: Iterable[tuple[str, str, str | None]]) -> str:
     # The same class under the same parent twice is one thing to fix, not two.
     unique = list(dict.fromkeys(unidentified))
-    named = ", ".join(
-        f"{class_name} under {parent} "
-        + ("(a class the bundled dictionary lacks)" if fmt is None else f'(its RN is "{fmt}")')
-        for class_name, parent, fmt in unique[:_NAMED]
+    named = listed(
+        unique,
+        lambda mo: (
+            f"{mo[0]} under {mo[1]} "
+            + (
+                "(a class the bundled dictionary lacks)"
+                if mo[2] is None
+                else f'(its RN is "{mo[2]}")'
+            )
+        ),
     )
-    if len(unique) > _NAMED:
-        named += f", and {len(unique) - _NAMED} more"
     give = "Give it" if len(unique) == 1 else "Give each"
     return (
         f"cannot tell which MO the input means by {named}. "

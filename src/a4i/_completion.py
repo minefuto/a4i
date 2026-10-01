@@ -9,7 +9,7 @@ import argparse
 import os
 import shlex
 from collections.abc import Callable, Sequence
-from typing import Any, Protocol, cast
+from typing import Any
 
 Completer = Callable[[str], Sequence[str]]
 
@@ -46,14 +46,10 @@ def complete_csv(complete_one: Completer) -> Completer:
     return complete
 
 
-class _Completable(Protocol):
-    completer: Completer
-
-
 # argparse has no notion of completion, so the callback rides along on the action as an
 # attribute, the convention argcomplete established.
 def attach(action: argparse.Action, completer: Completer) -> None:
-    cast("_Completable", action).completer = completer
+    action.completer = completer  # ty: ignore[unresolved-attribute]
 
 
 # -- request parsing ------------------------------------------------------

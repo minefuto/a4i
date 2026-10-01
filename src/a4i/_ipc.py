@@ -197,7 +197,7 @@ def _request(op: str, args: dict[str, Any], *, autostart: bool) -> Any:
         sock = _open(path, autostart=autostart)
         try:
             line = _exchange(sock, payload)
-        except (BrokenPipeError, ConnectionResetError, ConnectionError):
+        except ConnectionError:
             if attempt == 0 and autostart:
                 continue
             raise DaemonError("lost connection to the a4i daemon") from None

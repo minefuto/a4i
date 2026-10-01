@@ -251,18 +251,15 @@ class Client:
         names the MO rather than quietly leaving it out.
         """
 
-        imdata = self._fetch_uni()
+        imdata = self._fetch_subtrees(self._top_level_dns())
         if not imdata:
-            return merge.empty()
+            return merge.write(merge.Intended())
         return merge.merge(imdata)
 
     # -- internals --------------------------------------------------------
 
     # A subtree that cannot be read is fatal rather than skipped: a difference missed in
     # what is gone would read as a fabric that matches.
-    def _fetch_uni(self) -> list[Any]:
-        return self._fetch_subtrees(self._top_level_dns())
-
     def _fetch_subtrees(
         self, dns: Sequence[str], params: dict[str, str] = _CURRENT_STATE
     ) -> list[Any]:
@@ -278,9 +275,9 @@ class Client:
 
     # A short response is refused too: the APIC pages a long one rather than failing,
     # and a comparison cannot tell a page from the whole.
-    def _fetch(self, dn: str, params: dict[str, str], *, kind: query.Kind = "mo") -> Any:
+    def _fetch(self, dn: str, params: dict[str, str]) -> Any:
         try:
-            data = self._transport.get(dn, kind, params, None)
+            data = self._transport.get(dn, "mo", params, None)
         except ApicError as exc:
             raise ApicError(f"{dn}: {exc}", code=exc.code, status=exc.status) from None
         _check_complete(dn, data)
@@ -436,18 +433,15 @@ class AsyncClient:
     async def fetch(self) -> dict[str, Any]:
         """Return the fabric's own configuration as one body. See :meth:`Client.fetch`."""
 
-        imdata = await self._fetch_uni()
+        imdata = await self._fetch_subtrees(await self._top_level_dns())
         if not imdata:
-            return merge.empty()
+            return merge.write(merge.Intended())
         return merge.merge(imdata)
 
     # -- internals --------------------------------------------------------
 
-    # One request at a time, as Client._fetch_uni makes them: the load a fabric sees is
-    # then the load the CLI puts on it, whoever is asking.
-    async def _fetch_uni(self) -> list[Any]:
-        return await self._fetch_subtrees(await self._top_level_dns())
-
+    # One request at a time, as Client._fetch_subtrees makes them: the load a fabric sees
+    # is then the load the CLI puts on it, whoever is asking.
     async def _fetch_subtrees(
         self, dns: Sequence[str], params: dict[str, str] = _CURRENT_STATE
     ) -> list[Any]:
@@ -461,9 +455,9 @@ class AsyncClient:
         data = await self._fetch(merge.ROOT, dict(_UNI_CHILDREN))
         return mo.top_level_dns(data.get("imdata"))
 
-    async def _fetch(self, dn: str, params: dict[str, str], *, kind: query.Kind = "mo") -> Any:
+    async def _fetch(self, dn: str, params: dict[str, str]) -> Any:
         try:
-            data = await self._transport.get(dn, kind, params, None)
+            data = await self._transport.get(dn, "mo", params, None)
         except ApicError as exc:
             raise ApicError(f"{dn}: {exc}", code=exc.code, status=exc.status) from None
         _check_complete(dn, data)

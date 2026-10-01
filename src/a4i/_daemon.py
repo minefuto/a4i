@@ -13,9 +13,17 @@ from collections.abc import Callable
 from typing import Any
 
 from a4i import _query as query
-from a4i._errors import NO_FABRIC_MESSAGE, DaemonError, NoFabricError, ReadOnlyError, to_payload
+from a4i._errors import (
+    NO_FABRIC_MESSAGE,
+    ApicError,
+    DaemonError,
+    NoFabricError,
+    NotLoggedInError,
+    ReadOnlyError,
+    to_payload,
+)
 from a4i._ipc import create_socket_dir
-from a4i._session import DEFAULT_TIMEOUT, ApicError, NotLoggedInError, Session
+from a4i._session import DEFAULT_TIMEOUT, Session
 
 # What a POST is told when the session was logged in read-only. It names the way
 # out, a fresh login not being one.

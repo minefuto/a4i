@@ -7,14 +7,12 @@ import warnings
 import httpx2
 import pytest
 
+from a4i._errors import ApicError, NotLoggedInError, SessionExpiredError
 from a4i._session import (
     DEFAULT_TIMEOUT,
     LOGOUT_TIMEOUT,
     NODE_CLIENT_MAX,
-    ApicError,
-    NotLoggedInError,
     Session,
-    SessionExpiredError,
     _default_client,
     _ssl_context,
 )

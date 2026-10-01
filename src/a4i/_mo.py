@@ -64,10 +64,10 @@ def fill_rn(fmt: str, attributes: dict[str, Any]) -> str | None:
     def slot(match: re.Match[str]) -> str:
         nonlocal missing
         value = attributes.get(match[1])
-        if value is None or not text(value):
+        if value is None or not str(value):
             missing = True
             return ""
-        return text(value)
+        return str(value)
 
     filled = _SLOT.sub(slot, fmt)
     return None if missing else filled
@@ -186,7 +186,7 @@ class _Conditioned:
         value = attributes.get(self.key)
         # An MO without the attribute is not a match: the condition asks what
         # the value is, and an absent one has no value to be.
-        if value is None or not self.value(text(value)):
+        if value is None or not self.value(str(value)):
             return False
         return all(matches(one) for matches, one in zip(self.rns, rns, strict=True))
 
@@ -283,7 +283,3 @@ def _rn_match(rn: str) -> Callable[[str], Any]:
     # pattern spells with. DOTALL for the same reason: nothing about a naming
     # value is a line.
     return re.compile(".*".join(re.escape(part) for part in rn.split("*")), re.DOTALL).fullmatch
-
-
-def text(value: Any) -> str:
-    return value if isinstance(value, str) else str(value)
