@@ -106,6 +106,15 @@ which is the shape a POST to `uni` takes. `diff` and `plan` take the same files
 and fold them the same way; `diff` compares that body against everything the
 fabric has under `uni`.
 
+Every DN on the way down from `uni` has to be described by something: a BD
+written without its tenant is refused rather than nested under a tenant `merge`
+made up, and an MO whose DN does not sit under `uni` is refused too -- post that
+one on its own. `merge --loose` fills the missing ancestor in instead, where the
+bundled dictionary settles what class sits there.
+
+A first configuration file can come from the fabric itself: `get --config`
+prints the configurable MOs of a query as a body `merge` takes.
+
 `fetch` is what reads the fabric. It walks everything under `uni` and leaves it
 in the daemon, where `diff` and `plan` take it from: they send nothing to the
 APIC themselves, so one `fetch` serves as many comparisons as you like. It
@@ -113,6 +122,7 @@ prints what it read and nothing else -- the body is not output, because nothing
 downstream needs it in a file.
 
 ```sh
+a4i get mo uni/tn-demo --rsp-subtree full --config > configs/tn-demo.json
 a4i merge configs/*.json > merged.json           # files merged in the order given
 a4i fetch                                         # read the fabric, once
 a4i diff configs/*.json                           # files folded as merge folds them
@@ -154,11 +164,8 @@ since refuses the POST rather than doing something nobody read. The only MOs it
 can create are the ones it marks `status="created"`; the rest are there to nest
 what does change under them, and carry `rn` and `status="modified"` only.
 
-Every DN on the way down from `uni` has to be described by something: a BD
-written without its tenant is refused rather than nested under a tenant `merge`
-made up, and an MO whose DN does not sit under `uni` is refused too -- post that
-one on its own. `--loose` fills the missing ancestor in instead, where the
-bundled dictionary settles what class sits there.
+`plan` fills an undescribed ancestor in on its own, as one the fabric already
+has: if the fetched fabric lacks it, `plan` refuses rather than create it.
 
 ```
 - fvTenant uni/tn-common  (extra: 2 child MOs)
@@ -221,8 +228,8 @@ login tool, because this server never handles a password.
 | `describe` | one class from the bundled model, as a JSON record |
 | `list` | class names by prefix, or the DNs one level under a DN |
 | `get` | a class or MO query, with every query option under its own name |
-| `dry_run` | what a POST would change, sending no POST |
-| `post` | POST a body |
+| `dry_run` | what a POST would change, sending no POST; the body inline or from a file |
+| `post` | POST a body, inline or from a file |
 | `merge` | several bodies or paths folded into one |
 | `fetch` | read the fabric into the session, for `diff` and `plan` |
 | `plan` | one configuration narrowed to the MOs a POST would change |
@@ -236,7 +243,8 @@ login tool, because this server never handles a password.
 | `a4i://guide/limits` | where the bundled model, the dry run and the diff each stop short |
 
 A `get` whose response would exceed 64 KB is refused, with the total count and
-the ways to narrow it; `A4I_MCP_MAX_BYTES` raises or lowers that. On a
+the ways to narrow it; a `merge` or `plan` body that large is refused unless it
+is written to a file. `A4I_MCP_MAX_BYTES` raises or lowers that. On a
 `--read-only` session, `post` is not offered at all.
 
 ## Python library
@@ -285,6 +293,6 @@ async with a4i.AsyncClient("apic1.example.com", verify=False) as client:
 A value ACI does not define raises `ValueError` before anything is sent. A
 failed request raises `a4i.ApicError`, `a4i.NotLoggedInError` or
 `a4i.SessionExpiredError`, all of them `a4i.A4iError`. `a4i.merge()` raises
-`a4i.UndescribedError`, a `ValueError`, for a class the bundled dictionary does
-not carry; `loose=True` lets it through. The token refreshes itself once half
+`a4i.UndescribedError`, a `ValueError`, for an ancestor DN no input describes;
+`loose=True` fills it in instead. The token refreshes itself once half
 its lifetime has elapsed, so a long-running script needs nothing of its own.

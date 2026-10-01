@@ -57,9 +57,10 @@ attribute you must set it to `""`, not omit it.
 
 ## Several bodies, one body
 
-`post` and `diff` each take exactly one body. A configuration written across
-several files, or a body of your own laid over an existing configuration, is
-folded into that one body by `merge` first. Three rules govern it:
+`post` and `dry_run` each take exactly one body, inline or from one file. A
+configuration written across several files, or a body of your own laid over an
+existing configuration, is folded into that one body by `merge` first -- `diff`
+and `plan` fold `paths` the same way themselves. Three rules govern it:
 
 - **Two bodies mean the same MO when they resolve to the same DN.** How each one
   said so does not matter: a `dn`, an `rn`, or a naming property under the same
@@ -91,8 +92,8 @@ is there and reports what the POST would change. An empty result means the body
 would do nothing at all, which usually means it does not say what you meant.
 
 For a merged configuration, follow that dry run with `plan`. It compares the
-same body against the same fetched fabric and hands back a body holding only the
-MOs that change, so posting it leaves every MO the fabric already agrees with
+same configuration against the same fetched fabric and hands back a body holding
+only the MOs that change, so posting it leaves every MO the fabric already agrees with
 untouched instead of handing all of them back to the APIC to be written again.
 It returns no report of its own: the dry run you just read is the report.
 """
@@ -190,20 +191,24 @@ the two it did.
 
 ## Applying a whole configuration
 
-1. `merge`, `diff` and `plan` each take the configuration as `paths` (files or
-   glob patterns, folded in order, later values winning attribute by attribute)
-   or as one inline `body`. Give them `paths`, so a whole fabric's
-   configuration never travels through this conversation; `merge` with an
-   `output` path writes it out as the one body `dry_run` and `post` take.
+Nothing on this path needs a whole configuration to travel through this
+conversation: every tool takes it from a file.
+
+1. `merge` with `paths` (files or glob patterns, folded in order, later values
+   winning attribute by attribute) and an `output` file writes the one body the
+   rest of the path works from.
 2. `fetch` reads the whole of `uni` into the session and returns only how much
    that was. `diff` and `plan` compare against what it read and send nothing to
    the APIC themselves, so one `fetch` serves any number of them.
-3. `dry_run` the body at `uni` to read what would change, `diff` to see how the
-   fabric and the configuration disagree either way round.
-4. `plan` turns the same comparison into a body holding only what changes. It
-   prints no report -- the dry run in step 3 is it.
-5. `post` the body `plan` returned. It carries the changes that dry run named
-   and nothing else, so nothing unread is written.
+3. `dry_run` with `kind: "mo"`, `target: "uni"` and that file as `path` to read
+   what would change; `diff` with it as `paths` to see how the fabric and the
+   configuration disagree either way round.
+4. `plan` with the same `paths` and an `output` file turns the same comparison
+   into a body holding only what changes. It returns no report -- the dry run in
+   step 3 is it.
+5. `post` with `kind: "mo"`, `target: "uni"` and the plan's file as `path`. It
+   carries the changes that dry run named and nothing else, so nothing unread is
+   written.
 
 If `post` is missing from the tool list, this session was started read-only and
 nothing can be written through it.
@@ -275,7 +280,7 @@ LIMITS = """\
   the APIC would accept is not known until `dry_run` or `post`.
 
 - **A malformed element is refused, never skipped.** Every path that reads a
-  configuration -- `merge`, `diff`, `dry_run` -- checks the shape first: one
+  configuration -- `merge`, `diff`, `plan`, `dry_run` -- checks the shape first: one
   class name per element mapped to a body of `attributes` and `children`, and
   every attribute value a string (a number is taken as one). `null`, `true`, an
   object or an array as a value is refused, and so is a `get` response handed
@@ -337,17 +342,17 @@ Work in this order:
 5. `post` only once the dry run says what you expect.
 
 That is the path for changing one MO, and it needs no `fetch`. A whole
-configuration goes the other way: `merge` it into one body, `fetch` the fabric
-once, `dry_run` it at `uni` to read what changes, then `plan` -- the same
-comparison as a body, with no report of its own -- and `post` that body.
-`diff` answers how the two disagree without
-writing anything. `fetch`, `diff` and `plan` are for that path only; `dry_run`
-uses a fetched fabric when there is one and reads what your body names when
-there is not, and says which it did.
+configuration goes the other way: `merge` it into one file with `output`,
+`fetch` the fabric once, `dry_run` that file as `path` at `uni` to read what
+changes, then `plan` -- the same comparison as a body, with no report of its
+own -- into a file with `output`, and `post` that file as `path`. `diff`
+answers how the two disagree without writing anything. `fetch`, `diff` and
+`plan` are for that path only; `dry_run` uses a fetched fabric when there is one
+and reads what your body names when there is not, and says which it did.
 
-`post` takes one body. Give `diff` and `plan` the configuration's files as
-`paths`, so a whole fabric's configuration never travels through this
-conversation.
+`post` and `dry_run` take one body, inline as `body` or from one file as
+`path`; `merge`, `diff` and `plan` take `paths`. Pass files rather than bodies,
+so a whole fabric's configuration never travels through this conversation.
 
 Writing a body: an MO is `{"className": {"attributes": {...}, "children": [...]}}`.
 Children are named by a naming property (`name`, `ip`, ...), not by DN -- `fvBD`
@@ -357,8 +362,8 @@ POST leaves unmentioned attributes alone; `status: "deleted"` removes an MO and
 its subtree.
 
 If `post` is absent from the tool list, this session was logged in read-only and
-nothing can be written through it. `dry_run` and `plan` still work, since they
-only read.
+nothing can be written through it. Every other tool still works, since none of
+them writes to the fabric.
 
 The `a4i://guide/...` resources spell all of this out at length.
 """

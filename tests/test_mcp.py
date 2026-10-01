@@ -380,6 +380,39 @@ def test_dry_run_uses_the_fetched_fabric_and_says_so(daemon) -> None:
     assert daemon["last_method"] is None
 
 
+def test_post_sends_a_path_exactly_as_written(daemon, tmp_path) -> None:
+    _login()
+    written = '{"fvTenant":  {"attributes": {"name": "demo"}}}'
+    body = tmp_path / "plan.json"
+    body.write_text(written)
+    text, is_error = _tool_text(
+        Server(), "post", {"kind": "mo", "target": "uni/tn-demo", "path": str(body)}
+    )
+    assert not is_error
+    assert daemon["last_body"] == written
+
+
+def test_dry_run_reads_the_body_from_a_path(daemon, tmp_path) -> None:
+    _login()
+    body = tmp_path / "merged.json"
+    body.write_text(json.dumps({"fvTenant": {"attributes": {"name": "infra", "descr": "x"}}}))
+    text, is_error = _tool_text(
+        Server(), "dry_run", {"kind": "mo", "target": "uni/tn-infra", "path": str(body)}
+    )
+    assert not is_error
+    assert "descr" in text
+
+
+def test_post_and_dry_run_want_a_body_or_a_path_and_not_both(daemon, tmp_path) -> None:
+    _login()
+    for tool in ("post", "dry_run"):
+        for extra in ({}, {"body": {}, "path": str(tmp_path / "x.json")}):
+            text, is_error = _tool_text(Server(), tool, {"kind": "mo", "target": "uni", **extra})
+            assert is_error
+            assert "'body'" in text and "'path'" in text
+    assert daemon.get("last_method") != "POST"
+
+
 INFRA = {"fvTenant": {"attributes": {"dn": "uni/tn-infra", "name": "infra"}}}
 
 
@@ -450,6 +483,15 @@ def test_plan_writes_the_body_to_a_file_and_keeps_it_out_of_the_reply(daemon, tm
     text, is_error = _tool_text(Server(), "plan", {"body": body, "output": str(out)})
     assert is_error
     assert "overwrite" in text
+
+
+def test_a_plan_over_the_limit_is_refused_with_a_way_out(daemon, monkeypatch) -> None:
+    _login()
+    _tool_text(Server(), "fetch", {})
+    monkeypatch.setenv(tools.MAX_BYTES_VAR, "10")
+    text, is_error = _tool_text(Server(), "plan", {"body": INFRA})
+    assert is_error
+    assert "output" in text
 
 
 def test_plan_refuses_a_body_the_dry_run_warned_about(daemon) -> None:

@@ -66,7 +66,17 @@ _BODY = {
     "type": ["object", "array", "string"],
     "description": (
         'An ACI body: {"fvBD": {"attributes": {...}, "children": [...]}}, a list of '
-        "those, or the same as JSON text. See the a4i://guide/post-body resource."
+        "those, or the same as JSON text. Give this or 'path'. See the "
+        "a4i://guide/post-body resource."
+    ),
+}
+
+_PATH = {
+    "type": "string",
+    "description": (
+        "A file holding the body, read and used exactly as 'body' would be -- one file, "
+        "no pattern, nothing folded. Give this or 'body'. Use it for a body merge or "
+        "plan wrote out, so the body never travels through this conversation."
     ),
 }
 
@@ -181,8 +191,8 @@ POST = _tool(
     "change. For a whole configuration, run plan instead and post the body it returns, "
     "which holds only the MOs that change. There is no 'node' argument -- configuration "
     "must go through the APIC.",
-    {"kind": _KIND, "target": _TARGET, "body": _BODY},
-    ["kind", "target", "body"],
+    {"kind": _KIND, "target": _TARGET, "body": _BODY, "path": _PATH},
+    ["kind", "target"],
 )
 
 DRY_RUN = _tool(
@@ -194,8 +204,8 @@ DRY_RUN = _tool(
     "far less than a whole fetch. The report says which of the two it was. So there is "
     "no need to fetch first for this -- fetch is for diff and plan. Works even when the "
     "session is read-only.",
-    {"kind": _KIND, "target": _TARGET, "body": _BODY},
-    ["kind", "target", "body"],
+    {"kind": _KIND, "target": _TARGET, "body": _BODY, "path": _PATH},
+    ["kind", "target"],
 )
 
 MERGE = _tool(
@@ -213,7 +223,8 @@ MERGE = _tool(
             "type": "string",
             "description": (
                 "Write the merged body to this file and return a summary instead of the "
-                "body itself, then pass the same path to diff as 'paths'. Do this for a "
+                "body itself, then pass the same path to dry_run as 'path', and to diff "
+                "and plan as 'paths'. Do this for a "
                 "configuration of any size: it keeps the whole body out of the "
                 "conversation. An existing file is refused unless 'overwrite' is true."
             ),
@@ -307,9 +318,9 @@ PLAN = _tool(
             "type": "string",
             "description": (
                 "Write the body to this file and return a summary instead of the body "
-                "itself, then post it from there. Do this for a configuration of any "
-                "size: it keeps the whole body out of the conversation. An existing "
-                "file is refused unless 'overwrite' is true."
+                "itself, then give the same path to post as 'path'. Do this for a "
+                "configuration of any size: it keeps the whole body out of the "
+                "conversation. An existing file is refused unless 'overwrite' is true."
             ),
         },
         "overwrite": {
@@ -435,8 +446,24 @@ def _get(arguments: dict[str, Any]) -> str:
 
 
 def _post(arguments: dict[str, Any]) -> str:
-    data = _client().post(arguments["target"], arguments["body"], kind=arguments["kind"])
+    data = _client().post(arguments["target"], _body_or_path(arguments), kind=arguments["kind"])
     return _json(data)
+
+
+# The file's text is handed on untouched, so a post sends it exactly as written, as
+# 'a4i post mo uni plan.json' does.
+def _body_or_path(arguments: dict[str, Any]) -> Any:
+    from pathlib import Path
+
+    body, path = arguments.get("body"), arguments.get("path")
+    if (body is None) == (path is None):
+        raise ToolError("give exactly one of 'body' (an ACI body) or 'path' (a file holding one)")
+    if path is None:
+        return body
+    try:
+        return Path(path).read_text()
+    except OSError as exc:
+        raise ToolError(f"cannot read {path}: {exc}") from None
 
 
 # The report says which fabric it compared against, for the reason post --dry-run prints
@@ -445,7 +472,7 @@ def _dry_run(arguments: dict[str, Any]) -> str:
     from a4i import _dry_run as dry_run
     from a4i import _ipc as ipc
 
-    target, body, kind = arguments["target"], arguments["body"], arguments["kind"]
+    target, body, kind = arguments["target"], _body_or_path(arguments), arguments["kind"]
     try:
         fabric = ipc.fabric()
     except NoFabricError:
@@ -488,7 +515,10 @@ def _merge(arguments: dict[str, Any]) -> str:
         raise ToolError(f"{exc} (pass overwrite: true to replace it)") from None
     except OSError as exc:
         raise ToolError(f"cannot write {output}: {exc}") from None
-    return f"merged {count(body)} MOs into {output}; pass it to diff as paths=['{output}']"
+    return (
+        f"merged {count(body)} MOs into {output}; pass it to dry_run as path='{output}', "
+        f"and to diff and plan as paths=['{output}']"
+    )
 
 
 def _fetch(arguments: dict[str, Any]) -> str:
@@ -543,11 +573,18 @@ def _plan(arguments: dict[str, Any]) -> str:
         narrowed = plan_.create(body, fabric=ipc.fabric())
     except ValueError as exc:
         raise ToolError(str(exc)) from None
+    text = _json(narrowed)
     output = arguments.get("output")
     if output is None:
-        return _json(narrowed)
+        if len(text.encode()) > max_bytes():
+            raise ToolError(
+                f"The plan is {len(text):,} bytes, over the {max_bytes():,} byte limit. "
+                "Nothing was truncated -- pass 'output' with a file path to write it there "
+                "instead, then give that path to post as 'path'."
+            )
+        return text
     try:
-        config.write(output, _json(narrowed), overwrite=bool(arguments.get("overwrite")))
+        config.write(output, text, overwrite=bool(arguments.get("overwrite")))
     except FileExistsError:
         raise ToolError(f"{output} exists. Pass overwrite: true to replace it.") from None
     except OSError as exc:
