@@ -960,3 +960,12 @@ def test_a_condition_does_not_excuse_an_unidentified_mo_under_it() -> None:
     with pytest.raises(ValueError) as exc:
         compare(tenant, imdata=MARKED, exclude="uni/tn-*[descr=auto-*]")
     assert "fvBD under uni/tn-a" in str(exc.value)
+
+
+def test_str_of_the_result_is_the_report() -> None:
+    assert str(diff.compare(INTENDED, fabric=FABRIC)) == "no differences"
+    report = str(diff.compare(INTENDED, fabric=FABRIC[:1]))
+    assert report == (
+        '+ fvTenant uni/tn-common  (missing: 1 child MO)\n  + name: "common"\n\n'
+        "1 missing, 0 modified, 0 extra"
+    )

@@ -8,6 +8,7 @@ from typing import Any
 
 from a4i._merge import Intended, added, changed, read, removed
 from a4i._mo import Change, Exclusions, parent_dn, split_condition
+from a4i._output import DiffResult
 from a4i._validate import read_body
 
 
@@ -17,7 +18,7 @@ def compare(
     fabric: Any,
     expand: bool = False,
     exclude: str | Sequence[str] | None = None,
-) -> list[Change]:
+) -> DiffResult:
     """Return how ``fabric`` differs from the intended configuration.
 
     ``config`` is one ACI body -- one MO, a list of them, or the same as JSON
@@ -62,7 +63,7 @@ def compare(
     # A DN is reported at most once, so this orders the report without merging
     # anything: MOs read in tree order, and a tenant's changes stay together.
     changes.sort(key=lambda change: change.dn)
-    return changes
+    return DiffResult(changes)
 
 
 # -- what is left out ------------------------------------------------------

@@ -9,6 +9,7 @@ from typing import Any
 from a4i import _merge as merge
 from a4i._merge import Intended
 from a4i._mo import WRAPPER, Change, parent_dn, split_mo
+from a4i._output import DryRunResult
 from a4i._query import Kind
 from a4i._validate import read_body
 
@@ -75,7 +76,7 @@ def filled(index: dict[str, Any]) -> list[str]:
     return [dn for dn, node in index.items() if node.filled]
 
 
-def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Change]:
+def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> DryRunResult:
     """Return the changes posting ``body`` at ``target`` would cause on ``fabric``.
 
     ``kind`` says what ``target`` is, as on :meth:`a4i.Client.post`. ``fabric``
@@ -93,7 +94,7 @@ def check(target: str, body: str | Any, *, kind: Kind, fabric: Any) -> list[Chan
 
     _, parsed = read_body(body)
     intended = merge.read(rooted(target, kind, parsed), loose=True)
-    return compare(intended, merge.read(fabric, loose=True))
+    return DryRunResult(compare(intended, merge.read(fabric, loose=True)))
 
 
 def compare(intended: Intended, current: Intended) -> list[Change]:

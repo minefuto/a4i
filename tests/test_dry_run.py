@@ -345,3 +345,12 @@ def test_an_ancestor_the_body_does_not_describe_is_a_warning_when_absent() -> No
         ("created", "uni/tn-other/BD-bd1"),
         ("warning", "uni/tn-other"),
     ]
+
+
+def test_str_of_the_result_is_the_report() -> None:
+    body = {
+        "polUni": {"attributes": {}, "children": [{"fvTenant": {"attributes": {"name": "demo"}}}]}
+    }
+    assert str(dry_run.check("uni", body, kind="mo", fabric=[])) == (
+        '+ fvTenant uni/tn-demo\n  + name: "demo"\n\n1 created, 0 modified, 0 deleted'
+    )

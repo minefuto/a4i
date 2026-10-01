@@ -7,32 +7,12 @@ from __future__ import annotations
 import json
 from collections import Counter
 from functools import cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from rich.console import Console
 
     from a4i._mo import Change
-
-# The mark that opens a line, per kind of change, and the colour each mark is
-# printed in. Attribute lines carry a mark of their own, so a line's colour
-# always follows from the mark it starts with.
-_MARKS = {
-    "created": "+",
-    "missing": "+",
-    "modified": "~",
-    "deleted": "-",
-    "extra": "-",
-    "warning": "!",
-}
-_STYLES = {"+": "green", "~": "yellow", "-": "red", "!": "magenta"}
-
-# The kinds each report counts, in the order the summary names them.
-_DRY_RUN_KINDS = ("created", "modified", "deleted")
-_DIFF_KINDS = ("missing", "modified", "extra")
-
-# What the MOs under a reported one mean, for the kinds that carry a count.
-_CHILD_NOTE = {"deleted": "deletes {}", "missing": "missing: {}", "extra": "extra: {}"}
 
 
 @cache
@@ -62,24 +42,29 @@ def render(data: Any, *, raw: bool = False, console: Console | None = None) -> N
         console.print_json(data=data)
 
 
-def render_dry_run(
-    changes: list[Change], *, raw: bool = False, console: Console | None = None
-) -> None:
-    _print(_report(changes, _DRY_RUN_KINDS, "no changes"), raw=raw, console=console or _console())
+class _Report(list["Change"]):
+    _kinds: ClassVar[tuple[str, ...]]
+    _empty: ClassVar[str]
+
+    def __str__(self) -> str:
+        return "\n".join(_report(self, self._kinds, self._empty))
+
+    def _render(self, *, raw: bool = False, console: Console | None = None) -> None:
+        _print(_report(self, self._kinds, self._empty), raw=raw, console=console or _console())
 
 
-def render_diff(
-    changes: list[Change], *, raw: bool = False, console: Console | None = None
-) -> None:
-    _print(_report(changes, _DIFF_KINDS, "no differences"), raw=raw, console=console or _console())
+class DryRunResult(_Report):
+    """The changes :func:`a4i.dry_run` reports; ``str()`` gives the report."""
+
+    _kinds = ("created", "modified", "deleted")
+    _empty = "no changes"
 
 
-def dry_run_report(changes: list[Change]) -> str:
-    return "\n".join(_report(changes, _DRY_RUN_KINDS, "no changes"))
+class DiffResult(_Report):
+    """The differences :func:`a4i.diff` reports; ``str()`` gives the report."""
 
-
-def diff_report(changes: list[Change]) -> str:
-    return "\n".join(_report(changes, _DIFF_KINDS, "no differences"))
+    _kinds = ("missing", "modified", "extra")
+    _empty = "no differences"
 
 
 def _print(lines: list[str], *, raw: bool, console: Console) -> None:
@@ -92,7 +77,7 @@ def _print(lines: list[str], *, raw: bool, console: Console) -> None:
 
 
 def _line_style(line: str) -> str | None:
-    return _STYLES.get(line.lstrip()[:1])
+    return {"+": "green", "~": "yellow", "-": "red", "!": "magenta"}.get(line.lstrip()[:1])
 
 
 def _report(changes: list[Change], kinds: tuple[str, ...], empty: str) -> list[str]:
@@ -109,8 +94,18 @@ def _report(changes: list[Change], kinds: tuple[str, ...], empty: str) -> list[s
 
 
 def _change_lines(change: Change) -> list[str]:
-    header = f"{_MARKS.get(change.kind, ' ')} {change.class_name} {change.dn}"
-    note = _CHILD_NOTE.get(change.kind)
+    _marks = {
+        "created": "+",
+        "missing": "+",
+        "modified": "~",
+        "deleted": "-",
+        "extra": "-",
+        "warning": "!",
+    }
+    header = f"{_marks.get(change.kind, ' ')} {change.class_name} {change.dn}"
+    note = {"deleted": "deletes {}", "missing": "missing: {}", "extra": "extra: {}"}.get(
+        change.kind
+    )
     if note and change.child_count:
         header += f"  ({note.format(plural(change.child_count, 'child MO'))})"
     lines = [header]

@@ -246,7 +246,7 @@ def _cmd_post(args: argparse.Namespace) -> int:
 # the two it was is printed either way.
 def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
     from a4i import _dry_run as dry_run
-    from a4i._output import print_note, render_dry_run
+    from a4i._output import print_note
 
     try:
         fabric = ipc.fabric()
@@ -256,7 +256,7 @@ def _post_dry_run(args: argparse.Namespace, client: Client, body: str) -> int:
     else:
         changes = dry_run.check(args.target, body, kind=args.kind, fabric=fabric)
         note = "compared against the fabric 'a4i fetch' read"
-    render_dry_run(changes, raw=args.raw)
+    changes._render(raw=args.raw)
     # Not with --raw: the report is then something a script reads.
     if not args.raw:
         print_note(note)
@@ -301,7 +301,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
     from a4i import _config as config
     from a4i import _diff as diff
-    from a4i._output import print_error, render_diff
+    from a4i._output import print_error
 
     try:
         changes = diff.compare(
@@ -319,7 +319,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         return 1
     except A4iError as exc:
         return _fail(exc)
-    render_diff(changes, raw=args.raw)
+    changes._render(raw=args.raw)
     # 0 means the fabric matches the configuration, 2 that it differs.
     # Failing to read the fabric at all is raised above and keeps the usual 1.
     return 2 if changes else 0

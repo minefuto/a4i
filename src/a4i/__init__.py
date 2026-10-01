@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from a4i._merge import UndescribedError as UndescribedError
     from a4i._merge import merge as merge
     from a4i._mo import Change as Change
+    from a4i._output import DiffResult as DiffResult
+    from a4i._output import DryRunResult as DryRunResult
     from a4i._plan import create as plan  # noqa: F401
 
 # What __version__ reads when the package is not installed, which is what an
@@ -47,6 +49,8 @@ _EXPORTS = {
     "Client": ("a4i._client", "Client"),
     "AsyncClient": ("a4i._client", "AsyncClient"),
     "Change": ("a4i._mo", "Change"),
+    "DryRunResult": ("a4i._output", "DryRunResult"),
+    "DiffResult": ("a4i._output", "DiffResult"),
     "merge": ("a4i._merge", "merge"),
     "diff": ("a4i._diff", "compare"),
     "plan": ("a4i._plan", "create"),

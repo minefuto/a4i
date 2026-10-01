@@ -444,7 +444,6 @@ def _post(arguments: dict[str, Any]) -> str:
 def _dry_run(arguments: dict[str, Any]) -> str:
     from a4i import _dry_run as dry_run
     from a4i import _ipc as ipc
-    from a4i._output import dry_run_report
 
     target, body, kind = arguments["target"], arguments["body"], arguments["kind"]
     try:
@@ -455,7 +454,7 @@ def _dry_run(arguments: dict[str, Any]) -> str:
     else:
         changes = dry_run.check(target, body, kind=kind, fabric=fabric)
         note = "Compared against the fabric fetch read."
-    return f"{dry_run_report(changes)}\n\n{note}"
+    return f"{changes}\n\n{note}"
 
 
 def _merge(arguments: dict[str, Any]) -> str:
@@ -559,7 +558,6 @@ def _plan(arguments: dict[str, Any]) -> str:
 def _diff(arguments: dict[str, Any]) -> str:
     from a4i import _diff as diff
     from a4i import _ipc as ipc
-    from a4i._output import diff_report
 
     body = _one_body(arguments)
     changes = diff.compare(
@@ -568,7 +566,7 @@ def _diff(arguments: dict[str, Any]) -> str:
         expand=bool(arguments.get("expand")),
         exclude=list(arguments.get("exclude") or []) or None,
     )
-    return diff_report(changes)
+    return str(changes)
 
 
 def _list(arguments: dict[str, Any]) -> str:

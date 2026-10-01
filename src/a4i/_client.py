@@ -17,6 +17,7 @@ from a4i._transport import AsyncDirectTransport, AsyncTransport, DirectTransport
 from a4i._validate import read_body
 
 if TYPE_CHECKING:
+    from a4i._output import DryRunResult
     from a4i._session import AsyncSession, Session
 
 # What a comparison needs to see of a subtree: the whole of it, because the body
@@ -197,7 +198,7 @@ class Client:
         text, _ = read_body(body)
         return self._transport.post(target, kind, text)
 
-    def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> list[mo.Change]:
+    def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> DryRunResult:
         """Return the changes posting ``body`` would cause, reading the fabric first.
 
         The APIC has no server-side dry run, so the current state is fetched and
@@ -420,7 +421,7 @@ class AsyncClient:
         text, _ = read_body(body)
         return await self._transport.post(target, kind, text)
 
-    async def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> list[mo.Change]:
+    async def dry_run(self, target: str, body: str | Any, *, kind: query.Kind) -> DryRunResult:
         """Return the changes posting ``body`` would cause, sending nothing.
 
         See :meth:`Client.dry_run`.
